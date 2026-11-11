@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+  The background worker for the browser: fetches a page and reads it into lines.
+
+  request  { cmd: "load", url, seq }
+           { cmd: "bookmarks" }                 read the saved list
+           { cmd: "saveBookmarks", list }       list: [{ title, url }]
+  result   { seq, kind: "page" | "image" | "media" | "error", url, title, message }
+           for a page, `page` holds the lines as a ContentNode tree
+-->
+<component name="BrowserTask" extends="Task">
+  <interface>
+    <field id="request" type="assocarray" alwaysNotify="true" />
+    <field id="page" type="node" />
+    <field id="result" type="assocarray" alwaysNotify="true" />
+    <field id="bookmarks" type="assocarray" alwaysNotify="true" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/source/net.brs" />
+  <script type="text/brightscript" uri="pkg:/source/web.brs" />
+  <script type="text/brightscript" uri="pkg:/components/BrowserTask.brs" />
+</component>

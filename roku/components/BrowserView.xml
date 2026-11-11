@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+  A small reading browser. Pages are shown as lines of text; a line that holds
+  links has them in [brackets], and OK on the line follows them.
+-->
+<component name="BrowserView" extends="Group">
+  <interface>
+    <field id="active" type="boolean" value="false" onChange="onActive" />
+    <field id="closed" type="boolean" alwaysNotify="true" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/source/web.brs" />
+  <script type="text/brightscript" uri="pkg:/components/BrowserView.brs" />
+  <children>
+    <Rectangle width="1280" height="720" color="0x0E0F13FF" />
+    <Rectangle width="1280" height="64" color="0x1B1D26FF" />
+    <Label id="pageTitle" translation="[40, 8]" width="1200" color="0xFFFFFFFF" font="font:SmallBoldSystemFont" />
+    <Label id="pageUrl" translation="[40, 36]" width="1200" color="0xFFFFFF88" font="font:SmallestSystemFont" />
+
+    <LabelList id="lines" translation="[30, 76]" itemSize="[1220, 30]" numRows="20" vertFocusAnimationStyle="floatingFocus" color="0xD8DAE0FF" focusedColor="0x101010FF" font="font:SmallSystemFont" focusedFont="font:SmallSystemFont" />
+
+    <Rectangle translation="[0, 690]" width="1280" height="30" color="0x1B1D26FF" />
+    <Label id="hint" translation="[40, 694]" width="1200" color="0xFFFFFF88" font="font:SmallestSystemFont" text="OK: follow a [link]     Back: previous page     *: menu     Rewind / Fast-forward: page up / down     Play: address" />
+
+    <!-- pop-up list: the menu, and the chooser for a line with several links -->
+    <Group id="popup" visible="false">
+      <Rectangle width="1280" height="720" color="0x00000099" />
+      <Rectangle translation="[290, 110]" width="700" height="500" color="0x1B1D26FF" />
+      <Label id="popupTitle" translation="[320, 126]" width="640" color="0xFFFFFF99" font="font:SmallBoldSystemFont" />
+      <LabelList id="popupList" translation="[310, 170]" itemSize="[660, 40]" numRows="10" />
+    </Group>
+
+    <Group id="imageView" visible="false">
+      <Rectangle width="1280" height="720" color="0x000000FF" />
+      <Poster id="image" width="1280" height="720" loadDisplayMode="scaleToFit" />
+      <Label id="imageNote" translation="[40, 680]" width="1200" color="0xFFFFFF88" font="font:SmallestSystemFont" />
+    </Group>
+
+    <Video id="media" width="1280" height="720" visible="false" />
+  </children>
+</component>
