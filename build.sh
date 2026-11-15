@@ -5,5 +5,5 @@ set -e
 cd "$(dirname "$0")"
 mkdir -p dist
 rm -f dist/Meowbox.zip
-(cd roku && zip -q -r -X ../dist/Meowbox.zip manifest source components images)
+(cd roku && zip -q -r -X -9 ../dist/Meowbox.zip manifest source components images fonts)
 echo "Built dist/Meowbox.zip"

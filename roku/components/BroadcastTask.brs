@@ -60,7 +60,9 @@ sub SendLineup(st as Object, err as String)
     reg = CreateObject("roRegistrySection", "meowbox")
     last = ""
     if reg.Exists("lastChannel") then last = reg.Read("lastChannel")
-    m.top.lineup = { channels: BcChannelList(st), last: last, error: err }
+    captions = ""
+    if reg.Exists("captions") then captions = reg.Read("captions")
+    m.top.lineup = { channels: BcChannelList(st), last: last, captions: captions, error: err, subtitles: BcSubtitleIndex(st) }
 end sub
 
 sub runLoop()

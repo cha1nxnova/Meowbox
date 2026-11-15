@@ -1,5 +1,18 @@
 <?xml version="1.0" encoding="utf-8" ?>
+<!--
+  The whole screen. Colours used throughout:
+    ink       0x120E1F   backgrounds
+    panel     0x18122B   floating panels
+    cream     0xF6EEDD   main text
+    lilac     0xA99FBF   quiet text
+    hairline  0x3A3157   rules, empty progress bars
+    marmalade 0xFFA630   the Meowbox accent: numbers, labels, focus
+  The channel's own colour is the stripe on every panel. Labels and numbers
+  are set in Jersey 15 (fonts/); titles and captions use the system font, so
+  any language a tape is named in still shows.
+-->
 <component name="MainScene" extends="Scene">
+  <script type="text/brightscript" uri="pkg:/source/captions.brs" />
   <script type="text/brightscript" uri="pkg:/components/MainScene.brs" />
   <children>
     <Rectangle id="backdrop" width="1280" height="720" color="0x000000FF" />
@@ -7,50 +20,159 @@
     <Video id="video" width="1280" height="720" enableUI="false" />
     <Audio id="music" />
 
-    <!-- cards between shows, and the "tuning" card -->
-    <Group id="card" visible="false">
-      <Rectangle width="1280" height="720" color="0x0B0B14FF" />
-      <Rectangle id="cardStripe" width="1280" height="10" color="0x888888FF" />
-      <Label id="cardChannel" translation="[60, 44]" width="1160" color="0xFFFFFFAA" font="font:MediumBoldSystemFont" />
-      <Label id="cardText" translation="[110, 150]" width="1060" height="380" wrap="true" horizAlign="center" vertAlign="center" color="0xFFFFFFFF" lineSpacing="10">
-        <Font role="font" uri="font:BoldSystemFontFile" size="46" />
+    <!-- captions: a plate sized to the words, low on the picture -->
+    <Group id="caption" visible="false">
+      <Rectangle id="capPlate" color="0x0A0812D2" />
+      <Label id="capText" width="920" wrap="true" maxLines="3" horizAlign="center" lineSpacing="2" color="0xFFFDF5FF">
+        <Font role="font" uri="font:BoldSystemFontFile" size="31" />
       </Label>
-      <Label id="cardSub" translation="[110, 560]" width="1060" height="120" wrap="true" horizAlign="center" color="0xFFFFFF99" font="font:SmallSystemFont" />
+    </Group>
+
+    <!-- cards between shows, the "tuning" card, and messages -->
+    <Group id="card" visible="false">
+      <Rectangle width="1280" height="720" color="0x120E1FFF" />
+      <Rectangle id="cardStripe" width="1280" height="8" color="0xFFA630FF" />
+      <Group id="cardHead" translation="[64, 44]">
+        <PixelLogo id="cardLogo" size="64" />
+        <Label id="cardDial" translation="[82, 2]" width="400" color="0xFFA630FF">
+          <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="26" />
+        </Label>
+        <Label id="cardChannel" translation="[82, 26]" width="700" color="0xF6EEDDFF">
+          <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="36" />
+        </Label>
+      </Group>
+      <Label translation="[916, 52]" width="300" horizAlign="right" text="MEOWBOX" color="0x3A3157FF">
+        <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="26" />
+      </Label>
+      <Poster id="cardCat" translation="[520, 170]" width="240" height="200" uri="pkg:/images/logo.png" visible="false" />
+      <Label id="cardText" translation="[140, 150]" width="1000" height="380" wrap="true" horizAlign="center" vertAlign="center" color="0xF6EEDDFF" lineSpacing="4">
+        <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="60" />
+      </Label>
+      <Label id="cardSub" translation="[140, 560]" width="1000" height="110" wrap="true" maxLines="3" horizAlign="center" color="0xA99FBFFF" lineSpacing="6">
+        <Font role="font" uri="font:SystemFontFile" size="24" />
+      </Label>
     </Group>
 
     <!-- what is on, over the bottom of the picture -->
-    <Group id="banner" visible="false" translation="[0, 500]">
-      <Rectangle width="1280" height="220" color="0x000000D0" />
-      <Rectangle id="bannerStripe" width="8" height="220" color="0x888888FF" />
-      <Label id="bannerChannel" translation="[40, 16]" width="1200" color="0xFFFFFFCC" font="font:MediumBoldSystemFont" />
-      <Label id="bannerTitle" translation="[40, 54]" width="1200" color="0xFFFFFFFF" font="font:LargeBoldSystemFont" />
-      <Label id="bannerTime" translation="[40, 100]" width="1200" color="0xFFFFFFAA" font="font:SmallSystemFont" />
-      <Label id="bannerBlurb" translation="[40, 134]" width="1200" height="70" wrap="true" maxLines="2" color="0xFFFFFF99" font="font:SmallSystemFont" />
+    <Group id="banner" visible="false" translation="[48, 452]">
+      <Rectangle width="1184" height="232" color="0x18122BF0" />
+      <Rectangle id="bannerStripe" width="1184" height="6" color="0xFFA630FF" />
+      <PixelLogo id="bannerLogo" translation="[28, 34]" size="128" />
+      <Rectangle translation="[184, 26]" width="66" height="32" color="0x07050DFF" />
+      <Label id="bannerDial" translation="[184, 27]" width="66" horizAlign="center" color="0xFFA630FF">
+        <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="28" />
+      </Label>
+      <Label id="bannerChannel" translation="[264, 26]" width="620" color="0xF6EEDDFF">
+        <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="30" />
+      </Label>
+      <Label id="bannerTitle" translation="[184, 64]" width="800" color="0xFFFDF5FF">
+        <Font role="font" uri="font:BoldSystemFontFile" size="34" />
+      </Label>
+      <Rectangle translation="[184, 116]" width="560" height="6" color="0x3A3157FF" />
+      <Rectangle id="bannerBar" translation="[184, 116]" width="0" height="6" color="0xFFA630FF" />
+      <Label id="bannerTime" translation="[760, 105]" width="240" color="0xA99FBFFF">
+        <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="24" />
+      </Label>
+      <Label id="bannerNextLabel" translation="[184, 134]" width="60" text="NEXT" color="0xFFA630FF">
+        <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="24" />
+      </Label>
+      <Label id="bannerNext" translation="[244, 133]" width="740" color="0xF6EEDDFF">
+        <Font role="font" uri="font:SystemFontFile" size="22" />
+      </Label>
+      <Label id="bannerBlurb" translation="[184, 166]" width="640" height="52" wrap="true" maxLines="2" color="0xA99FBFFF" lineSpacing="2">
+        <Font role="font" uri="font:SystemFontFile" size="20" />
+      </Label>
+      <!-- the right-hand column: the time, captions, and what the remote does -->
+      <Label id="bannerClock" translation="[944, 22]" width="212" horizAlign="right" color="0xF6EEDDFF">
+        <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="36" />
+      </Label>
+      <Label id="ccNote" translation="[944, 72]" width="150" horizAlign="right" color="0xA99FBFFF">
+        <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="22" />
+      </Label>
+      <Rectangle id="ccBox" translation="[1104, 68]" width="52" height="30" color="0x3A3157FF" />
+      <Label id="ccMark" translation="[1104, 70]" width="52" horizAlign="center" text="CC" color="0xA99FBFFF">
+        <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="24" />
+      </Label>
+      <Label translation="[856, 168]" width="300" horizAlign="right" text="LEFT  guide" color="0x7D7396FF">
+        <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="20" />
+      </Label>
+      <Label translation="[856, 192]" width="300" horizAlign="right" text="STAR  menu" color="0x7D7396FF">
+        <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="20" />
+      </Label>
     </Group>
 
     <!-- channel guide -->
     <Group id="guide" visible="false">
-      <Rectangle width="500" height="720" color="0x0D0E16F2" />
-      <Label translation="[40, 30]" text="CHANNELS" color="0xFFFFFF99" font="font:MediumBoldSystemFont" />
-      <LabelList id="guideList" translation="[30, 80]" itemSize="[440, 44]" numRows="13" vertFocusAnimationStyle="floatingFocus" />
-      <Rectangle translation="[500, 0]" width="780" height="300" color="0x0D0E16D8" />
-      <Rectangle id="guideStripe" translation="[500, 0]" width="780" height="8" color="0x888888FF" />
-      <Label id="guideName" translation="[540, 34]" width="700" color="0xFFFFFFFF" font="font:LargeBoldSystemFont" />
-      <Label id="guideDesc" translation="[540, 84]" width="700" height="100" wrap="true" maxLines="3" color="0xFFFFFFAA" font="font:SmallSystemFont" />
-      <Label id="guideNow" translation="[540, 196]" width="700" color="0xFFFFFFFF" font="font:MediumSystemFont" />
-      <Label id="guideNext" translation="[540, 240]" width="700" color="0xFFFFFF99" font="font:SmallSystemFont" />
+      <Rectangle width="520" height="720" color="0x120E1FF7" />
+      <Poster translation="[48, 34]" width="60" height="50" uri="pkg:/images/logo.png" />
+      <Label translation="[124, 40]" text="CHANNELS" color="0xF6EEDDFF">
+        <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="38" />
+      </Label>
+      <Label id="guideCount" translation="[300, 50]" width="172" horizAlign="right" color="0x7D7396FF">
+        <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="22" />
+      </Label>
+      <Rectangle translation="[48, 98]" width="424" height="2" color="0x3A3157FF" />
+      <MarkupList id="guideList" translation="[32, 112]" itemComponentName="MeowRow" itemSize="[456, 46]" itemSpacing="[0, 4]" numRows="11" drawFocusFeedback="false" vertFocusAnimationStyle="floatingFocus" />
+      <Label translation="[48, 676]" text="OK  tune in      BACK  close" color="0x7D7396FF">
+        <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="20" />
+      </Label>
+
+      <Rectangle translation="[520, 0]" width="760" height="316" color="0x18122BF0" />
+      <Rectangle id="guideStripe" translation="[520, 0]" width="760" height="6" color="0xFFA630FF" />
+      <PixelLogo id="guideLogo" translation="[560, 40]" size="128" />
+      <Label id="guideDial" translation="[712, 36]" width="520" color="0xFFA630FF">
+        <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="24" />
+      </Label>
+      <Label id="guideName" translation="[712, 58]" width="520" color="0xF6EEDDFF">
+        <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="46" />
+      </Label>
+      <Label id="guideDesc" translation="[712, 112]" width="520" height="80" wrap="true" maxLines="3" color="0xA99FBFFF" lineSpacing="2">
+        <Font role="font" uri="font:SystemFontFile" size="20" />
+      </Label>
+      <Label translation="[560, 212]" text="ON NOW" color="0xFFA630FF">
+        <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="24" />
+      </Label>
+      <Label id="guideNow" translation="[660, 209]" width="572" color="0xFFFDF5FF">
+        <Font role="font" uri="font:BoldSystemFontFile" size="24" />
+      </Label>
+      <Rectangle translation="[660, 248]" width="400" height="5" color="0x3A3157FF" />
+      <Rectangle id="guideBar" translation="[660, 248]" width="0" height="5" color="0xFFA630FF" />
+      <Label id="guideLeft" translation="[1076, 237]" width="156" color="0xA99FBFFF">
+        <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="22" />
+      </Label>
+      <Label translation="[560, 268]" text="NEXT" color="0xFFA630FF">
+        <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="24" />
+      </Label>
+      <Label id="guideNext" translation="[660, 267]" width="572" color="0xF6EEDDFF">
+        <Font role="font" uri="font:SystemFontFile" size="22" />
+      </Label>
     </Group>
 
     <!-- options menu -->
     <Group id="menu" visible="false">
-      <Rectangle translation="[420, 170]" width="440" height="380" color="0x12131CF5" />
-      <Label translation="[450, 190]" text="MEOWBOX" color="0xFFFFFF99" font="font:MediumBoldSystemFont" />
-      <LabelList id="menuList" translation="[440, 240]" itemSize="[400, 48]" numRows="6" />
+      <Rectangle translation="[400, 162]" width="480" height="396" color="0x18122BF7" />
+      <Rectangle translation="[400, 162]" width="480" height="6" color="0xFFA630FF" />
+      <Poster translation="[426, 184]" width="90" height="75" uri="pkg:/images/logo.png" />
+      <Label translation="[534, 188]" text="MEOWBOX" color="0xF6EEDDFF">
+        <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="42" />
+      </Label>
+      <Label translation="[534, 228]" text="cable for the curious" color="0x7D7396FF">
+        <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="22" />
+      </Label>
+      <MarkupList id="menuList" translation="[416, 276]" itemComponentName="MeowRow" itemSize="[448, 46]" itemSpacing="[0, 4]" numRows="4" drawFocusFeedback="false" />
+      <Label id="menuHint" translation="[428, 496]" width="424" height="50" wrap="true" maxLines="2" color="0x7D7396FF" lineSpacing="0">
+        <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="20" />
+      </Label>
     </Group>
 
-    <BrowserView id="browser" visible="false" />
-
-    <Label id="toast" translation="[40, 20]" width="1200" visible="false" color="0xFFFFFFCC" font="font:SmallSystemFont" />
+    <!-- short notices, top of the screen -->
+    <Group id="toast" visible="false" translation="[48, 36]">
+      <Rectangle width="1184" height="72" color="0x18122BF5" />
+      <Rectangle width="6" height="72" color="0xFFA630FF" />
+      <Label id="toastText" translation="[28, 8]" width="1128" height="56" wrap="true" maxLines="2" vertAlign="center" color="0xF6EEDDFF" lineSpacing="0">
+        <Font role="font" uri="font:SystemFontFile" size="21" />
+      </Label>
+    </Group>
 
     <Timer id="tick" repeat="true" duration="0.25" />
   </children>

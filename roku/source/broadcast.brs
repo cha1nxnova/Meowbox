@@ -78,7 +78,10 @@ function BcChannelList(st as Object) as Object
         if c.description <> invalid then desc = c.description
         color = "#888888"
         if c.color <> invalid then color = c.color
-        out.Push({ id: c.id, name: name, dial: BcDial(c), color: color, description: desc })
+        family = ""
+        if c.family <> invalid then family = c.family
+        ' logo: the channel's pixel logo as the lineup carries it, drawn by PixelLogo
+        out.Push({ id: c.id, name: name, dial: BcDial(c), color: color, description: desc, family: family, logo: c.logomark })
     end for
     return out
 end function
@@ -133,34 +136,6 @@ function BcEnsure(st as Object, channelId as String, t as LongInteger) as String
 end function
 
 ' ---- addresses ---------------------------------------------------------------------
-
-' encodeURIComponent over UTF-8 bytes
-function BcEscape(s as String) as String
-    ba = CreateObject("roByteArray")
-    ba.FromAsciiString(s)
-    hex = "0123456789ABCDEF"
-    out = ""
-    for each b in ba
-        keep = (b >= 48 and b <= 57) or (b >= 65 and b <= 90) or (b >= 97 and b <= 122)
-        if not keep then keep = (b = 45 or b = 95 or b = 46 or b = 33 or b = 126 or b = 42 or b = 39 or b = 40 or b = 41)
-        if keep
-            out = out + Chr(b)
-        else
-            out = out + "%" + Mid(hex, (b \ 16) + 1, 1) + Mid(hex, (b mod 16) + 1, 1)
-        end if
-    end for
-    return out
-end function
-
-function BcTapeUrl(id as String, file as String) as String
-    parts = file.Split("/")
-    path = ""
-    for each p in parts
-        if path <> "" then path = path + "/"
-        path = path + BcEscape(p)
-    end for
-    return "https://archive.org/download/" + id + "/" + path
-end function
 
 ' the playable file for a playlist item, "" when the item names none
 function BcItemUrl(item as Object) as String
@@ -273,6 +248,8 @@ function BcDescribe(st as Object, channelId as String, t as LongInteger) as Obje
         seekS: 0
         lookupId: ""
         tapeId: ""
+        file: ""
+        capKey: ""
         videoIndex: -1
         slides: []
         music: invalid
@@ -284,6 +261,16 @@ function BcDescribe(st as Object, channelId as String, t as LongInteger) as Obje
         out.year = BcYearText(item)
         out.url = BcItemUrl(item)
         if item.id <> invalid then out.tapeId = item.id
+        ' for captions: the file on air, and the name the website files its subtitles under
+        if item.id <> invalid
+            if item.file <> invalid
+                out.file = item.file
+                out.capKey = CapTapeKey(item.id, item.file)
+            else
+                if item.mp4 <> invalid then out.file = item.mp4
+                out.capKey = item.id
+            end if
+        end if
         if out.url = "" and item.id <> invalid then out.lookupId = item.id
         inS = 0
         if SpkIsWhole(item.inS)
@@ -331,6 +318,14 @@ function BcDescribe(st as Object, channelId as String, t as LongInteger) as Obje
         end if
     end if
     return out
+end function
+
+' where the lineup says the subtitle index is, "" when it names none
+function BcSubtitleIndex(st as Object) as String
+    if st.lineup = invalid then return ""
+    p = st.lineup.subtitles
+    if type(p) <> "roString" and type(p) <> "String" then return ""
+    return p
 end function
 
 ' The blurb for one show, "" when there is none

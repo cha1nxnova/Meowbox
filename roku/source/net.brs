@@ -64,3 +64,33 @@ function NetDateSeconds(s as String) as Integer
     dt.FromISO8601String(parts[3] + "-" + mo + "-" + day + "T" + parts[4] + "Z")
     return dt.AsSeconds()
 end function
+
+' ---- addresses ---------------------------------------------------------------------
+
+' encodeURIComponent over UTF-8 bytes
+function BcEscape(s as String) as String
+    ba = CreateObject("roByteArray")
+    ba.FromAsciiString(s)
+    hex = "0123456789ABCDEF"
+    out = ""
+    for each b in ba
+        keep = (b >= 48 and b <= 57) or (b >= 65 and b <= 90) or (b >= 97 and b <= 122)
+        if not keep then keep = (b = 45 or b = 95 or b = 46 or b = 33 or b = 126 or b = 42 or b = 39 or b = 40 or b = 41)
+        if keep
+            out = out + Chr(b)
+        else
+            out = out + "%" + Mid(hex, (b \ 16) + 1, 1) + Mid(hex, (b mod 16) + 1, 1)
+        end if
+    end for
+    return out
+end function
+
+function BcTapeUrl(id as String, file as String) as String
+    parts = file.Split("/")
+    path = ""
+    for each p in parts
+        if path <> "" then path = path + "/"
+        path = path + BcEscape(p)
+    end for
+    return "https://archive.org/download/" + id + "/" + path
+end function

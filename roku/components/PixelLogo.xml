@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+  A channel's pixel logo, painted with rectangles (see source/logo.brs).
+
+  mark  { logo, color }   the lineup's logomark record and the channel colour
+  size  the side of the square, in screen units. Whole multiples of the logo's
+        row count (64, 128 for a 32-row logo) keep the pixels square.
+-->
+<component name="PixelLogo" extends="Group">
+  <interface>
+    <field id="mark" type="assocarray" onChange="draw" />
+    <field id="size" type="float" value="64" onChange="draw" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/source/logo.brs" />
+  <script type="text/brightscript" uri="pkg:/components/PixelLogo.brs" />
+</component>
