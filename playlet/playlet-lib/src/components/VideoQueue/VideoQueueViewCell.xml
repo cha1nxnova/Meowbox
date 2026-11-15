@@ -35,7 +35,7 @@
         </Poster>
         <Poster
             id="highlightPoster"
-            blendColor="0xFF1C30"
+            blendColor="0x0096A6"
             uri="pkg:/images/queue-highlight.$$RES$$.9.png"
             width="164"
             height="94" />

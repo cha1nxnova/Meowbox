@@ -4,6 +4,7 @@ import "pkg:/components/parts/AutoBind/AutoBind.part.bs"
 import "pkg:/components/parts/AutoBind/OnNodeReadyNoOp.bs"
 import "pkg:/source/utils/LoadingScreen.bs"
 import "pkg:/source/utils/Locale.bs"
+import "pkg:/source/utils/Theme.bs"
 
 function Init()
     m.scene = m.top.getScene()
@@ -16,19 +17,19 @@ function Init()
 end function
 
 function SetScenePalette(scene as object) as void
-    palette = scene.palette
-    if palette <> invalid
-        return
-    end if
+    ' The app's bootstrap scene sets its own background and dialog palette before the lib
+    ' is loaded. The lib owns the theme (see Theme.bs), so it always applies its own.
+    scene.backgroundColor = Theme.Background
+    scene.backgroundURI = ""
 
     palette = CreateObject("roSGNode", "RSGPalette")
     palette.colors = {
-        DialogBackgroundColor: "#242424FF"
-        DialogFocusColor: "#CECECEFF"
-        DialogFocusItemColor: "#202020FF"
-        DialogSecondaryTextColor: "#EBEBEBFF"
-        DialogSecondaryItemColor: "#FF1C30FF"
-        DialogTextColor: "#EBEBEBFF"
+        DialogBackgroundColor: Theme.Surface
+        DialogFocusColor: Theme.FocusedBackground
+        DialogFocusItemColor: Theme.FocusedText
+        DialogSecondaryTextColor: Theme.TextPrimary
+        DialogSecondaryItemColor: Theme.Accent
+        DialogTextColor: Theme.TextPrimary
     }
     scene.palette = palette
 end function

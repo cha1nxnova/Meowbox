@@ -1,6 +1,7 @@
 import "pkg:/components/JobSystem/Jobs.bs"
 import "pkg:/components/JobSystem/JobSystem.bs"
 import "pkg:/components/Services/SponsorBlock/Notifications/SponsorBlockNotificationUtils.bs"
+import "pkg:/source/utils/Theme.bs"
 import "SponsorBlockSegmentAction.bs"
 import "VideoPlayer.bs"
 
@@ -54,7 +55,7 @@ namespace SponsorBlock
         barPath = info.data.barPath
         if barPath <> invalid
             m.top.trickPlayBar.trackImageUri = barPath
-            m.top.trickPlayBar.filledBarBlendColor = "#FF000080"
+            m.top.trickPlayBar.filledBarBlendColor = Theme.SponsorBlockSegment
         end if
 
         m.top.ObserveFieldScoped("position", FuncName(OnPositionChangeSkipSponsorBlockSections))

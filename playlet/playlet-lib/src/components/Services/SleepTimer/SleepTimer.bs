@@ -1,0 +1,65 @@
+import "pkg:/components/Dialog/DialogUtils.bs"
+import "pkg:/components/VideoQueue/VideoQueueUtils.bs"
+import "pkg:/source/utils/Locale.bs"
+import "pkg:/source/utils/Logging.bs"
+import "pkg:/source/utils/Types.bs"
+
+' Sleep timer: stops playback some time after the "sleep_timer.duration" preference is set.
+'
+' The preference holds the chosen duration in minutes ("off" = no timer). Being a regular preference,
+' it can be set from the TV settings screen and from the web app (e.g. from a phone, in bed).
+' The countdown starts when a duration is chosen. It is a one-shot: when it fires, or when Playlet
+' starts, the preference goes back to "off".
+
+const SLEEP_TIMER_PREFERENCE = "sleep_timer.duration"
+const SLEEP_TIMER_OFF = "off"
+
+function Init()
+    m.timer = CreateObject("roSGNode", "Timer")
+    m.timer.repeat = false
+    m.timer.observeField("fire", FuncName(OnSleepTimerFire))
+end function
+
+function OnNodeReady()
+    ' A duration left over from a previous session: its countdown is gone, so is the timer.
+    if m.preferences[SLEEP_TIMER_PREFERENCE] <> SLEEP_TIMER_OFF
+        m.preferences[SLEEP_TIMER_PREFERENCE] = SLEEP_TIMER_OFF
+    end if
+    m.preferences.observeFieldScoped(SLEEP_TIMER_PREFERENCE, FuncName(OnSleepTimerPreference))
+end function
+
+function OnSleepTimerPreference() as void
+    m.timer.control = "stop"
+
+    value = m.preferences[SLEEP_TIMER_PREFERENCE]
+    if not IsString(value) or value = SLEEP_TIMER_OFF
+        return
+    end if
+
+    minutes = value.ToInt()
+    if minutes <= 0
+        return
+    end if
+
+    LogInfo("Sleep timer set to", minutes, "minutes")
+    m.timer.duration = minutes * 60
+    m.timer.control = "start"
+end function
+
+function OnSleepTimerFire() as void
+    LogInfo("Sleep timer fired")
+    ' Back to "off" (this also stops the timer, through OnSleepTimerPreference)
+    m.preferences[SLEEP_TIMER_PREFERENCE] = SLEEP_TIMER_OFF
+
+    videoQueue = m.top.videoQueue
+    if videoQueue = invalid or not VideoQueueUtils.IsVideoPlayerOpen(videoQueue)
+        return
+    end if
+
+    videoQueue.closePlayer = true
+
+    DialogUtils.ShowDialogEx({
+        title: Tr(Locale.SleepTimer.SleepTimer)
+        message: Tr(Locale.SleepTimer.PlaybackStopped)
+    })
+end function

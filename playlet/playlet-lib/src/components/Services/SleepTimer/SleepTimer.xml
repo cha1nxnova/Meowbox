@@ -1,0 +1,6 @@
+<component name="SleepTimer" extends="Node" includes="AutoBind">
+    <interface>
+        <field id="preferences" type="node" />
+        <field id="videoQueue" type="node" />
+    </interface>
+</component>

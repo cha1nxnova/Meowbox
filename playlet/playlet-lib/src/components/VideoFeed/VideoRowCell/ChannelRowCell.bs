@@ -1,4 +1,5 @@
 import "pkg:/source/utils/StringUtils.bs"
+import "pkg:/source/utils/Theme.bs"
 
 function OnContentSet() as void
     content = m.top.itemContent
@@ -26,4 +27,18 @@ function OnContentSet() as void
     m.top.subCountText = subCountText
     m.top.channelHandle = content.channelHandle
     m.top.thumbnail = content.thumbnail
+end function
+
+function OnCardFocused()
+    if m.top.cardFocused
+        m.top.cardColor = Theme.CardFocusedBackground
+        m.top.authorColor = Theme.CardFocusedTitle
+        m.top.subCountColor = Theme.CardFocusedText
+        m.top.handleColor = Theme.CardFocusedText
+    else
+        m.top.cardColor = Theme.CardBackground
+        m.top.authorColor = Theme.CardTitle
+        m.top.subCountColor = Theme.CardText
+        m.top.handleColor = Theme.CardText
+    end if
 end function

@@ -13,7 +13,7 @@
             id="SideBar"
             width="170"
             height="720"
-            color="#242424"
+            color="#004B53"
             opacity="0.9"
             translation="[62,0]"
             visible="false">
@@ -23,7 +23,7 @@
             id="Background"
             height="720"
             width="62"
-            color="#242424"
+            color="#004B53"
             opacity="0.9">
 
             <Poster
@@ -45,13 +45,23 @@
                     translation="[0, 48]" />
             </Poster>
 
+            <!-- Marks the selected section, also while the nav bar is collapsed and not focused.
+                 Positioned by NavBar.bs next to the selected item -->
+            <Rectangle
+                id="SelectionIndicator"
+                width="5"
+                height="38"
+                color="#EBEBEB"
+                translation="[0, 156]"
+                visible="false" />
+
             <MarkupList
                 id="ItemsList"
                 itemSize="[190,50]"
                 itemComponentName="NavBarComponent"
                 focusFootprintBitmapUri=""
                 focusBitmapUri="pkg:/images/white.$$RES$$.9.png"
-                focusBitmapBlendColor="0xFF1C30FF"
+                focusBitmapBlendColor="0x0096A6FF"
                 vertFocusAnimationStyle="floatingFocus"
                 numRows="7"
                 scrollSpeed="99999"

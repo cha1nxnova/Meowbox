@@ -70,6 +70,9 @@
             <BookmarksService id="BookmarksService" />
             <SearchHistory id="SearchHistory"
                 preferences="bind:../Preferences" />
+            <SleepTimer id="SleepTimer"
+                preferences="bind:../Preferences"
+                videoQueue="bind:../VideoQueue" />
 
             <ProfilesService id="ProfilesService"
                 invidious="bind:../Invidious"

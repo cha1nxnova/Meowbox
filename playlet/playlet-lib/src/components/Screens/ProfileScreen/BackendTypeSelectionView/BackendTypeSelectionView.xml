@@ -15,7 +15,7 @@
             width="720"
             height="420"
             translation="[280,150]"
-            color="#242424">
+            color="#282828">
             <Label
                 width="720"
                 horizAlign="center"

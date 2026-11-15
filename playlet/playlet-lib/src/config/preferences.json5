@@ -37,6 +37,97 @@
     ],
   },
   {
+    displayText: "Subtitles",
+    key: "subtitles",
+    description: "Subtitles preferences",
+    children: [
+      {
+        displayText: "Show subtitles",
+        key: "subtitles.mode",
+        description: "When to show subtitles. Always on also turns on captions in the Roku settings, for all apps.",
+        type: "radio",
+        defaultValue: "device",
+        options: [
+          {
+            displayText: "Use the Roku setting",
+            value: "device",
+          },
+          {
+            displayText: "Always on",
+            value: "on",
+          },
+          {
+            displayText: "Always off",
+            value: "off",
+          },
+        ],
+      },
+      {
+        displayText: "Auto-translate subtitles",
+        key: "subtitles.auto_translate",
+        description: "When a video has no subtitles in the preferred language, use YouTube's automatic translation of another track. Only with the Playlet built-in backend.",
+        type: "boolean",
+        defaultValue: true,
+      },
+    ],
+  },
+  {
+    // A section of its own: the TV settings screen scrolls by section, and a section
+    // must fit on screen. The language list is too long to share one with other controls.
+    displayText: "Subtitles language",
+    key: "subtitles_language",
+    description: "Subtitles language preferences",
+    children: [
+      {
+        displayText: "Preferred language",
+        key: "subtitles.language",
+        description: "The subtitles track to select when a video has several. Only languages that the Roku can display are listed.",
+        type: "radio",
+        defaultValue: "device",
+        // Values are ISO 639-1 codes that exist in ISO-639-1-to-ISO-639-2T.json5 (languages
+        // the Roku caption fonts cover). Language names are native, and not translated.
+        // Keep in sync with the names in VideoContentJob.bs (CreateTranslatedCaptionTrack).
+        options: [
+          { displayText: "Same as device", value: "device" },
+          { displayText: "English", value: "en" },
+          { displayText: "Español", value: "es" },
+          { displayText: "Français", value: "fr" },
+          { displayText: "Deutsch", value: "de" },
+          { displayText: "Italiano", value: "it" },
+          { displayText: "Português", value: "pt" },
+          { displayText: "Nederlands", value: "nl" },
+          { displayText: "Polski", value: "pl" },
+          { displayText: "Русский", value: "ru" },
+          { displayText: "Türkçe", value: "tr" },
+        ],
+      },
+    ],
+  },
+  {
+    displayText: "Sleep timer",
+    key: "sleep_timer",
+    description: "Sleep timer preferences",
+    children: [
+      {
+        // One-shot: SleepTimer.bs starts a countdown when this changes, and sets it back to
+        // "off" when the countdown ends (and when Playlet starts). Values are minutes.
+        displayText: "Stop playback after",
+        key: "sleep_timer.duration",
+        description: "Stops the video after the chosen time. The countdown starts when you choose a duration, and the timer turns itself off afterwards.",
+        type: "radio",
+        defaultValue: "off",
+        options: [
+          { displayText: "No timer", value: "off" },
+          { displayText: "15 minutes", value: "15" },
+          { displayText: "30 minutes", value: "30" },
+          { displayText: "45 minutes", value: "45" },
+          { displayText: "60 minutes", value: "60" },
+          { displayText: "90 minutes", value: "90" },
+        ],
+      },
+    ],
+  },
+  {
     displayText: "Backend",
     key: "backend",
     description: "Backend preferences",

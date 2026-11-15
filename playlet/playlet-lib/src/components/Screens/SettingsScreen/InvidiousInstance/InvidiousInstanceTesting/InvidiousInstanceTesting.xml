@@ -16,7 +16,7 @@
             width="1160"
             height="600"
             translation="[60,60]"
-            color="#242424">
+            color="#282828">
             <Label
                 id="titleLabel"
                 width="1160"

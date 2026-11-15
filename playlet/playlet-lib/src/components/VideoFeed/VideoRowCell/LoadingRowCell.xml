@@ -7,12 +7,20 @@
         <field id="animationControl" type="string" alias="loadingAnimation.control" />
     </interface>
     <children>
+        <!-- Placeholder card, same footprint as a video card (350x318). Colors mirror Theme.CardLoading / Theme.CardLoadingPulse -->
         <Rectangle
             id="background"
             width="350"
-            height="196"
-            color="0xd1d1d1"
+            height="318"
+            color="0x004B53"
             opacity="0.8" />
+
+        <Poster
+            id="cardMask"
+            width="350"
+            height="318"
+            blendColor="#131313"
+            uri="pkg:/images/card-mask.$$RES$$.9.png" />
 
         <Animation
             id="loadingAnimation"
@@ -23,7 +31,7 @@
             <ColorFieldInterpolator
                 id="colorInterpolator"
                 key="[0.0, 0.5, 1.0]"
-                keyValue="[0xd1d1d1ff, 0x7d7d7dff, 0xd1d1d1ff]"
+                keyValue="[0x004B53ff, 0x00262Aff, 0x004B53ff]"
                 fieldToInterp="background.color" />
         </Animation>
     </children>

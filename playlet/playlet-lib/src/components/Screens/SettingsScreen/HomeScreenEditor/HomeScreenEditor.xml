@@ -15,7 +15,7 @@
             width="960"
             height="600"
             translation="[160,60]"
-            color="#242424">
+            color="#282828">
             <CheckList
                 id="checkList"
                 vertFocusAnimationStyle="floatingFocus"

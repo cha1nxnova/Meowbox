@@ -1,6 +1,7 @@
 import "pkg:/source/utils/Locale.bs"
 import "pkg:/source/utils/MathUtils.bs"
 import "pkg:/source/utils/StringUtils.bs"
+import "pkg:/source/utils/Theme.bs"
 import "pkg:/source/utils/TimeUtils.bs"
 import "pkg:/source/utils/Types.bs"
 
@@ -58,14 +59,14 @@ function OnContentSet() as void
     m.top.percentDurationWatched = content.percentDurationWatched
 
     if not StringUtils.IsNullOrEmpty(content.lengthText)
-        SetDurationLabel(content.lengthText, "#161616FF", 0.8, m.smallestSystemFont)
+        SetDurationLabel(content.lengthText, Theme.BadgeBackground, 0.8, m.smallestSystemFont)
         m.top.durationRectVisible = true
     else
         if content.isUpcoming = true
-            SetDurationLabel(Tr(Locale.RowCell.Upcoming), "#161616FF", 0.8, m.smallestBoldSystemFont)
+            SetDurationLabel(Tr(Locale.RowCell.Upcoming), Theme.BadgeBackground, 0.8, m.smallestBoldSystemFont)
             m.top.durationRectVisible = true
         else if content.liveNow
-            SetDurationLabel(Tr(Locale.RowCell.Live), "#CC0000FF", 0.9, m.smallestBoldSystemFont)
+            SetDurationLabel(Tr(Locale.RowCell.Live), Theme.Live, 0.9, m.smallestBoldSystemFont)
             m.top.durationRectVisible = true
         else
             m.top.durationRectVisible = false
@@ -101,4 +102,18 @@ function OnPercentDurationWatched() as void
 
     percent = MathUtils.Clamp(m.top.percentDurationWatched, 0, 100) / 100.0
     m.progressRect.scale = [percent, 1]
+end function
+
+function OnCardFocused()
+    if m.top.cardFocused
+        m.top.cardColor = Theme.CardFocusedBackground
+        m.top.titleColor = Theme.CardFocusedTitle
+        m.top.authorColor = Theme.CardFocusedText
+        m.top.viewCountDateColor = Theme.CardFocusedText
+    else
+        m.top.cardColor = Theme.CardBackground
+        m.top.titleColor = Theme.CardTitle
+        m.top.authorColor = Theme.CardText
+        m.top.viewCountDateColor = Theme.CardText
+    end if
 end function

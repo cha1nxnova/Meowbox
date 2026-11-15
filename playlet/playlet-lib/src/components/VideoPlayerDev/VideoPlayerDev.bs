@@ -4,6 +4,7 @@ import "pkg:/components/JobSystem/Jobs.bs"
 import "pkg:/components/JobSystem/JobSystem.bs"
 import "pkg:/components/Services/Innertube/Constants.bs"
 import "pkg:/components/VideoPlayer/Lounge.bs"
+import "pkg:/components/VideoPlayer/SubtitlePreferences.bs"
 import "pkg:/components/VideoPlayerDev/ErrorDialogController.bs"
 import "pkg:/components/VideoPlayerDev/PlaybackTelemetry.bs"
 import "pkg:/components/VideoPlayerDev/PlayerCoordinatorLogic.bs"
@@ -54,6 +55,8 @@ function Initialize()
     m.watchTimeMarker = -1
     m.reportWatchTime = false
     m.onCloseCalled = false
+    ' "Subtitles: off" preference: captions stay suppressed on this node, fullscreen or not.
+    m.subtitlesSuppressed = false
     ' a setSeek that arrived while the content loads (ms, -1 = none): the content-load seek goes there instead.
     m.loadingSetSeekMs = -1
 
@@ -994,7 +997,7 @@ function OnFullScreenChange() as void
     ' the SponsorBlock notification rides with the player: hidden while minimized, shown when full.
     m.sponsorblock.SetVisible(fullscreen)
     ' after a PiP restore the OS leaves captions blank while enableUI=false (resizing alone doesn't); suppress on minimize, release on restore to re-engage them.
-    m.top.suppressCaptions = not fullscreen
+    m.top.suppressCaptions = not fullscreen or m.subtitlesSuppressed
     ' minimized: no player UI at all. Reset any active transport (the bif/glyph clear; the underlying play/pause
     ' stays as-is) and hide chrome/spinner/pause now. Fires for the minimize button, external minimize, and a
     ' video that starts minimized.
@@ -1217,10 +1220,32 @@ function OnVideoContentJobDone(event as object) as void
         LogDebug("queued SponsorBlockSegmentsJob")
     end if
 
+    ApplySubtitlePreferences(content)
     UpdateOverlayMeta()
     SeekToInitialPosition(content)
     PlayAfterPreviousPlayerHasStopped()
     MarkVideoWatched(content.videoId, metadata.playbackTrackingUrls, metadata.cpn)
+end function
+
+' Subtitles preferences (mode + preferred track), see SubtitlePreferences.bs.
+function ApplySubtitlePreferences(content as object) as void
+    m.subtitlesSuppressed = SubtitlePreferences.ApplyMode(m.top, m.top.preferences)
+    if m.subtitlesSuppressed
+        m.top.suppressCaptions = true
+    end if
+
+    SubtitlePreferences.ApplyPreferredTrack(m.top, content)
+    ' the player publishes its track list once the stream has loaded: select again with the real track name.
+    if m.top.hasField("availableSubtitleTracks")
+        m.top.ObserveField("availableSubtitleTracks", FuncName(OnAvailableSubtitleTracks))
+    end if
+end function
+
+function OnAvailableSubtitleTracks() as void
+    if m.onCloseCalled = true
+        return
+    end if
+    SubtitlePreferences.ApplyPreferredTrack(m.top, m.top.content)
 end function
 
 ' The coordinator-owned SB job callback (node scope). Hands the result to the controller (it stores segments +
@@ -1504,6 +1529,7 @@ function OnClose() as void
     m.top.unobserveField("bufferingStatus")
     m.top.unobserveField("playStartInfo")
     m.top.unobserveField("streamingSegment")
+    m.top.unobserveField("availableSubtitleTracks")
     m.top.unobserveField("close")
     content = m.top.content
     if content <> invalid

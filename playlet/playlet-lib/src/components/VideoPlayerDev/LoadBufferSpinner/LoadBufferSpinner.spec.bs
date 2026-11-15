@@ -51,7 +51,7 @@ namespace Tests
         function _()
             spinner = m.top.findNode("spinner")
             ' blendColor reads back as a signed 32-bit Integer; coerce expected to the same Integer type.
-            expected% = (&hFF1C30FF and &hFFFFFFFF)
+            expected% = (&hFF0000FF and &hFFFFFFFF)
             m.assertEqual(spinner.poster.blendColor, expected%)
         end function
 

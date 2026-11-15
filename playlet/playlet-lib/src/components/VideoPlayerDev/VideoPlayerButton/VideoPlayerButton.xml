@@ -2,15 +2,16 @@
     <!-- Round icon button. Focus is virtual: `focused` is an input driven by the coordinator (real focus
          stays on the Video node), so this never joins the SceneGraph focus chain. -->
     <interface>
-        <field id="backgroundColor" type="color" value="#3C3C3C" />
-        <field id="focusedBackgroundColor" type="color" value="#DDDDDD" />
+        <!-- Default colors mirror Theme.bs: Surface (SmartTube orb button) / FocusedBackground / FocusedText -->
+        <field id="backgroundColor" type="color" value="#282828" />
+        <field id="focusedBackgroundColor" type="color" value="#EBEBEB" />
 
         <field id="iconUri" type="uri" alias="icon.uri" />
         <field id="iconUri2" type="uri" alias="icon2.uri" />
         <field id="toggleState" type="boolean" value="true" /> <!-- true shows icon, false shows icon2 -->
 
-        <field id="iconColor" type="color" value="#DDDDDD" />
-        <field id="focusedIconColor" type="color" value="#262626" />
+        <field id="iconColor" type="color" value="#EBEBEB" />
+        <field id="focusedIconColor" type="color" value="#161616" />
 
         <field id="focused" type="boolean" value="false" />
         <!-- pulse the scale nudge: confirms a press that didn't move focus (Left/Right at the row's end,

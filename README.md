@@ -55,7 +55,8 @@ The setting has three steps: **on** (anything found), **translations** (only the
 - **It shares the package.** The combined channel opens on a front door with two tiles, the television and YouTube. Back from the television returns to the front door. A launch or a cast that names a video goes straight to Playlet.
 - **It keeps to itself.** Upstream Playlet downloads its newest library from GitHub at every start; the fork loads the library in the package, so the changes here are the ones you get.
 - **It looks like SmartTube**: near-black background, a teal side bar, video cards that turn white under the cursor.
-- **Subtitles have settings**: follow the Roku, always on, or off; a preferred language; translation when a video has no track in that language.
+- **Subtitles have settings** (Settings > Subtitles): follow the Roku, always on, or off; a preferred language; YouTube's own translation when a video has no track in that language. "Always on" works by switching the Roku's caption setting on, so it stays on in other channels too.
+- **A sleep timer** (Settings > Sleep timer, or from the phone page): playback stops after 15 to 90 minutes.
 
 Playlet is licensed under the GNU Affero General Public License v3 (`playlet/LICENSE`). That licence covers `playlet/` and any package built with it, which means `dist/Meowbox-Playlet.zip`: if you pass that package on, pass on the source with it (this repository is the source).
 

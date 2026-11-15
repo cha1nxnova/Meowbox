@@ -1,6 +1,8 @@
 import "pkg:/source/utils/FocusManagement.bs"
 import "pkg:/source/utils/Types.bs"
 
+const MAX_VISIBLE_OPTIONS = 8
+
 function Init()
     m.top.focusable = true
     m.radioButtonList = m.top.findNode("RadioButtonList")
@@ -60,6 +62,11 @@ function OnOptionsChange()
         node.title = Tr(option)
         m.radioButtonListContent.appendChild(node)
     end for
+
+    ' Long lists scroll inside the control instead of growing taller than the screen.
+    if options.Count() > MAX_VISIBLE_OPTIONS
+        m.radioButtonList.numRows = MAX_VISIBLE_OPTIONS
+    end if
 
     OnValueChange()
 end function

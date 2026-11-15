@@ -1,3 +1,5 @@
+import "pkg:/source/utils/Theme.bs"
+
 function OnContentSet() as void
     content = m.top.itemContent
     if content = invalid
@@ -11,19 +13,19 @@ function OnItemHasFocus()
     hasFocus = m.top.itemHasFocus
     if hasFocus
         m.top.font = "font:SmallestBoldSystemFont"
-        m.top.color = "#262626ff"
+        m.top.color = Theme.FocusedText
     else
         m.top.font = "font:SmallestSystemFont"
-        m.top.color = "#EBEBEBFF"
+        m.top.color = Theme.TextPrimary
     end if
 end function
 
 function OnFocusPercent()
     if m.top.focusPercent > 0.5
         m.top.font = "font:SmallestBoldSystemFont"
-        m.top.color = "#262626FF"
+        m.top.color = Theme.FocusedText
     else
         m.top.font = "font:SmallestSystemFont"
-        m.top.color = "#EBEBEBFF"
+        m.top.color = Theme.TextPrimary
     end if
 end function

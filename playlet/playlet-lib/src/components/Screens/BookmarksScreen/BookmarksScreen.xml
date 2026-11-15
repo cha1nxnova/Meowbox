@@ -34,7 +34,7 @@
                 id="rowList"
                 translation="[0,50]"
                 numRows="2"
-                rowitemSize="[[350,196]]"
+                rowitemSize="[[350,318]]"
                 rowItemSpacing="[[25,0]]"
                 itemSize="[1280,326]"
                 itemSpacing="[0,65]"

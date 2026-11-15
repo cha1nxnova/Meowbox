@@ -7,10 +7,10 @@
         <field id="contentHeight" type="float" />
         <field id="displayText" type="string" alias="DisplayTextLabel.text" onChange="Resize" />
         <field id="description" type="string" alias="DescriptionLabel.text" onChange="Resize" />
-        <field id="textColor" type="Color" value="0xddddddff" />
+        <field id="textColor" type="Color" value="0xEBEBEBFF" />
         <field id="textColor2" type="Color" value="0xb4b4b4ff" />
-        <field id="focusedTextColor" type="Color" value="0x262626ff" />
-        <field id="focusedTextColor2" type="Color" value="0x262626ff" />
+        <field id="focusedTextColor" type="Color" value="0x161616FF" />
+        <field id="focusedTextColor2" type="Color" value="0x3C3C3CFF" />
     </interface>
     <children>
         <Poster

@@ -8,6 +8,7 @@ import "pkg:/components/Services/Innertube/Constants.bs"
 import "pkg:/components/Services/Invidious/InvidiousToContentNode.bs"
 import "pkg:/components/VideoPlayer/Lounge.bs"
 import "pkg:/components/VideoPlayer/SponsorBlock.bs"
+import "pkg:/components/VideoPlayer/SubtitlePreferences.bs"
 import "pkg:/components/VideoPlayer/VideoPlayerStyle.bs"
 import "pkg:/components/VideoQueue/VideoQueueUtils.bs"
 import "pkg:/source/utils/ErrorUtils.bs"
@@ -229,6 +230,12 @@ function OnVideoContentJobDone(event as object) as void
 
     metadata = content.metadata
     SponsorBlock.FetchSponsorBlock(metadata)
+
+    ' Subtitles preferences (mode + preferred track), see SubtitlePreferences.bs.
+    if SubtitlePreferences.ApplyMode(m.top, m.top.preferences)
+        m.top.suppressCaptions = true
+    end if
+    SubtitlePreferences.ApplyPreferredTrack(m.top, content)
 
     SeekToInitialPosition(content)
 

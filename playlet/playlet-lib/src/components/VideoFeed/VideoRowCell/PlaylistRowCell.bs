@@ -1,4 +1,5 @@
 import "pkg:/source/utils/StringUtils.bs"
+import "pkg:/source/utils/Theme.bs"
 import "pkg:/source/utils/Types.bs"
 
 function Init()
@@ -60,4 +61,18 @@ function SetVideoCount(videoCountText as string) as void
 
     rect.width = size.width + 16
     rect.translation = [rectParent.width - rect.width, rect.translation[1]]
+end function
+
+function OnCardFocused()
+    if m.top.cardFocused
+        m.top.cardColor = Theme.CardFocusedBackground
+        m.top.titleColor = Theme.CardFocusedTitle
+        m.top.authorColor = Theme.CardFocusedText
+        m.top.updatedColor = Theme.CardFocusedText
+    else
+        m.top.cardColor = Theme.CardBackground
+        m.top.titleColor = Theme.CardTitle
+        m.top.authorColor = Theme.CardText
+        m.top.updatedColor = Theme.CardText
+    end if
 end function

@@ -119,7 +119,7 @@
                         </Label>
                         <Label
                             id="WifiNameLabel"
-                            color="#4287f5"
+                            color="#0096A6"
                             translation="[0,250]">
                             <Font role="font" uri="font:MediumSystemFontFile" size="28" />
                         </Label>
@@ -163,7 +163,7 @@
                         <Label
                             id="LinkCodeLabel"
                             font="font:LargeBoldSystemFont"
-                            color="#4287f5">
+                            color="#0096A6">
                             <Font role="font" uri="font:MediumSystemFontFile" size="48" />
                         </Label>
                     </LayoutGroup>

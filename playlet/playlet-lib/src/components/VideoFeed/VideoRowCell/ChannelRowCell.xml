@@ -6,34 +6,59 @@
         <field id="channelHandle" type="string" alias="handleLabel.text" />
         <field id="thumbnail" type="uri" alias="thumbnail.uri" />
         <field id="itemContent" type="node" onChange="OnContentSet" />
+
+        <!-- Card look. cardFocused is driven by RowCell. Colors come from Theme.bs -->
+        <field id="cardFocused" type="boolean" onChange="OnCardFocused" />
+        <field id="cardColor" type="color" alias="cardBackground.color" />
+        <field id="authorColor" type="color" alias="authorLabel.color" />
+        <field id="subCountColor" type="color" alias="subCountLabel.color" />
+        <field id="handleColor" type="color" alias="handleLabel.color" />
     </interface>
     <children>
+        <!-- The whole card (round thumbnail + info panel) is one coloured block: 196x318 -->
+        <Rectangle
+            id="cardBackground"
+            width="196"
+            height="318"
+            color="#004B53" />
+
+        <CirclePoster
+            id="thumbnail"
+            width="172"
+            height="172"
+            translation="[12,12]"
+            failedBitmapUri="pkg:/images/thumbnail-missing.jpg" />
+
         <LayoutGroup
-            itemSpacings="[24,5,5]">
-
-            <CirclePoster
-                id="thumbnail"
-                width="196"
-                height="196"
-                failedBitmapUri="pkg:/images/thumbnail-missing.jpg" />
-
+            translation="[10,196]"
+            itemSpacings="[3,0]">
             <Label
                 id="authorLabel"
-                width="196"
+                width="176"
+                color="#EBEBEBFF"
                 maxLines="2"
                 wrap="true"
                 font="font:SmallestBoldSystemFont" />
             <Label
                 id="subCountLabel"
-                width="196"
-                maxLines="2"
-                wrap="true"
+                width="176"
+                color="#D6E6E8FF"
+                maxLines="1"
                 font="font:SmallestSystemFont" />
             <Label
                 id="handleLabel"
-                width="196"
+                width="176"
                 height="25"
+                color="#D6E6E8FF"
                 font="font:SmallestSystemFont" />
         </LayoutGroup>
+
+        <!-- Rounds the card corners: opaque (window background colour) outside a rounded rectangle -->
+        <Poster
+            id="cardMask"
+            width="196"
+            height="318"
+            blendColor="#131313"
+            uri="pkg:/images/card-mask.$$RES$$.9.png" />
     </children>
 </component>

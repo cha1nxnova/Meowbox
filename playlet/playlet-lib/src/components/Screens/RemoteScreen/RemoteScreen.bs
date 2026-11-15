@@ -9,6 +9,7 @@ import "pkg:/source/utils/Logging.bs"
 import "pkg:/source/utils/MathUtils.bs"
 import "pkg:/source/utils/RemoteKeys.bs"
 import "pkg:/source/utils/StringUtils.bs"
+import "pkg:/source/utils/Theme.bs"
 
 function Init()
     m.webAppButton = m.top.findNode("WebAppButton")
@@ -29,12 +30,12 @@ function Init()
         "Bold": {
             "fontSize": 22
             "fontUri": "font:MediumSystemFontFile"
-            "color": "#DDDDDDFF"
+            "color": Theme.TextPrimary
         }
         "default": {
             "fontSize": 22
             "fontUri": "font:SystemFontFile"
-            "color": "#DDDDDDFF"
+            "color": Theme.TextPrimary
         }
     }
 end function

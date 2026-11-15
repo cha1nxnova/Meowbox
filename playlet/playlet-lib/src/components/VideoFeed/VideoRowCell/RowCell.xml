@@ -15,6 +15,17 @@
         <field id="loadingRowCellItemContent" type="node" alias="LoadingRowCell.itemContent" />
 
         <field id="loadingRowCellIndex" type="integer" alias="LoadingRowCell.index" />
+
+        <!-- Focus state, set by the RowList on its item components -->
+        <field id="rowListHasFocus" type="boolean" onChange="OnFocusStateChange" />
+        <field id="rowHasFocus" type="boolean" onChange="OnFocusStateChange" />
+        <field id="rowFocusPercent" type="float" onChange="OnFocusStateChange" />
+        <field id="itemHasFocus" type="boolean" onChange="OnItemHasFocusChange" />
+        <field id="focusPercent" type="float" onChange="OnFocusPercentChange" />
+
+        <field id="videoRowCellCardFocused" type="boolean" alias="VideoRowCell.cardFocused" />
+        <field id="playlistRowCellCardFocused" type="boolean" alias="PlaylistRowCell.cardFocused" />
+        <field id="channelRowCellCardFocused" type="boolean" alias="ChannelRowCell.cardFocused" />
     </interface>
     <children>
         <VideoRowCell id="VideoRowCell" />

@@ -8,6 +8,7 @@ function Init()
     m.sideBar = m.top.findNode("SideBar")
     m.background = m.top.findNode("Background")
     m.itemsList = m.top.findNode("ItemsList")
+    m.selectionIndicator = m.top.findNode("SelectionIndicator")
 
     m.fadeAnimation = m.top.findNode("FadeAnimation")
     m.sideBarFadeInterpolator = m.top.findNode("SideBarFadeInterpolator")
@@ -61,6 +62,22 @@ function OnListFirstFocus() as void
     end if
     m.itemsList.observeField("itemFocused", FuncName(OnItemFocused))
     m.top.observeField("focusedChild", FuncName(OnFocusedChildChange))
+    UpdateSelectionIndicator(initialFocus > -1 ? initialFocus : m.itemsList.itemFocused)
+end function
+
+' Moves the selection marker next to the item at the given index.
+' The list never scrolls (numRows covers all the items), so item positions are static.
+function UpdateSelectionIndicator(index as integer) as void
+    if m.selectionIndicator = invalid or index < 0
+        return
+    end if
+
+    itemHeight = m.itemsList.itemSize[1]
+    pitch = itemHeight + m.itemsList.itemSpacing[1]
+    indicatorHeight = m.selectionIndicator.height
+    y = m.itemsList.translation[1] + index * pitch + (itemHeight - indicatorHeight) / 2
+    m.selectionIndicator.translation = [0, y]
+    m.selectionIndicator.visible = true
 end function
 
 function OnFocusedChildChange() as void
@@ -104,6 +121,7 @@ function OnItemFocused() as void
         UnfocusItem(m.lastItemFocused)
     end if
     m.lastItemFocused = index
+    UpdateSelectionIndicator(index)
 
     m.appController@.ShowRootScreen(item.screen)
 end function

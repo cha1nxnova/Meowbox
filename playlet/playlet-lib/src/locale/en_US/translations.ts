@@ -1404,5 +1404,113 @@
         <source>Select keyboard language</source>
         <translation>Select keyboard language</translation>
     </message>
+    <message>
+        <source>Subtitles</source>
+        <translation>Subtitles</translation>
+    </message>
+    <message>
+        <source>Subtitles preferences</source>
+        <translation>Subtitles preferences</translation>
+    </message>
+    <message>
+        <source>Show subtitles</source>
+        <translation>Show subtitles</translation>
+    </message>
+    <message>
+        <source>When to show subtitles. Always on also turns on captions in the Roku settings, for all apps.</source>
+        <translation>When to show subtitles. Always on also turns on captions in the Roku settings, for all apps.</translation>
+    </message>
+    <message>
+        <source>Use the Roku setting</source>
+        <translation>Use the Roku setting</translation>
+    </message>
+    <message>
+        <source>Always on</source>
+        <translation>Always on</translation>
+    </message>
+    <message>
+        <source>Always off</source>
+        <translation>Always off</translation>
+    </message>
+    <message>
+        <source>Auto-translate subtitles</source>
+        <translation>Auto-translate subtitles</translation>
+    </message>
+    <message>
+        <source>When a video has no subtitles in the preferred language, use YouTube's automatic translation of another track. Only with the Playlet built-in backend.</source>
+        <translation>When a video has no subtitles in the preferred language, use YouTube's automatic translation of another track. Only with the Playlet built-in backend.</translation>
+    </message>
+    <message>
+        <source>Subtitles language</source>
+        <translation>Subtitles language</translation>
+    </message>
+    <message>
+        <source>Subtitles language preferences</source>
+        <translation>Subtitles language preferences</translation>
+    </message>
+    <message>
+        <source>Preferred language</source>
+        <translation>Preferred language</translation>
+    </message>
+    <message>
+        <source>The subtitles track to select when a video has several. Only languages that the Roku can display are listed.</source>
+        <translation>The subtitles track to select when a video has several. Only languages that the Roku can display are listed.</translation>
+    </message>
+    <message>
+        <source>Same as device</source>
+        <translation>Same as device</translation>
+    </message>
+    <message>
+        <source>auto-generated</source>
+        <translation>auto-generated</translation>
+    </message>
+    <message>
+        <source>auto-translated</source>
+        <translation>auto-translated</translation>
+    </message>
+    <message>
+        <source>Sleep timer</source>
+        <translation>Sleep timer</translation>
+    </message>
+    <message>
+        <source>Sleep timer preferences</source>
+        <translation>Sleep timer preferences</translation>
+    </message>
+    <message>
+        <source>Stop playback after</source>
+        <translation>Stop playback after</translation>
+    </message>
+    <message>
+        <source>Stops the video after the chosen time. The countdown starts when you choose a duration, and the timer turns itself off afterwards.</source>
+        <translation>Stops the video after the chosen time. The countdown starts when you choose a duration, and the timer turns itself off afterwards.</translation>
+    </message>
+    <message>
+        <source>No timer</source>
+        <translation>No timer</translation>
+    </message>
+    <message>
+        <source>15 minutes</source>
+        <translation>15 minutes</translation>
+    </message>
+    <message>
+        <source>30 minutes</source>
+        <translation>30 minutes</translation>
+    </message>
+    <message>
+        <source>45 minutes</source>
+        <translation>45 minutes</translation>
+    </message>
+    <message>
+        <source>60 minutes</source>
+        <translation>60 minutes</translation>
+    </message>
+    <message>
+        <source>90 minutes</source>
+        <translation>90 minutes</translation>
+    </message>
+    <message>
+        <source>Playback was stopped by the sleep timer.</source>
+        <translation>Playback was stopped by the sleep timer.</translation>
+    </message>
 </context>
 </TS>

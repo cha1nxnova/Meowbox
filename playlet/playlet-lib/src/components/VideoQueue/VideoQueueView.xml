@@ -23,7 +23,7 @@
             width="470"
             height="720"
             translation="[-470,0]"
-            color="0x242424">
+            color="#282828">
             <ScrollingLabel
                 id="queueLabel"
                 maxWidth="270"

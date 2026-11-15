@@ -14,7 +14,7 @@
         <Rectangle
             width="1280"
             height="720"
-            color="0x242424" />
+            color="0x131313" />
         <Poster
             id="backgroundSmall"
             width="1280"

@@ -1,3 +1,4 @@
+import "pkg:/source/utils/Theme.bs"
 import "pkg:/source/utils/Types.bs"
 
 ' Renders purely from `mode`:
@@ -16,7 +17,7 @@ function Init()
     m.spinner = m.top.findNode("spinner")
     ' blendColor lives on the BusySpinner's poster child, not the spinner node.
     if m.spinner <> invalid and m.spinner.poster <> invalid
-        m.spinner.poster.blendColor = "#FF1C30FF"
+        m.spinner.poster.blendColor = Theme.Progress
     end if
     m.top.ObserveField("mode", FuncName(OnMode))
     OnMode()
