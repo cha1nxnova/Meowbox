@@ -2,7 +2,12 @@
 
 A sideloadable Roku channel for the 24/7 channels from [spelunkr.tv](https://spelunkr.tv), kept in step with the website and captioned where words exist. Unofficial; video comes from the Internet Archive.
 
-The ready-to-install package is `dist/Meowbox.zip` (about 60 KB).
+A Roku holds one sideloaded channel at a time, so there are two packages to choose from:
+
+| Package | What is in it |
+|---|---|
+| `dist/Meowbox.zip` (about 60 KB) | The television alone. |
+| `dist/Meowbox-Playlet.zip` (about 1 MB) | The television and a fork of [Playlet](https://github.com/iBicha/playlet), an unofficial YouTube client, behind one front door. See [Playlet](#playlet) below. |
 
 ## Install
 
@@ -43,10 +48,22 @@ A tape with neither plays without captions; the `CC` mark in the banner shows wh
 
 The setting has three steps: **on** (anything found), **translations** (only the website's subtitles), **off**. It is remembered.
 
+## Playlet
+
+`playlet/` is a fork of Playlet 0.48.10 (see `playlet/UPSTREAM.md`). What the fork changes:
+
+- **It shares the package.** The combined channel opens on a front door with two tiles, the television and YouTube. Back from the television returns to the front door. A launch or a cast that names a video goes straight to Playlet.
+- **It keeps to itself.** Upstream Playlet downloads its newest library from GitHub at every start; the fork loads the library in the package, so the changes here are the ones you get.
+- **It looks like SmartTube**: near-black background, a teal side bar, video cards that turn white under the cursor.
+- **Subtitles have settings**: follow the Roku, always on, or off; a preferred language; translation when a video has no track in that language.
+
+Playlet is licensed under the GNU Affero General Public License v3 (`playlet/LICENSE`). That licence covers `playlet/` and any package built with it, which means `dist/Meowbox-Playlet.zip`: if you pass that package on, pass on the source with it (this repository is the source).
+
 ## Build
 
 ```sh
-./build.sh        # writes dist/Meowbox.zip from roku/
+./build.sh        # dist/Meowbox.zip          needs only zip
+./build.sh all    # dist/Meowbox-Playlet.zip  needs Node 22; run "npm ci" in playlet/ once
 ```
 
 The pictures in `roku/images/` are drawn by a script, and the caption and logo helpers have checks that run off-device:
@@ -65,13 +82,16 @@ roku/source/broadcast.brs    lineup loading and the "on air" record the screen p
 roku/source/captions.brs     finding and reading captions: SubRip, WebVTT, the website's files
 roku/source/logo.brs         the channels' pixel logos as rectangles and colours
 roku/source/net.brs          HTTP helper and addresses
-roku/components/MainScene      the screen: player, captions, cards, banner, guide, menu
+roku/components/MainScene      the app when Meowbox is on its own: a MeowTV and nothing else
+roku/components/MeowTV         the television: player, captions, cards, banner, guide, menu
 roku/components/BroadcastTask  background worker for the schedule
 roku/components/CaptionTask    background worker for captions
 roku/components/PixelLogo      draws a channel logo
 roku/components/MeowRow        one row of the guide or the menu
 roku/fonts/                    Jersey 15 (SIL Open Font License), cut down to Latin
+roku/hub/MeowHub               the front door of the combined package
 art/                           the Meowbox mark and the script that draws the images
+playlet/                       the Playlet fork (its own README: playlet/README.upstream.md)
 ```
 
 The lineup is read from `https://data.spelunkr.tv/` and, if that does not answer, from the snapshot at `https://spelunkr.tv/broadcast/`.
