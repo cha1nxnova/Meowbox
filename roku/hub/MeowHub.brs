@@ -24,7 +24,25 @@ sub init()
         if reg.Read("lastApp") = "youtube" then m.at = 1
     end if
     light()
-    m.top.setFocus(true)
+    m.watch = m.top.findNode("watch")
+    m.watch.observeField("fire", "holdRemote")
+    m.watch.control = "start"
+end sub
+
+sub onActive()
+    if m.top.active then m.top.setFocus(true)
+end sub
+
+' The front door is the only thing on screen, so the remote must be here (or
+' with the television, once open). If it is anywhere else, take it back.
+sub holdRemote()
+    if m.top.getParent() = invalid then return
+    if m.top.isInFocusChain() then return
+    if m.tv <> invalid
+        m.tv.setFocus(true)
+    else
+        m.top.setFocus(true)
+    end if
 end sub
 
 sub light()
@@ -73,6 +91,7 @@ function onKeyEvent(key as String, press as Boolean) as Boolean
             openTv()
         else
             remember("youtube")
+            m.watch.control = "stop"
             m.top.choice = "youtube"
         end if
         return true
