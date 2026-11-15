@@ -1,0 +1,31 @@
+import "pkg:/components/Services/ApplicationInfo/LibManifestUtils.bs"
+
+const LIB_CANARY_ZIP_URL = "https://github.com/iBicha/playlet/releases/download/canary/playlet-lib.zip"
+const LIB_CANARY_SQUASHFS_URL = "https://github.com/iBicha/playlet/releases/download/canary/playlet-lib.squashfs.pkg"
+
+function Init()
+    m.top.text = GetAppVersion()
+end function
+
+' TODO:P2: refactor and move to appropriate place, reuse with web app
+function GetAppVersion() as string
+    version = "v" + LibManifestUtils.GetLibVersion()
+
+    roAppInfo = CreateObject("roAppInfo")
+    appId = roAppInfo.GetID()
+    if appId = "dev"
+        version += "-dev"
+    end if
+
+    scene = m.top.getScene()
+    if scene.playletLibLoadedUrl <> invalid
+        libUrl = scene.playletLibLoadedUrl.link
+        libUrlType = scene.playletLibLoadedUrl.type
+
+        if libUrlType = "custom" and (libUrl = LIB_CANARY_ZIP_URL or libUrl = LIB_CANARY_SQUASHFS_URL)
+            version += "-canary"
+        end if
+    end if
+
+    return version
+end function

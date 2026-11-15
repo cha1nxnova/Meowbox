@@ -1,0 +1,153 @@
+import "pkg:/components/Dialog/DialogUtils.bs"
+import "pkg:/components/JobSystem/Jobs.bs"
+import "pkg:/components/JobSystem/JobSystem.bs"
+import "pkg:/source/utils/ErrorUtils.bs"
+import "pkg:/source/utils/FocusManagement.bs"
+import "pkg:/source/utils/Locale.bs"
+import "pkg:/source/utils/Logging.bs"
+import "pkg:/source/utils/MathUtils.bs"
+
+function Init()
+    m.failedLabel = m.top.findNode("failedLabel")
+    m.refreshButton = m.top.findNode("refreshButton")
+    m.instances = m.top.findNode("instances")
+    m.instancesHeader = m.top.findNode("instancesHeader")
+
+    m.busySpinner = m.top.findNode("busySpinner")
+    m.busyspinner.poster.width = 100
+    m.busyspinner.poster.height = 100
+    m.busySpinner.poster.uri = "pkg:/images/spinner.png"
+
+    InitHeader()
+
+    m.instances.ObserveField("itemSelected", FuncName(OnInstanceSelected))
+    m.refreshButton.ObserveField("buttonSelected", FuncName(Refresh))
+    Refresh()
+end function
+
+function InitHeader()
+    fields = ["name", "version", "users", "signup", "location", "health"]
+    fieldLabels = ["nameLabel", "versionLabel", "usersLabel", "signupLabel", "locationLabel", "healthLabel"]
+
+    fieldWidths = {
+        "name": 240
+        "version": 220
+        "users": 80
+        "signup": 70
+        "location": 65
+        "health": 65
+    }
+
+    totalWidth = 0
+    for i = 0 to fields.Count() - 1
+        field = fields[i]
+        label = m.instancesHeader.findNode(fieldLabels[i])
+        label.text = Tr(field)
+        rect = label.boundingRect()
+        rectWidth = rect.width
+        if i < fields.Count() - 1
+            rectWidth += 10
+        end if
+        width = MathUtils.Max(rectWidth, fieldWidths[field])
+        fieldWidths[field] = width
+        label.width = width
+        totalWidth += width
+    end for
+
+    m.fieldWidths = fieldWidths
+    m.top.width = totalWidth
+end function
+
+function OnWidthChange() as void
+    width = m.top.width
+    if width = 0
+        return
+    end if
+
+    m.instances.itemSize = [width, m.instances.itemSize[1]]
+    m.busySpinner.translation = [width / 2 - 50, m.busySpinner.translation[1]]
+    m.failedLabel.width = width
+    m.refreshButton.translation = [width / 2, m.refreshButton.translation[1]]
+end function
+
+function OnFocusChange() as void
+    if not m.top.focus
+        return
+    end if
+
+    if m.refreshButton.visible
+        NodeSetFocus(m.refreshButton, true)
+    else
+        NodeSetFocus(m.instances, true)
+    end if
+end function
+
+function Refresh()
+    m.top.focusable = false
+    m.instances.visible = false
+    m.instancesHeader.visible = false
+    m.failedLabel.visible = false
+    m.refreshButton.visible = false
+    if m.invidiousPublicInstancesJob <> invalid
+        m.invidiousPublicInstancesJob.cancel = true
+    end if
+
+    m.busySpinner.visible = true
+    m.busySpinner.control = "start"
+
+    if m.jobQueue = invalid
+        m.jobQueue = m.top.getScene().findNode("JobQueue")
+    end if
+
+    input = {
+        "listNode": m.instances
+        "fieldWidths": m.fieldWidths
+    }
+
+    m.invidiousPublicInstancesJob = JobSystem.CreateCallback(OnInvidiousPublicInstancesJobDone)
+    JobSystem.QueueJob(m.jobQueue, Jobs.InvidiousPublicInstancesJob, input, m.invidiousPublicInstancesJob)
+end function
+
+function OnInvidiousPublicInstancesJobDone(event as object) as void
+    JobSystem.UnobserveCallback(event.getRoSGNode())
+    m.invidiousPublicInstancesJob = invalid
+
+    m.busySpinner.visible = false
+    m.busySpinner.control = "stop"
+
+    info = event.getInfo()
+    if info.cancel
+        return
+    end if
+
+    if not info.success
+        DialogUtils.ShowDialogEx({
+            message: Tr(Locale.Dialogs.FailedToLoadInvidiousPublicInstances) + `\n${info.error}`
+            title: Tr(Locale.Dialogs.InvidiousPublicInstancesLoadError)
+            large: true
+        })
+
+        m.failedLabel.visible = true
+        m.refreshButton.visible = true
+        m.top.focusable = true
+
+        if m.top.IsInFocusChain()
+            NodeSetFocus(m.top, true)
+        end if
+        return
+    end if
+
+    m.instances.visible = true
+    m.instancesHeader.visible = true
+    m.top.focusable = m.instances.content.getChildCount() > 0
+
+    if m.top.IsInFocusChain()
+        NodeSetFocus(m.top, true)
+    end if
+end function
+
+function OnInstanceSelected() as void
+    selected = m.instances.itemSelected
+    itemContent = m.instances.content.GetChild(selected)
+    m.top.instance = itemContent.uri
+end function

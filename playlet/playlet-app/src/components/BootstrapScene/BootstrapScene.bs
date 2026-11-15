@@ -1,0 +1,176 @@
+import "LoadingMessages.bs"
+import "pkg:/source/Dialog.bs"
+import "pkg:/source/Logger.bs"
+import "pkg:/source/Manifest.bs"
+import "pkg:/source/Registry.bs"
+
+function Init() as void
+    m.scene = m.top.getScene()
+    m.top.backgroundColor = "#161616FF"
+    m.top.backgroundURI = ""
+
+    m.loadingIndicator = m.top.findNode("LoadingIndicator")
+    m.global.addFields({
+        loadingIndicator: m.loadingIndicator
+    })
+
+    m.playletLibUrls = GetPlayletLibUrls()
+    m.playletLibUrlIndex = 0
+    m.playletStarted = false
+
+    ' Meowbox fork: when this package also carries the Meowbox television, its
+    ' front door (MeowHub) comes up first and Playlet waits to be chosen. Built
+    ' on its own, there is no MeowHub and Playlet starts as it always did.
+    m.hub = m.scene.findNode("MainSceneContainer").createChild("MeowHub")
+    if m.hub = invalid
+        StartPlaylet()
+        return
+    end if
+    m.loadingIndicator.visible = false
+    ' bs:disable-next-line NO_OBSERVE_STRING_CALLBACK
+    m.hub.observeField("choice", "OnHubChoice")
+    ' A launch or a cast that names a video is meant for Playlet: skip the front door.
+    ' bs:disable-next-line NO_OBSERVE_STRING_CALLBACK
+    m.scene.observeField("launchArgs", "OnArgsWhileAtHub")
+    ' bs:disable-next-line NO_OBSERVE_STRING_CALLBACK
+    m.scene.observeField("inputArgs", "OnArgsWhileAtHub")
+end function
+
+function OnHubChoice() as void
+    if m.hub <> invalid and m.hub.choice = "youtube"
+        StartPlaylet()
+    end if
+end function
+
+function OnArgsWhileAtHub(event as object) as void
+    args = event.getData()
+    if m.playletStarted or args = invalid or args.contentId = invalid
+        return
+    end if
+    ' Playlet reads launchArgs when it starts
+    if event.getField() = "inputArgs"
+        m.scene.launchArgs = args
+    end if
+    StartPlaylet()
+end function
+
+function StartPlaylet() as void
+    if m.playletStarted
+        return
+    end if
+    m.playletStarted = true
+    if m.hub <> invalid
+        m.scene.unobserveField("launchArgs")
+        m.scene.unobserveField("inputArgs")
+        m.hub.unobserveField("choice")
+        m.scene.findNode("MainSceneContainer").removeChild(m.hub)
+        m.hub = invalid
+    end if
+    m.loadingIndicator.visible = true
+    m.loadingIndicator.message = GetLoadingMessage()
+    LoadPlayletLib()
+end function
+
+function GetPlayletLibUrls() as object
+    #if DEBUG
+        debug = { type: "debug-zip", link: Manifest.ReadValue("playlet_lib_zip_debug_url") }
+        embedded = { type: "embedded-zip", link: Manifest.ReadValue("playlet_lib_zip_embedded_url") }
+        #if DEBUG_FALLBACK_TO_EMBEDDED
+            return [debug, embedded]
+        #else
+            return [debug]
+        #end if
+    #else
+        savedUrls = Registry.GetPlayletLibUrlsFromRegistry()
+        if savedUrls <> invalid
+            m.shouldClearRegistryOnLoadFail = true
+            return savedUrls
+        end if
+
+        ' Meowbox fork: upstream fetches its newest library from GitHub first, which
+        ' would swap this fork's changes for upstream's. Use the one in the package.
+        ' (A version picked by hand in Settings > Developer still wins, above.)
+        embedded = { type: "embedded-zip", link: Manifest.ReadValue("playlet_lib_zip_embedded_url") }
+        return [embedded]
+    #end if
+end function
+
+function LoadPlayletLib() as void
+    if m.playletLibUrlIndex >= m.playletLibUrls.Count()
+        m.loadingIndicator.visible = false
+        if m.shouldClearRegistryOnLoadFail = true
+            Registry.DeleteKey("playlet_lib_urls", "Playlet")
+        end if
+        ShowPlayletLibLoadErrorDialog()
+        return
+    end if
+
+    RemoveComponentLibrary()
+    uri = m.playletLibUrls[m.playletLibUrlIndex].link
+    LoadComponentLibrary(uri)
+end function
+
+function OnLoadStatusChanged() as void
+    libUrl = m.playletLibUrls[m.playletLibUrlIndex]
+    if m.lib.loadStatus = "ready"
+        RemoveComponentLibrary()
+        Logger.Log(`Playlet lib loaded from ${libUrl.link} in ${m.timer.TotalMilliseconds()} ms`)
+        m.timer = invalid
+        m.scene.playletLibLoadedUrl = libUrl
+        container = m.scene.findNode("MainSceneContainer")
+        container.createChild("PlayletLib:MainScene")
+        m.scene.libSceneCreated = true
+        return
+    end if
+
+    if m.lib.loadStatus = "failed"
+        Logger.Log(`Playlet lib failed to load from ${libUrl.link} in ${m.timer.TotalMilliseconds()} ms`)
+        ' Try next url
+        m.playletLibUrlIndex += 1
+        LoadPlayletLib()
+    end if
+end function
+
+function CreateInputTransportEventsHandler(_unused as dynamic) as object
+    return CreateObject("roSGNode", "PlayletLib:InputTransportEventsHandler")
+end function
+
+function RemoveComponentLibrary() as void
+    if m.lib = invalid
+        return
+    end if
+
+    m.lib.unobserveField("loadStatus")
+    m.scene.removeChild(m.lib)
+    m.lib = invalid
+end function
+
+function LoadComponentLibrary(uri as string)
+    m.timer = CreateObject("roTimespan")
+    m.timer.mark()
+
+    m.lib = m.scene.createChild("ComponentLibrary")
+    ' bs:disable-next-line NO_OBSERVE_STRING_CALLBACK
+    m.lib.observeField("loadStatus", "OnLoadStatusChanged")
+
+    Logger.Log(`Loading Playlet lib from ${uri}`)
+    m.lib.uri = uri
+end function
+
+function ShowPlayletLibLoadErrorDialog()
+    message = [
+        "Could not load Playlet component library from any of the following urls:",
+    ]
+
+    bulletText = []
+    for each url in m.playletLibUrls
+        bulletText.push("[" + url.type + "] " + url.link)
+    end for
+
+    bottomText = [
+        "Please restart Playlet.",
+        "If the problem persist, contact Playlet authors."
+    ]
+
+    DialogShowError(message, bulletText, bottomText)
+end function

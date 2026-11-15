@@ -1,0 +1,192 @@
+import "pkg:/source/services/HttpClient.bs"
+import "pkg:/source/utils/MathUtils.bs"
+import "pkg:/source/utils/StringUtils.bs"
+import "pkg:/source/utils/UrlUtils.bs"
+
+' Hard ceiling for the exposed DVR window. availabilityStartTime is anchored this
+' far back at most so the player's ms-scale presentation time (now - AST) stays well
+' under INT32_MAX (~24.8 days at timescale=1000). YouTube caps live DVR at 12h.
+const LIVE_MAX_DVR_WINDOW_SEC = 43200
+
+' videoDetails.liveChunkReadahead when /player omits it: what YouTube sends for normal
+' and low latency streams.
+const LIVE_DEFAULT_CHUNK_READAHEAD = 3
+' liveChunkReadahead is clamped to at least 3 seconds' worth and at most this many segments.
+const LIVE_MAX_CHUNK_READAHEAD = 8
+
+namespace Innertube
+
+    ' Live streams come back with no hlsManifestUrl/dashManifestUrl, just
+    ' adaptiveFormats with a `targetDurationSec` and segments addressed by `&sq=N`.
+    ' The generated dynamic DASH manifest lists the segments that exist (a
+    ' SegmentTimeline ending behind the live head, see DashManifest), anchored here once
+    ' per video load: availabilityStartTime and the segment numbering must not change
+    ' across manifest refreshes.
+    '
+    ' Works off the signed `adaptiveFormats[0].url` alone: googlevideo answers the head
+    ' check with the X-Head-* headers whatever the backend. Without them there is no
+    ' timeline to list, so the load fails with the cause in parsedResponse.error.
+    function GetLiveStreamInfo(parsedResponse as object, adaptiveFormats as object, chunkReadahead as integer, cpn as dynamic, cancellation as object) as void
+        if adaptiveFormats.Count() = 0 or StringUtils.IsNullOrEmpty(adaptiveFormats[0]["url"])
+            parsedResponse["error"] = "Live stream has no format url to read its head from"
+            return
+        end if
+
+        headUrl = GetLiveHeadUrl(adaptiveFormats[0]["url"], cpn)
+        response = FetchLiveHead(headUrl, cancellation)
+        if not HasLiveHead(response)
+            parsedResponse["error"] = `Live stream head check returned no X-Head-Seqnum / X-Head-Time (HTTP ${response.StatusCode()})\n${response.ErrorMessage()}`
+            return
+        end if
+
+        now = CreateObject("roDateTime")
+        timeline = GetLiveTimeline(ReadLiveHeadSeqnum(response), ReadLiveHeadAnyTimeMs(response), ValidInt(adaptiveFormats[0]["targetDurationSec"]), ValidInt(adaptiveFormats[0]["maxDvrDurationSec"]), chunkReadahead, now.AsSeconds(), now.GetMilliseconds())
+        parsedResponse.Append(timeline)
+        parsedResponse["liveHeadUrl"] = headUrl
+        parsedResponse["liveHeadTimeMs"] = ReadLiveHeadTimeMs(response)
+    end function
+
+    ' The live timeline fields for a stream whose head (newest segment) is
+    ' `headSeqnum`, `headTimeMs` into the stream, observed at `nowSec`.`nowMs`.
+    function GetLiveTimeline(headSeqnum as integer, headTimeMs as dynamic, targetDurationSec as integer, maxDvrDurationSec as integer, chunkReadahead as integer, nowSec as integer, nowMs as integer) as object
+        ' Media time per segment: the head's stream time over its seqnum, the fragments'
+        ' cadence whatever targetDurationSec declares.
+        segmentDurationMs = 0
+        if headSeqnum > 0
+            segmentDurationMs = Cint(headTimeMs / headSeqnum)
+        end if
+        if segmentDurationMs <= 0
+            segmentDurationMs = MathUtils.Max(targetDurationSec, 1) * 1000
+        end if
+
+        ' The DVR window, in segments ending at the head: a 24/7 channel is anchored at the
+        ' window, not its genesis (see LIVE_MAX_DVR_WINDOW_SEC). A young stream has less
+        ' history than the window: it is anchored at its first segment (sq 0), and the
+        ' listed timeline grows into the window.
+        windowSec = maxDvrDurationSec
+        if windowSec <= 0 or windowSec > LIVE_MAX_DVR_WINDOW_SEC
+            windowSec = LIVE_MAX_DVR_WINDOW_SEC
+        end if
+        windowSegments = MathUtils.Max(windowSec * 1000 \ segmentDurationMs, 1)
+        firstSeqnum = MathUtils.Max(headSeqnum - windowSegments + 1, 0)
+
+        ' Distance the player stays behind the head: liveChunkReadahead segments of the
+        ' measured duration. A momentary head miss is absorbed instead of stalling at the
+        ' list end.
+        chunks = chunkReadahead
+        if chunks <= 0
+            chunks = LIVE_DEFAULT_CHUNK_READAHEAD
+        end if
+        minChunks = MathUtils.Max((3000 + segmentDurationMs - 1) \ segmentDurationMs, 1)
+        chunks = MathUtils.Clamp(chunks, minChunks, LIVE_MAX_CHUNK_READAHEAD)
+        cushionMs = chunks * segmentDurationMs
+        ' A stream younger than the cushion plays at its head: a cushion reaching back to its
+        ' first segment fails the start (demux.dash -36, 2 of 4 starts, measured).
+        if cushionMs >= (headSeqnum - firstSeqnum + 1) * segmentDurationMs
+            cushionMs = 0
+        end if
+
+        ' Anchor: the head segment ends at (now - availabilityStartTime) + cushion, so the
+        ' player's clock edge sits a cushion behind the head. availabilityStartTime is
+        ' whole seconds; the sub-second remainder shifts the timeline instead. The window
+        ' never exceeds LIVE_MAX_DVR_WINDOW_SEC, so offsetting by it keeps `\` and `mod`
+        ' on a non-negative operand.
+        shiftedMs = LIVE_MAX_DVR_WINDOW_SEC * 1000 + nowMs + cushionMs - (headSeqnum - firstSeqnum + 1) * segmentDurationMs
+        astDate = CreateObject("roDateTime")
+        astDate.FromSeconds(nowSec - LIVE_MAX_DVR_WINDOW_SEC + shiftedMs \ 1000)
+
+        return {
+            "liveHeadSeqnum": headSeqnum
+            "liveFirstSeqnum": firstSeqnum
+            "liveWindowSegments": windowSegments
+            "liveSegmentDurationMs": segmentDurationMs
+            "liveTimelineOffsetMs": shiftedMs mod 1000
+            "liveAvailabilityStartUtc": astDate.ToISOString()
+            ' The player's seek floor: the window less the cushion, and less a segment for
+            ' the listed timeline's alignment (DashRouter.AlignLiveTimeline).
+            "liveSeekableWindowSec": MathUtils.Max((windowSegments - 1) * segmentDurationMs - cushionMs, 0) \ 1000
+        }
+    end function
+
+    ' The format url with NO `sq` queries the stream's live head: googlevideo answers
+    ' at once with the X-Head-* headers (X-Head-Seqnum = newest available segment).
+    ' Pinning `sq=0` instead makes googlevideo answer about segment 0 specifically, and for
+    ' some streams (observed targetDurationSec=5) it then omits X-Head-* entirely
+    ' (only X-Sequence-Num/X-Walltime-Ms).
+    function GetLiveHeadUrl(formatUrl as string, cpn as dynamic) as string
+        queryComponents = UrlUtils.ParseQueryComponents(formatUrl)
+        queryComponents["rn"] = "0"
+        if not StringUtils.IsNullOrEmpty(cpn)
+            queryComponents["cpn"] = cpn
+        end if
+        return UrlUtils.SetQueryParams(formatUrl, queryComponents)
+    end function
+
+    function CreateLiveHeadRequest(headUrl as string) as HttpClient.Request
+        request = HttpClient.Head(headUrl)
+        request.Headers({
+            "origin": "https://www.youtube.com"
+            "referer": "https://www.youtube.com"
+            "DNT": "?1"
+        })
+        return request
+    end function
+
+    ' The head check's answer, sent once more when it lacks the head (HasLiveHead), whatever its HTTP status.
+    function FetchLiveHead(headUrl as string, cancellation as object) as HttpClient.Response
+        request = CreateLiveHeadRequest(headUrl)
+        request.RetryCount(1)
+        request.RetryIf(function(response as HttpClient.Response) as string
+            if not Innertube.HasLiveHead(response)
+                return `no X-Head-* in the response (HTTP ${response.StatusCode()})`
+            end if
+            return ""
+        end function)
+        request.Cancellation(cancellation)
+        return request.Await()
+    end function
+
+    ' Whether a head check's answer carries the head's seqnum and time.
+    function HasLiveHead(response as HttpClient.Response) as boolean
+        return ReadLiveHeadSeqnum(response) >= 0 and ReadLiveHeadAnyTimeMs(response) <> invalid
+    end function
+
+    ' X-Head-Seqnum of a live head response, -1 if absent. Not gated on HTTP status: a
+    ' head check can come back non-2xx yet still carry the X-Head-* headers
+    ' (observed: one stream returns 500, another 200; both include them).
+    function ReadLiveHeadSeqnum(response as HttpClient.Response) as integer
+        headers = response.Headers()
+        if not headers.DoesExist("X-Head-Seqnum")
+            return -1
+        end if
+        return ValidString(headers["X-Head-Seqnum"]).ToInt()
+    end function
+
+    ' How far into the stream the head is (ms, X-Head-Time-Millis), invalid if absent. A
+    ' long-running stream's (e.g. 207 days = 1.79e10 ms) overflows BrightScript's 32-bit
+    ' int: ParseJson keeps it as a LongInteger, which .ToInt() and Cdbl() would truncate
+    ' (measured).
+    function ReadLiveHeadTimeMs(response as HttpClient.Response) as dynamic
+        return StringUtils.ParseJsonSafe(ValidString(response.Headers()["X-Head-Time-Millis"]))
+    end function
+
+    ' X-Head-Time-Millis, else X-Head-Time-Sec in ms, invalid if neither.
+    function ReadLiveHeadAnyTimeMs(response as HttpClient.Response) as dynamic
+        timeMs = ReadLiveHeadTimeMs(response)
+        if timeMs = invalid
+            timeMs = ReadLiveHeadTimeSecAsMs(response)
+        end if
+        return timeMs
+    end function
+
+    ' X-Head-Time-Sec in ms, invalid if absent: whole seconds, too coarse to average a
+    ' young stream's few segments or to time the head between checks.
+    function ReadLiveHeadTimeSecAsMs(response as HttpClient.Response) as dynamic
+        headers = response.Headers()
+        if not headers.DoesExist("X-Head-Time-Sec")
+            return invalid
+        end if
+        return ValidString(headers["X-Head-Time-Sec"]).ToInt() * 1000&
+    end function
+
+end namespace

@@ -1,0 +1,72 @@
+' Single source of truth for the UI palette.
+'
+' The scheme follows SmartTube's default ("Teal") colour scheme
+' (smarttubetv/src/main/res/values/colors.xml).
+'
+' SmartTube's pure white / pure black are replaced by their nearest broadcast-safe
+' values (#EBEBEB / #161616): the project lints for Roku's colour certification
+' requirement (bslint color-cert), which rejects anything outside 16..235.
+'
+' All values are compile-time constants (BrighterScript inlines them), so using
+' Theme.X in a component costs nothing at runtime.
+'
+' SceneGraph XML attributes can not reference BrighterScript constants. The few
+' static colours that remain in .xml files (panel rectangles, default field
+' values) use exactly the literals below; the name of the constant they mirror is
+' listed next to each value so that a scheme change is a search-and-replace of
+' one literal. Anything that changes at runtime (focus states, cards, player,
+' dialogs) reads the constants directly.
+namespace Theme
+    ' Window background (XML mirror: "#131313"). SmartTube's exact value, slightly below the
+    ' broadcast-safe black (#161616), hence the lint exception.
+    ' bs:disable-next-line LINT3023
+    const Background = "#131313FF"
+    ' Secondary surface: side panels, context menu, dialog-like panels (XML mirror: "#282828")
+    const Surface = "#282828FF"
+    ' Raised surface: buttons, badges on top of a Surface (XML mirror: "#343434")
+    const SurfaceRaised = "#343434FF"
+    ' Disabled raised surface (XML mirror: "#202020")
+    const SurfaceDisabled = "#202020FF"
+    ' (The dimming layer behind modal panels is plain "#000000" with an opacity, in XML only.)
+
+    ' Brand colour: side bar ("fastlane") and card info panels (XML mirror: "#004B53")
+    const Brand = "#004B53FF"
+    ' Brand accent: selection / highlight (XML mirror: "#0096A6")
+    const Accent = "#0096A6FF"
+
+    ' Text
+    const TextPrimary = "#EBEBEBFF"
+    ' (XML mirror: "0xB4B4B4FF")
+    const TextSecondary = "#B4B4B4FF"
+    const TextDisabled = "#606060FF"
+    const TextOnLight = "#161616FF"
+    const TextOnLightSecondary = "#3C3C3CFF"
+
+    ' Cards (video / playlist / channel cells)
+    const CardBackground = "#004B53FF"
+    const CardTitle = "#EBEBEBFF"
+    const CardText = "#D6E6E8FF"
+    const CardFocusedBackground = "#EBEBEBFF"
+    const CardFocusedTitle = "#161616FF"
+    const CardFocusedText = "#3C3C3CFF"
+    ' Placeholder (loading) card pulse
+    const CardLoading = "#004B53FF"
+    const CardLoadingPulse = "#00262AFF"
+
+    ' Focus
+    const FocusedBackground = "#EBEBEBFF"
+    const FocusedText = "#161616FF"
+
+    ' Semantic red: watched / seek progress, live badge. Not an accent.
+    ' (XML mirror: "#FF0000")
+    const Progress = "#FF0000FF"
+    const Live = "#CC0000FF"
+    const SponsorBlockSegment = "#FF000080"
+
+    ' Badges drawn on top of thumbnails
+    const BadgeBackground = "#161616FF"
+
+    ' No tint (posters only: a blend colour of pure white leaves the bitmap untouched)
+    ' bs:disable-next-line LINT3023
+    const White = "#FFFFFFFF"
+end namespace

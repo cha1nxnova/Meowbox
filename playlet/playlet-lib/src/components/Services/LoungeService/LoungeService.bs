@@ -1,0 +1,208 @@
+import "pkg:/components/parts/AutoBind/OnNodeReadyNoOp.bs"
+import "pkg:/components/Services/LoungeService/LoungeApi.bs"
+import "pkg:/components/Services/LoungeService/LoungeService.types.bs"
+import "pkg:/components/Services/LoungeService/LoungeSession.bs"
+
+function Init()
+    m.top.functionName = "LoungeServiceLoop"
+
+    deviceInfo = CreateObject("roDeviceInfo")
+    m.top.deviceId = deviceInfo.GetRandomUUID()
+    deviceFriendlyName = deviceInfo.GetFriendlyName()
+    if StringUtils.IsNullOrEmpty(deviceFriendlyName)
+        deviceFriendlyName = "TV"
+    end if
+    m.top.deviceName = "Playlet on " + deviceFriendlyName
+end function
+
+function StartService(_unused as dynamic) as boolean
+    if m.top.isRunning = true
+        return true
+    end if
+
+    m.top.isRunning = true
+    m.top.control = "run"
+    return true
+end function
+
+function StopService(_unused as dynamic) as void
+    if m.top.isRunning = false
+        return
+    end if
+
+    m.top.shouldQuit = true
+end function
+
+function LoungeServiceLoop() as void
+    messagePort = CreateObject("roMessagePort")
+    m.top.observeField("shouldQuit", messagePort)
+    api = new LoungeApi(m.top, m.top.videoQueue, m.top.notifications, m.top.invidious, messagePort)
+    ' Mobile app can remain connected to devices even after restarts.
+    ' Since we create a new lounge every time, we signal to the last lounge
+    ' that we're no longer there, and we're not coming back.
+    api.DisconnectFromLastLounge()
+
+    ' We do not join a lounge until something asks us to like
+    ' - A remote connects through DIAL
+    ' - Generating a TV link code
+    ' Both join only while loungeToken is empty: a session that ends clears it.
+    while WaitForJoin(messagePort)
+        quitRequested = RunSession(api, messagePort)
+        api.EndSession()
+        m.top.unobserveField("outgoingMessages")
+        m.top.loungeToken = ""
+        if quitRequested
+            exit while
+        end if
+    end while
+
+    LogInfo("Lounge service stopped")
+    m.top.unobserveField("shouldQuit")
+    m.top.isRunning = false
+end function
+
+function WaitForJoin(messagePort as object) as boolean
+    m.top.observeField("join", messagePort)
+    joinRequested = false
+    while true
+        message = wait(0, messagePort)
+        if IsQuitRequested([message])
+            exit while
+        end if
+        if type(message) = "roSGNodeEvent" and message.GetField() = "join"
+            joinRequested = true
+            exit while
+        end if
+    end while
+    m.top.unobserveField("join")
+    return joinRequested
+end function
+
+function RunSession(api as LoungeApi, messagePort as object) as boolean
+    screenId = api.GetScreenId()
+    if StringUtils.IsNullOrEmpty(screenId)
+        LogInfo("Lounge session ended: no screen ID")
+        return false
+    end if
+    m.top.screenId = screenId
+
+    loungeToken = api.GetToken()
+    if StringUtils.IsNullOrEmpty(loungeToken)
+        LogInfo("Lounge session ended: no lounge token")
+        return false
+    end if
+    m.top.loungeToken = loungeToken
+
+    m.top.observeField("outgoingMessages", messagePort)
+
+    if not api.Bind()
+        LogInfo("Lounge session ended: bind failed")
+        return false
+    end if
+
+    api.StartPoll()
+
+    backchannel = api.backchannel
+    reconnectAttempts = 0
+    sinceDelivered = CreateObject("roTimespan")
+    outgoingLoungeMessages = []
+    portMessages = []
+
+    while true
+        portMessages.Clear()
+        portMessages.Push(wait(api.MaxWaitMs(), messagePort))
+
+        ' There's a chance messages were piling up while we were sending messages to the lounge
+        ' This could happen if we were sending things to the lounge and the player state
+        ' changed many times.
+        while messagePort.PeekMessage() <> invalid
+            portMessages.Push(messagePort.GetMessage())
+        end while
+        if IsQuitRequested(portMessages)
+            return true
+        end if
+
+        ' At this point:
+        ' - We check if we need to send messages to the lounge based on player state
+        ' - We check the lounge for new commands, which might need responding to
+        ' - Finally, we send the outgoing messages to the lounge in one go
+        outgoingLoungeMessages.Clear()
+        for each portMessage in portMessages
+            if type(portMessage) = "roSGNodeEvent" and portMessage.GetField() = "outgoingMessages"
+                outgoingLoungeMessages.Append(portMessage.GetData())
+            end if
+            api.HandleMessage(portMessage, outgoingLoungeMessages)
+        end for
+
+        api.SendMessages(outgoingLoungeMessages)
+
+        if backchannel.IsPolling()
+            continue while
+        end if
+
+        if backchannel.closeReason = LoungeCloseReason.Complete
+            sinceDelivered.Mark()
+        end if
+        ' A send's failure is acted on once the poll ends, which a dead session's does too.
+        nextStep = LoungeSession.StepAfterPoll(backchannel.closeReason, backchannel.statusCode, backchannel.stalledPolls, api.sessionGone, api.tokenExpired, sinceDelivered.TotalMilliseconds())
+        if nextStep = LoungeSessionStep.Poll
+            reconnectAttempts = 0
+            api.StartPoll()
+            continue while
+        end if
+
+        LogDebug("Backchannel closed:", backchannel.closeReason, backchannel.statusCode, "next:", nextStep)
+        if nextStep = LoungeSessionStep.Drop
+            LogTelemetryEvent({
+                level: "error"
+                message: `Lounge session dropped: no poll delivered for ${sinceDelivered.TotalSeconds()} s, last close: ${backchannel.closeReason} ${backchannel.statusCode}`
+                fingerprint: ["lounge-session-dropped", backchannel.closeReason, backchannel.statusCode]
+            })
+            return false
+        end if
+        if nextStep = LoungeSessionStep.Retry and backchannel.closeReason <> LoungeCloseReason.Timeout
+            LogTelemetryEvent({
+                level: "warning"
+                message: `Lounge backchannel failure: ${backchannel.closeReason} ${backchannel.statusCode}`
+                fingerprint: ["lounge-backchannel", backchannel.closeReason, backchannel.statusCode]
+            })
+        end if
+
+        sleep(ComputeReconnectBackoffMs(reconnectAttempts))
+        reconnectAttempts += 1
+
+        if nextStep <> LoungeSessionStep.Retry
+            if not api.Rebind(nextStep = LoungeSessionStep.RebindWithNewToken)
+                LogInfo("Lounge session ended: rebind failed")
+                return false
+            end if
+            m.top.loungeToken = api.loungeToken
+        end if
+
+        api.StartPoll()
+    end while
+
+    return false
+end function
+
+function IsQuitRequested(portMessages as object) as boolean
+    for each portMessage in portMessages
+        if type(portMessage) = "roSGNodeEvent" and portMessage.GetField() = "shouldQuit" and portMessage.GetData() = true
+            return true
+        end if
+    end for
+    return false
+end function
+
+' Full jitter (random in [0, window)) avoids a fleet-wide thundering-herd reconnect.
+function ComputeReconnectBackoffMs(attempts as integer) as integer
+    capped = attempts
+    if capped > 6
+        capped = 6
+    end if
+    windowMs = 1000 * (2 ^ capped)
+    if windowMs > 30000
+        windowMs = 30000
+    end if
+    return 500 + Int(Rnd(0) * windowMs)
+end function

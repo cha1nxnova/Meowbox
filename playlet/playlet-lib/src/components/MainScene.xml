@@ -1,0 +1,114 @@
+<component name="MainScene" extends="Group" includes="AutoBind">
+    <children>
+        <!-- Logger should remain the first child, to make sure it is initialized first in the scene -->
+        <Logger id="Logger" />
+        <JobQueue id="JobQueue" />
+        <AppController id="AppController"
+            screensContainer="bind:./AppScreens"
+            root="bind:./AppRoot"
+            stack="bind:./Stack"
+            videoQueue="bind:./VideoQueue">
+            <Group id="Stack">
+                <AppRoot id="AppRoot">
+                    <AppScreens id="AppScreens" />
+                    <NavBar id="NavBar"
+                        initialFocus="2"
+                        appController="bind:/AppController"
+                        screensContainer="bind:../AppScreens">
+                        <ContentNode role="content">
+                            <NavBarItemContent
+                                screen="ProfileScreen"
+                                text="Profile"
+                                isProfile="true" />
+                            <NavBarItemContent
+                                screen="SearchScreen"
+                                text="Search"
+                                icon="pkg:/images/icons/search.png" />
+                            <NavBarItemContent
+                                screen="HomeScreen"
+                                text="Home"
+                                icon="pkg:/images/icons/home.png" />
+                            <NavBarItemContent
+                                screen="BookmarksScreen"
+                                text="Bookmarks"
+                                icon="pkg:/images/icons/star.png" />
+                            <NavBarItemContent
+                                screen="SettingsScreen"
+                                text="Settings"
+                                icon="pkg:/images/icons/settings.png" />
+                            <NavBarItemContent
+                                screen="RemoteScreen"
+                                text="Remote"
+                                icon="pkg:/images/icons/phone.png" />
+                            <NavBarItemContent
+                                screen="AppInfoScreen"
+                                text="Info"
+                                icon="pkg:/images/icons/info.png" />
+                        </ContentNode>
+                    </NavBar>
+                </AppRoot>
+            </Group>
+
+            <Clock />
+            <VideoContainer id="VideoContainer" />
+            <Group id="Notifications" />
+
+            <!--  No render nodes -->
+            <VideoQueue id="VideoQueue"
+                appController="bind:/AppController"
+                videoContainer="bind:../VideoContainer"
+                innertube="bind:../Innertube"
+                invidious="bind:../Invidious"
+                notifications="bind:../Notifications"
+                preferences="bind:../Preferences"
+                loungeService="bind:../LoungeService"
+                jobQueue="bind:/JobQueue" />
+
+            <ApplicationInfo id="ApplicationInfo"
+                jobQueue="bind:/JobQueue" />
+            <Preferences id="Preferences" />
+            <BookmarksService id="BookmarksService" />
+            <SearchHistory id="SearchHistory"
+                preferences="bind:../Preferences" />
+            <SleepTimer id="SleepTimer"
+                preferences="bind:../Preferences"
+                videoQueue="bind:../VideoQueue" />
+
+            <ProfilesService id="ProfilesService"
+                invidious="bind:../Invidious"
+                jobQueue="bind:/JobQueue" />
+
+            <Innertube id="Innertube"
+                jobQueue="bind:/JobQueue" />
+            <Invidious id="Invidious"
+                webServer="bind:../WebServer"
+                applicationInfo="bind:../ApplicationInfo"
+                preferences="bind:../Preferences"
+                profilesService="bind:../ProfilesService" />
+
+            <!-- Tasks -->
+            <PlayletWebServer id="WebServer"
+                port="8888"
+                appController="bind:/AppController"
+                applicationInfo="bind:../ApplicationInfo"
+                innertube="bind:../Innertube"
+                invidious="bind:../Invidious"
+                profilesService="bind:../ProfilesService"
+                preferences="bind:../Preferences"
+                videoQueue="bind:../VideoQueue"
+                bookmarksService="bind:../BookmarksService"
+                loungeService="bind:../LoungeService"
+                jobQueue="bind:/JobQueue" />
+            <DialServer id="DialServer"
+                webServer="bind:../WebServer"
+                loungeService="bind:../LoungeService" />
+            <LoungeService id="LoungeService"
+                videoQueue="bind:../VideoQueue"
+                notifications="bind:../Notifications"
+                invidious="bind:../Invidious" />
+            <Telemetry id="Telemetry"
+                preferences="bind:../Preferences"
+                applicationInfo="bind:../ApplicationInfo" />
+        </AppController>
+    </children>
+</component>

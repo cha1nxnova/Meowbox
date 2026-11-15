@@ -1,0 +1,31 @@
+import "pkg:/source/utils/Logging.bs"
+
+@job("ClearCacheJob")
+function ExecuteJob() as void
+    fs = CreateObject("roFileSystem")
+    if fs = invalid
+        JobError("Failed to create roFileSystem object")
+        return
+    end if
+
+    ClearVolume(fs, "tmp:/")
+    ClearVolume(fs, "cachefs:/")
+end function
+
+function ClearVolume(fs as object, volume as string)
+    items = fs.GetDirectoryListing(volume)
+    for each item in items
+        fullpath = volume + item
+
+        ' Skip logs directory
+        if fullpath = "cachefs:/logs"
+            continue for
+        end if
+
+        if not fs.Delete(fullpath)
+            LogError("Failed to delete:", fullpath)
+        end if
+    end for
+
+    LogInfo("Cleared:", volume)
+end function

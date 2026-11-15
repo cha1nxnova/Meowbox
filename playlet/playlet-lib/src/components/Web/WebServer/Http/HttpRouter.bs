@@ -1,0 +1,59 @@
+import "pkg:/components/Web/WebServer/Http/HttpConnection.bs"
+import "pkg:/components/Web/WebServer/Http/HttpRequest.bs"
+import "pkg:/components/Web/WebServer/Http/HttpResponse.bs"
+import "pkg:/source/utils/ErrorUtils.bs"
+import "pkg:/source/utils/Logging.bs"
+
+namespace Http
+
+    class HttpRouter
+
+        ' [{
+        '     method: "GET"
+        '     path: "/example"
+        '     router: router as HttpRouter
+        '     func: func as string
+        ' }]
+        private routes
+
+        function new()
+            m.routes = []
+        end function
+
+        function OnRequest(request as object, response as HttpResponse, connection as HttpConnection) as boolean
+            for each route in m.routes
+                if m.RouteMatchesRequest(route, request)
+                    try
+                        if route.router[route.func]({
+                                request: request
+                                response: response
+                                connection: connection
+                                server: response.server
+                            }) = true
+                            return true
+                        end if
+                    catch error
+                        formattedError = ErrorUtils.Format(error)
+                        LogError(formattedError)
+                        response.Default(500, formattedError)
+                        return true
+                    end try
+                end if
+            end for
+            return false
+        end function
+
+        private function RouteMatchesRequest(route as object, request as HttpRequest) as boolean
+            if route.method <> "*" and route.method <> request.method
+                return false
+            end if
+
+            if route.path <> "*" and route.path <> request.route
+                return false
+            end if
+
+            return true
+        end function
+    end class
+
+end namespace

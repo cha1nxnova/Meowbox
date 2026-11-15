@@ -1,0 +1,216 @@
+import "../WebSockets/WebSocketServer.bs"
+import "HttpConnection.bs"
+import "HttpConnectionState.bs"
+import "HttpRouter.bs"
+import "HttpSettings.bs"
+import "HttpUtils.bs"
+import "pkg:/components/Services/Invidious/InvidiousService.bs"
+
+namespace Http
+
+    class HttpServer
+        ' members
+        private connections = invalid
+        private sockin = invalid
+        private uptime = invalid
+
+        ' initializable (copied) members
+        private num_requests = 0
+        private total_in = 0
+        private total_out = 0
+
+        private routers
+        private postRouters
+
+        public success as boolean
+        public settings as Http.HttpSettings
+        public task as object
+        public websocket as Web.WebSocketServer
+
+        function new(settings as HttpSettings, task as object)
+            m.settings = settings
+            m.task = task
+            m.routers = []
+            m.postRouters = []
+            m.utils = new Utils()
+            m.success = m.Init()
+        end function
+
+        function Init() as boolean
+            m.uptime = CreateObject("roTimespan")
+            m.connections = CreateObject("roAssociativeArray")
+
+            success = true
+
+            ' create incoming socket
+            sockin = CreateObject("roStreamSocket")
+            if sockin = invalid
+                success = false
+                LogError("socket()")
+            end if
+
+            ' reuse address
+            if not sockin.setReuseAddr(true)
+                success = false
+                LogError("setsockopt(SO_REUSEADDR)", sockin.status())
+            end if
+
+            ' bind socket
+            addrin = CreateObject("roSocketAddress")
+            addrin.setPort(m.settings.Port)
+            if not sockin.setAddress(addrin)
+                success = false
+                LogError("bind(port" + Stri(m.settings.Port) + ")", sockin.status())
+            end if
+            ' listen on socket
+            if not sockin.listen(m.settings.MaxConnections)
+                success = false
+                LogError("listen()", sockin.status())
+            end if
+            ' monitor socket
+            sockin.setMessagePort(m.settings.MessagePort)
+            sockin.notifyReadable(true)
+
+            m.sockin = sockin
+
+            LogInfo("listening on " + addrin.getAddress())
+
+            if m.settings.WebSocketsEnabled
+                m.websocket = new Web.WebSocketServer(m)
+                LogInfo("WebSocketServer created")
+            end if
+            return success
+        end function
+
+        function UseRouter(router as HttpRouter)
+            m.routers.Push(router)
+        end function
+
+        function UsePostRouter(router as HttpRouter)
+            m.postRouters.Push(router)
+        end function
+
+        function PreWait()
+            connections = m.connections
+            for each id in connections
+                conn = connections[id]
+                conn.CheckTimeout(m.settings.TimeoutInMs)
+                cs = conn.state
+                if cs = Http.HttpConnectionState.DONE
+                    conn.socket.notifyReadable(false)
+                    conn.socket.notifyWritable(false)
+                else if cs = Http.HttpConnectionState.RECV_REQUEST
+                    conn.socket.notifyReadable(true)
+                    conn.socket.notifyWritable(false)
+                else if cs = Http.HttpConnectionState.SEND_HEADER or cs = Http.HttpConnectionState.SEND_RESPONSE
+                    conn.socket.notifyWritable(true)
+                    conn.socket.notifyReadable(false)
+                else
+                    LogError("invalid state")
+                end if
+            end for
+
+            if m.settings.WebSocketsEnabled
+                m.websocket.Poll()
+            end if
+        end function
+
+        function PostWait()
+            connections = m.connections
+            if m.sockin.isReadable()
+                conn = m.AcceptHttpConnection()
+                if conn <> invalid
+                    connections[conn.id] = conn
+                end if
+            end if
+            for each id in connections
+                conn = connections[id]
+                cs = conn.state
+                if cs = Http.HttpConnectionState.RECV_REQUEST
+                    if conn.socket.isReadable()
+                        conn.PollRequest(m)
+                    end if
+                else if cs = Http.HttpConnectionState.SEND_HEADER
+                    if conn.socket.isWritable()
+                        conn.PollHeader(m)
+                    end if
+                else if cs = Http.HttpConnectionState.SEND_RESPONSE
+                    if conn.socket.isWritable()
+                        conn.PollResponse(m)
+                    end if
+                else if cs = Http.HttpConnectionState.DONE
+                    ' handle with other connections that might transition to done
+                else
+                    LogError("invalid state")
+                end if
+                cs = conn.state
+                if cs = Http.HttpConnectionState.DONE
+                    if conn.close
+                        conn.socket.close()
+                        connections.delete(id)
+                    else if conn.ws_upgrade and m.settings.WebSocketsEnabled
+                        LogInfo("upgrading connection to web socket")
+                        m.websocket.AddConnection(conn.socket)
+                        connections.delete(id)
+                    else
+                        conn.Recycle()
+                        conn.PollRequest(m)
+                    end if
+                end if
+            end for
+        end function
+
+        function AcceptHttpConnection() as HttpConnection
+            sockin = m.sockin
+            socket = sockin.accept()
+            if not sockin.eOK()
+                LogError("accept()", sockin.status())
+            end if
+            if socket = invalid
+                return invalid
+            end if
+            conn = new HttpConnection(m, m.settings)
+            conn.Accepted(m, socket)
+            return conn
+        end function
+
+        function Close()
+            ' close all the sockets
+            m.sockin.close()
+            connections = m.connections
+            for each id in connections
+                conn = connections[id]
+                conn.socket.close()
+            end for
+            if m.settings.WebSocketsEnabled
+                m.websocket.Close()
+            end if
+            ' final stats
+            LogInfo(`\n` + m.stats())
+        end function
+
+        function Stats() as string
+            stats = "  Uptime" + Stri(m.uptime.totalSeconds()) + " secs" + `\n`
+            stats = stats + "  Requests" + Stri(m.num_requests) + `\n`
+            stats = stats + "  Bytes" + Stri(m.total_in) + " in," + Stri(m.total_out) + " out"
+            return stats
+        end function
+
+        function ProcessRequestLocal(method as string, uri as string, headers as object, body as string) as object
+            LogInfo(`Processing request locally ${method} ${uri}`)
+            request = new HttpRequest()
+            request.FromParsedData(method, uri, headers, body)
+
+            response = new HttpResponse(request, m, m.settings)
+            response.Process({})
+
+            return {
+                http_code: response.http_code
+                headers: response.headers
+                body: response.body_buffer
+            }
+        end function
+
+    end class
+
+end namespace

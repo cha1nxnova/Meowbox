@@ -1,0 +1,286 @@
+import "pkg:/source/utils/AssertUtils.bs"
+import "pkg:/source/utils/RegistryUtils.bs"
+import "pkg:/source/utils/StringUtils.bs"
+import "pkg:/source/utils/Types.bs"
+
+function Init()
+    m.typeMapping = {
+        "boolean": "boolean"
+        "string": "string"
+        "number": "integer"
+        "radio": "string"
+        "array": "array"
+        "assocarray": "assocarray"
+    }
+
+    m.disableSavingToRegistry = false
+    LoadPreferencesFile()
+    AddNodeFields()
+    LoadUserPreferencesFromRegistry()
+    AddNodeFieldsObservers()
+end function
+
+function LoadPreferencesFile()
+    m.top.prefsModel = StringUtils.ParseJsonSafe(ReadAsciiFile("libpkg:/config/preferences.json5"))
+end function
+
+function AddNodeFields()
+    fields = {}
+    prefsModel = m.top.prefsModel
+    for each child in prefsModel
+        AddNodeFieldsFromPreference(child, fields)
+    end for
+    ' We keep reference to fields specific to preferences, to avoid default fields like focusedChild
+    m.top.preferenceFields = fields
+end function
+
+function AddNodeFieldsFromPreference(pref as object, fields as object)
+    if pref.key <> invalid and pref.type <> invalid
+        fieldType = m.typeMapping[pref.type]
+        m.top.addField(pref.key, fieldType, false)
+        fields[pref.key] = true
+    end if
+    if pref.children <> invalid
+        for each child in pref.children
+            AddNodeFieldsFromPreference(child, fields)
+        end for
+    end if
+end function
+
+function AddNodeFieldsObservers()
+    prefsFields = m.top.preferenceFields
+    for each key in prefsFields
+        m.top.observeField(key, FuncName(SaveUserPreferencesToRegistry))
+    end for
+end function
+
+function LoadUserPreferencesFromRegistry()
+    ' Step 1: Load user preferences from registry
+    userPrefs = RegistryUtils.Read(RegistryUtils.USER_PREFERENCES)
+    if userPrefs = invalid
+        userPrefs = {}
+    else
+        userPrefs = StringUtils.ParseJsonSafe(userPrefs)
+    end if
+
+    ' Step 2: Migrate existing preferences to new format (if needed)
+    isDirty = MigrateExistingPreferences(userPrefs)
+    ' Step 3: Apply defaults to user preferences (if needed)
+    isDirty = ApplyDefaultsToUserPreferences(userPrefs) or isDirty
+
+    ' Step 4: set field values in node
+    for each key in userPrefs
+        m.top[key] = userPrefs[key]
+    end for
+
+    ' Step 5: Save user preferences (if needed)
+    if isDirty
+        SaveUserPreferencesToRegistry()
+    end if
+end function
+
+function SaveUserPreferencesToRegistry() as void
+    if m.disableSavingToRegistry
+        return
+    end if
+    userPrefs = {}
+    prefsFields = m.top.preferenceFields
+    for each key in prefsFields
+        userPrefs[key] = m.top[key]
+    end for
+    userPrefs.__version = m.top.__version
+    RegistryUtils.Write(RegistryUtils.USER_PREFERENCES, FormatJson(userPrefs))
+end function
+
+function MigrateExistingPreferences(userPrefs as object) as boolean
+    isDirty = false
+
+    ' v0 -> v1
+    if ValidInt(userPrefs.__version) = 0
+        instances = RegistryUtils.Read(RegistryUtils.INVIDIOUS_INSTANCES)
+        if not StringUtils.IsNullOrEmpty(instances)
+            currentInstance = userPrefs["invidious.instance"]
+            if StringUtils.IsNullOrEmpty(currentInstance)
+                instances = StringUtils.ParseJsonSafe(instances)
+                if IsArray(instances) and instances.Count() > 0
+                    instance = instances[0]
+                    if not StringUtils.IsNullOrEmpty(instance)
+                        userPrefs["invidious.instance"] = instance
+                    end if
+                end if
+            end if
+            RegistryUtils.Delete(RegistryUtils.INVIDIOUS_INSTANCES)
+        end if
+        userPrefs.__version = 1
+        isDirty = true
+    end if
+
+    if userPrefs.__version = 1
+        if ValidString(userPrefs["playback.preferred_quality"]) = "medium"
+            userPrefs["playback.preferred_quality"] = "480p,360p"
+        end if
+        userPrefs.__version = 2
+        isDirty = true
+    end if
+
+    if userPrefs.__version = 2
+        if IsArray(userPrefs["misc.home_screen_layout"])
+            homeScreenLayout = userPrefs["misc.home_screen_layout"]
+            hasRecommended = false
+            for each item in homeScreenLayout
+                if item.id = "recommended"
+                    hasRecommended = true
+                    exit for
+                end if
+            end for
+            if not hasRecommended
+                homeScreenLayout.Unshift({
+                    id: "recommended"
+                    enabled: true
+                })
+            end if
+        end if
+        userPrefs.__version = 3
+        isDirty = true
+    end if
+
+    if userPrefs.__version = 3
+        if IsString(userPrefs["playback.backend"])
+            backend = userPrefs["playback.backend"]
+            userPrefs.Delete("playback.backend")
+            userPrefs["backend.selected"] = backend
+        end if
+        userPrefs.__version = 4
+        isDirty = true
+    end if
+
+    if userPrefs.__version = 4
+        if IsString(userPrefs["dev.dev_video_player"])
+            userPrefs.Delete("dev.dev_video_player")
+        end if
+        userPrefs.__version = 5
+        isDirty = true
+    end if
+
+    if userPrefs.__version = 5
+        filteredLayout = []
+        homeScreenLayout = ValidArray(userPrefs["misc.home_screen_layout"])
+        for each item in homeScreenLayout
+            if item.id = "trending" or item.id = "trending_music" or item.id = "trending_gaming" or item.id = "trending_movies"
+                continue for
+            end if
+            filteredLayout.Push(item)
+        end for
+        if filteredLayout.Count() > 0
+            userPrefs["misc.home_screen_layout"] = filteredLayout
+        end if
+        userPrefs.__version = 6
+        isDirty = true
+    end if
+
+    if userPrefs.__version = 6
+        ' Hook was split out of Preview. Existing users inherit their Preview setting.
+        categories = userPrefs["sponsorblock.categories"]
+        if IsAssociativeArray(categories) and not categories.DoesExist("hook") and IsAssociativeArray(categories["preview"])
+            categories["hook"] = { option: categories["preview"].option }
+        end if
+        userPrefs.__version = 7
+        isDirty = true
+    end if
+
+    if userPrefs.__version = 7
+        homeScreenLayout = userPrefs["misc.home_screen_layout"]
+        if IsArray(homeScreenLayout)
+            homeScreenLayout.Push({ id: "trending_livestreams", enabled: true })
+            homeScreenLayout.Push({ id: "trending_gaming", enabled: true })
+        end if
+        userPrefs.__version = 8
+        isDirty = true
+    end if
+
+    if userPrefs.__version = 8
+        ' A pre-0.45.0 bug persisted an empty home screen layout on fresh installs,
+        ' which the v7 -> v8 migration then turned into a trending-only layout.
+        ' Heal layouts that lost sections: reset tiny ones to defaults, otherwise
+        ' re-add missing sections as enabled so users notice they are back.
+        homeScreenLayout = userPrefs["misc.home_screen_layout"]
+        if IsArray(homeScreenLayout)
+            if homeScreenLayout.Count() < 3
+                userPrefs.Delete("misc.home_screen_layout")
+            else
+                defaultIds = ["subscriptions", "recommended", "popular", "playlists", "watch_history", "trending_livestreams", "trending_gaming"]
+                existingIds = {}
+                for each item in homeScreenLayout
+                    if IsAssociativeArray(item) and IsString(item.id)
+                        existingIds[item.id] = true
+                    end if
+                end for
+                for each id in defaultIds
+                    if not existingIds.DoesExist(id)
+                        homeScreenLayout.Push({ id: id, enabled: true })
+                    end if
+                end for
+            end if
+        end if
+        userPrefs.__version = 9
+        isDirty = true
+    end if
+
+    ' TODO:P2 handle case where saved preferences version is higher than current version (e.g. user downgraded)
+
+    #if DEBUG
+        Assert.AreEqual(m.top.__version, userPrefs.__version, "Preferences version mismatch.")
+    #end if
+    return isDirty
+end function
+
+function ApplyDefaultsToUserPreferences(userPrefs as object) as boolean
+    isDirty = false
+    prefsModel = m.top.prefsModel
+    for each child in prefsModel
+        isDirty = ApplyToUserPreferences(userPrefs, child) or isDirty
+    end for
+    return isDirty
+end function
+
+function ApplyToUserPreferences(userPrefs as object, model as object) as boolean
+    isDirty = false
+    if model.children <> invalid
+        for each child in model.children
+            isDirty = ApplyToUserPreferences(userPrefs, child) or isDirty
+        end for
+    end if
+
+    if model.defaultValue <> invalid and (not userPrefs.DoesExist(model.key) or userPrefs[model.key] = invalid)
+        userPrefs[model.key] = model.defaultValue
+        isDirty = true
+    end if
+    return isDirty
+end function
+
+function GetUserPreferences(_unused as dynamic) as object
+    userPrefs = {}
+    prefsFields = m.top.preferenceFields
+    for each key in prefsFields
+        userPrefs[key] = m.top[key]
+    end for
+    userPrefs.__version = m.top.__version
+    return userPrefs
+end function
+
+function ApplyUserPreferences(preferences as object) as void
+    if preferences = invalid
+        return
+    end if
+    ' TODO:P2 user input validation
+    m.disableSavingToRegistry = true
+    m.top.setFields(preferences)
+    m.disableSavingToRegistry = false
+    SaveUserPreferencesToRegistry()
+end function
+
+function ClearUserPreferences(_unused as dynamic) as void
+    userPrefs = {}
+    ApplyDefaultsToUserPreferences(userPrefs)
+    ApplyUserPreferences(userPrefs)
+end function

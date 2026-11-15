@@ -21,6 +21,7 @@
   </interface>
   <script type="text/brightscript" uri="pkg:/source/engine.brs" />
   <script type="text/brightscript" uri="pkg:/source/broadcast.brs" />
+  <script type="text/brightscript" uri="pkg:/source/captions.brs" />
   <script type="text/brightscript" uri="pkg:/source/net.brs" />
   <script type="text/brightscript" uri="pkg:/components/BroadcastTask.brs" />
 </component>

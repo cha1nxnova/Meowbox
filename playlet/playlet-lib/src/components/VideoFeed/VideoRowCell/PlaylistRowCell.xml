@@ -1,0 +1,82 @@
+<component name="PlaylistRowCell" extends="Group">
+    <interface>
+        <field id="itemContent" type="node" onChange="OnContentSet" />
+        <field id="type" type="string" value="playlist" />
+        <field id="title" type="string" alias="titleLabel.text" />
+        <field id="author" type="string" alias="authorLabel.text" />
+        <field id="updated" type="string" alias="updatedLabel.text" />
+        <field id="thumbnailUri" type="uri" alias="thumbnail.uri" />
+        <field id="videoCount" type="string" alias="videoCountLabel.text" />
+        <field id="videoCountRectVisible" type="boolean" alias="videoCountRect.visible" />
+
+        <!-- Card look. cardFocused is driven by RowCell. Colors come from Theme.bs -->
+        <field id="cardFocused" type="boolean" onChange="OnCardFocused" />
+        <field id="cardColor" type="color" alias="cardBackground.color" />
+        <field id="titleColor" type="color" alias="titleLabel.color" />
+        <field id="authorColor" type="color" alias="authorLabel.color" />
+        <field id="updatedColor" type="color" alias="updatedLabel.color" />
+    </interface>
+    <children>
+        <!-- The whole card (thumbnail + info panel) is one coloured block: 350x318 -->
+        <Rectangle
+            id="cardBackground"
+            width="350"
+            height="318"
+            color="#004B53" />
+
+        <Poster
+            id="thumbnail"
+            loadDisplayMode="scaleToZoom"
+            width="350"
+            height="196"
+            failedBitmapUri="pkg:/images/thumbnail-missing.jpg">
+            <Rectangle
+                id="videoCountRect"
+                width="60"
+                height="26"
+                color="0x000000"
+                opacity="0.8"
+                translation="[290, 162]">
+                <Label
+                    height="26"
+                    id="videoCountLabel"
+                    horizAlign="center"
+                    vertAlign="center"
+                    font="font:SmallestSystemFont"
+                    translation="[8, 0]" />
+            </Rectangle>
+        </Poster>
+
+        <LayoutGroup
+            translation="[10,204]"
+            itemSpacings="[3,0]">
+            <Label
+                id="titleLabel"
+                width="330"
+                color="#EBEBEBFF"
+                font="font:SmallestBoldSystemFont"
+                maxLines="2"
+                wrap="true" />
+            <Label
+                id="authorLabel"
+                width="330"
+                height="25"
+                color="#D6E6E8FF"
+                font="font:SmallestSystemFont" />
+            <Label
+                id="updatedLabel"
+                width="330"
+                height="25"
+                color="#D6E6E8FF"
+                font="font:SmallestSystemFont" />
+        </LayoutGroup>
+
+        <!-- Rounds the card corners: opaque (window background colour) outside a rounded rectangle -->
+        <Poster
+            id="cardMask"
+            width="350"
+            height="318"
+            blendColor="#131313"
+            uri="pkg:/images/card-mask.$$RES$$.9.png" />
+    </children>
+</component>

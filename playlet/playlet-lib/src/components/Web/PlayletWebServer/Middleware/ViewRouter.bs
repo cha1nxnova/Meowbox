@@ -1,0 +1,55 @@
+import "pkg:/components/ChannelView/ChannelUtils.bs"
+import "pkg:/components/PlaylistView/PlaylistUtils.bs"
+import "pkg:/components/Services/Invidious/InvidiousToContentNode.bs"
+import "pkg:/components/VideoQueue/VideoQueueUtils.bs"
+import "pkg:/components/Web/WebServer/Http/HttpRouter.bs"
+
+namespace Http
+
+    class ViewRouter extends HttpRouter
+
+        function new(server as object)
+            super()
+
+            m.appController = server.sceneNodes.appController
+            m.videoQueue = server.sceneNodes.videoQueue
+        end function
+
+        @get("/api/view/open")
+        function OpenView(context as object) as boolean
+            request = context.request
+            response = context.response
+
+            playlistId = request.query.playlistId
+            ' Mix continuation (playlistId starts with "RD")
+            videoId = request.query.videoId
+            authorId = request.query.authorId
+
+            if not StringUtils.IsNullOrEmpty(playlistId)
+                content = { playlistId: playlistId }
+                if playlistId.startsWith("RD") and not StringUtils.IsNullOrEmpty(videoId)
+                    content.videoId = videoId
+                end if
+                contentNode = InvidiousContent.ToPlaylistContentNode(invalid, content, invalid)
+                PlaylistUtils.Open(contentNode, m.appController)
+                if VideoQueueUtils.IsVideoPlayerOpen(m.videoQueue) and VideoQueueUtils.IsVideoPlayerFullScreen(m.videoQueue)
+                    VideoQueueUtils.ToggleVideoPictureInPicture(m.videoQueue)
+                end if
+                response.Default(204, "OK")
+            else if not StringUtils.IsNullOrEmpty(authorId)
+                contentNode = InvidiousContent.ToChannelContentNode(invalid, { authorId: authorId })
+                ChannelUtils.Open(contentNode, m.appController)
+                if VideoQueueUtils.IsVideoPlayerOpen(m.videoQueue) and VideoQueueUtils.IsVideoPlayerFullScreen(m.videoQueue)
+                    VideoQueueUtils.ToggleVideoPictureInPicture(m.videoQueue)
+                end if
+                response.Default(204, "OK")
+            else
+                response.Default(400, "Invalid request")
+            end if
+
+            return true
+        end function
+
+    end class
+
+end namespace

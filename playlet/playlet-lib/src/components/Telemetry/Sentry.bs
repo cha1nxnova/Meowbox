@@ -1,0 +1,220 @@
+import "pkg:/source/services/HttpClient.bs"
+
+const SUPPORT_SERVER_ENVELOPE_URL = "https://playlet-v8556.ondigitalocean.app/envelope"
+' A fallback is needed to investigate https://github.com/iBicha/playlet/issues/906
+const SENTRY_FALLBACK_ENVELOPE_URL = "https://o4509923566288896.ingest.us.sentry.io/api/4512194184544256/envelope/?sentry_key=a16c510299b23ccc63bdc84f751c9950"
+
+namespace Sentry
+
+    class Delivery
+        private events as object
+        private payload as string
+        private request as HttpClient.Request
+        private pending as HttpClient.PendingResponse
+        private sentToFallback as boolean = false
+
+        function new(events as object)
+            m.events = events
+            m.payload = BuildEnvelope(events, false)
+            m.Send(SUPPORT_SERVER_ENVELOPE_URL, m.payload)
+        end function
+
+        ' invalid while it is being sent; then how long to hold events back, in seconds: 0 once delivered.
+        function Poll() as dynamic
+            response = m.pending.Poll()
+            if response = invalid
+                return invalid
+            end if
+
+            ' Only when the server never answered: its own failures hit every device at once and would exhaust the fallback's quota
+            if not m.sentToFallback and response.StatusCode() <= 0
+                errorMessage = response.ErrorMessage()
+                LogWarnNoTelemetry("Support server unreachable, sending events to the Sentry fallback:", errorMessage)
+                m.sentToFallback = true
+                unreachableEvent = CreateSupportServerUnreachableEvent(m.events[0], m.payload, errorMessage)
+                m.Send(SENTRY_FALLBACK_ENVELOPE_URL, BuildEnvelope([unreachableEvent], true))
+                return invalid
+            end if
+
+            if response.IsSuccess()
+                LogDebug("Sent events to", m.request.GetFullUrl(), "Response:", response.Text())
+                return 0
+            end if
+
+            retryAfter = response.RetryAfterSeconds()
+            if retryAfter = invalid or retryAfter = 0
+                retryAfter = 60
+            end if
+
+            if response.StatusCode() = 429
+                LogErrorNoTelemetry("Rate limited by", m.request.GetFullUrl(), "Retry after", retryAfter, "seconds")
+            else
+                LogErrorNoTelemetry("Failed to send events to", m.request.GetFullUrl(), response.ErrorMessage(), `\nRetry after`, retryAfter, "seconds")
+            end if
+            return retryAfter
+        end function
+
+        private function Send(url as string, envelope as string) as void
+            m.request = HttpClient.Post(url).TextBody(envelope).Header("Content-Type", "application/x-sentry-envelope")
+            m.pending = m.request.Send()
+        end function
+    end class
+
+    function CreateSupportServerUnreachableEvent(originalEvent as object, payload as string, errorMessage as string) as object
+        return {
+            level: "warning"
+            message: `Support server unreachable: ${errorMessage}`
+            fingerprint: ["support server unreachable"]
+            release: originalEvent.release
+            tags: originalEvent.tags
+            userId: originalEvent.userId
+            attachments: [{
+                filename: "envelope.txt"
+                content_type: "text/plain"
+                data: payload
+            }]
+        }
+    end function
+
+    function BuildEnvelope(events as object, supportsAttachments as boolean) as string
+        timestamp = CreateObject("roDateTime").ToISOString()
+
+        payload = FormatJson({
+            sent_at: timestamp
+            sdk: {
+                name: "sentry.roku.playlet"
+                version: "1.0.0"
+            }
+        }) + `\n`
+
+        for each event in events
+            payload += `{"type":"event"}` + `\n`
+
+            if StringUtils.IsNullOrEmpty(event.event_id)
+                event.event_id = m.deviceInfo.GetRandomUUID().Replace("-", "")
+            end if
+
+            if StringUtils.IsNullOrEmpty(event.timestamp)
+                event.timestamp = timestamp
+            end if
+
+            eventPayload = {
+                event_id: event.event_id
+                timestamp: event.timestamp
+                platform: "roku"
+                #if DEBUG
+                    environment: "development"
+                #else
+                    environment: "production"
+                #end if
+                release: event.release
+                tags: event.tags
+                level: event.level
+                user: {
+                    id: event.userId
+                }
+            }
+
+            message = Redact(event.message)
+
+            if event.fingerprint = invalid
+                event.fingerprint = GetFingerprint(message)
+            end if
+
+            if event.fingerprint <> invalid
+                fingerprint = event.fingerprint
+                if not IsArray(fingerprint)
+                    fingerprint = [fingerprint]
+                end if
+                for i = 0 to fingerprint.Count() - 1
+                    if not IsString(fingerprint[i])
+                        fingerprint[i] = ToString(fingerprint[i])
+                    end if
+                end for
+                eventPayload.fingerprint = fingerprint
+            end if
+
+            hasAttachments = IsArray(event.attachments) and event.attachments.Count() > 0
+
+            if (not supportsAttachments) and hasAttachments
+                extra = {}
+                for each attachment in event.attachments
+                    extra[attachment.filename] = `content_type:${attachment.content_type}\n${Redact(attachment.data)}`
+                end for
+                eventPayload.extra = extra
+            end if
+
+            eventPayload.logentry = {
+                formatted: message
+            }
+
+            payload += FormatJson(eventPayload) + `\n`
+
+            if supportsAttachments and hasAttachments
+                tmpBuffer = CreateObject("roByteArray")
+                for each attachment in event.attachments
+                    data = Redact(attachment.data)
+                    attachment.Delete("data")
+                    attachment["type"] = "attachment"
+                    tmpBuffer.FromAsciiString(data)
+                    attachment["length"] = tmpBuffer.Count()
+
+                    payload += FormatJson(attachment) + `\n`
+                    payload += data + `\n`
+                end for
+            end if
+        end for
+
+        return payload
+    end function
+
+    function GetFingerprint(message as dynamic) as dynamic
+        if StringUtils.IsNullOrEmpty(message)
+            return invalid
+        end if
+        ' Replaces `\nRequestId: 12345678\n` with `\nRequestId: <REQUEST_ID>\n`
+        fingerprint = ReplaceRequestId(message)
+        if fingerprint = invalid
+            return invalid
+        end if
+        return [fingerprint]
+    end function
+
+    function ReplaceRequestId(message as string) as dynamic
+        requestIdRegex = m.requestIdRegex
+        if requestIdRegex = invalid
+            requestIdRegex = /RequestId:\s*[0-9]+/
+            m.requestIdRegex = requestIdRegex
+        end if
+
+        matches = requestIdRegex.MatchAll(message)
+        if not IsArray(matches) or matches.Count() = 0
+            return invalid
+        end if
+
+        for each match in matches
+            fullMatch = match[0]
+            message = message.Replace(fullMatch, "RequestId: <REQUEST_ID>")
+        end for
+
+        return message
+    end function
+
+    function Redact(text as dynamic) as dynamic
+        if StringUtils.IsNullOrEmpty(text)
+            return text
+        end if
+
+        authHeader = /Authorization: (?!<REDACTED>)[^\r\n]*/i
+        for each match in authHeader.MatchAll(text)
+            text = text.Replace(match[0], "Authorization: <REDACTED>")
+        end for
+
+        refreshToken = /("refresh_token"\s*:\s*)"[^"]*"/i
+        for each match in refreshToken.MatchAll(text)
+            text = text.Replace(match[0], `${match[1]}"<REDACTED>"`)
+        end for
+
+        return text
+    end function
+end namespace

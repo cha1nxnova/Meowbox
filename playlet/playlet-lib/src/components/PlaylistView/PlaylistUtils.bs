@@ -1,0 +1,13 @@
+namespace PlaylistUtils
+    function Open(contentNode as object, appController = invalid as object)
+        playlistView = CreateObject("roSGNode", "PlaylistView")
+        if appController = invalid
+            appController = m.appController
+        end if
+        appController@.PushScreen(playlistView)
+        playlistView@.BindNode()
+        ' Clone the playlist because the videos will be loaded as children.
+        ' This allows the videos to be freed once the view is closed.
+        playlistView.content = contentNode.clone(false)
+    end function
+end namespace

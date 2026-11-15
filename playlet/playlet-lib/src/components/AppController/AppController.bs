@@ -1,0 +1,155 @@
+import "pkg:/components/Dialog/DialogUtils.bs"
+import "pkg:/components/Navigation/LongPress.bs"
+import "pkg:/components/VideoQueue/VideoQueueUtils.bs"
+import "pkg:/components/VideoQueue/VideoQueueViewUtils.bs"
+import "pkg:/source/utils/FocusManagement.bs"
+import "pkg:/source/utils/Locale.bs"
+import "pkg:/source/utils/Logging.bs"
+import "pkg:/source/utils/RemoteKeys.bs"
+import "pkg:/source/utils/StringUtils.bs"
+import "pkg:/source/utils/Types.bs"
+
+function Init()
+    m.screens = {}
+    m.firstScreenCalled = false
+end function
+
+function OnNodeReady()
+    InitializeLongPress(["options"])
+    NodeSetFocus(m.top.root, true)
+end function
+
+function PushScreen(node as object)
+    m.stack.appendChild(node)
+    FocusTopScreen(invalid)
+end function
+
+function PopScreen(_unused as dynamic)
+    childCount = m.stack.getChildCount()
+    if childCount > 1
+        m.stack.removeChildIndex(childCount - 1)
+        FocusTopScreen(invalid)
+    end if
+end function
+
+function FocusTopScreen(_unused as dynamic)
+    childCount = m.stack.getChildCount()
+    topScreen = m.stack.getChild(childCount - 1)
+    NodeSetFocus(topScreen, true)
+end function
+
+function HideRootScreen(screenName as string) as void
+    if StringUtils.IsNullOrEmpty(screenName)
+        return
+    end if
+    if not m.screens.DoesExist(screenName)
+        return
+    end if
+    screen = m.screens[screenName]
+    if screen = invalid
+        return
+    end if
+    screen.visible = false
+end function
+
+function ShowRootScreen(screenName as string) as void
+    if StringUtils.IsNullOrEmpty(screenName)
+        return
+    end if
+    if not m.screens.DoesExist(screenName)
+        screen = CreateObject("roSGNode", screenName)
+        screen.id = screenName
+        m.screens[screenName] = screen
+        ' insert child at 0 to make sure it is behind the navbar
+        m.screensContainer.insertChild(screen, 0)
+        if screen.hasField("binding_done")
+            screen@.BindNode()
+        end if
+    end if
+    screen = m.screens[screenName]
+    if screen = invalid
+        return
+    end if
+    screen.visible = true
+    if not m.firstScreenCalled
+        m.firstScreenCalled = true
+        NodeSetFocus(screen, true)
+    end if
+end function
+
+function GetRootScreen(screenName as string) as object
+    if StringUtils.IsNullOrEmpty(screenName)
+        return invalid
+    end if
+    if not m.screens.DoesExist(screenName)
+        return invalid
+    end if
+    return m.screens[screenName]
+end function
+
+function OnKeyEvent(key as string, press as boolean) as boolean
+    if LongPressHandler(key, press)
+        return true
+    end if
+
+    if key = RemoteKeys.OptionsLongPress and press
+        LogInfo("Opening VideoQueueView")
+        VideoQueueViewUtils.Open(m.top.videoQueue, m.top)
+        return true
+    end if
+
+    if key = RemoteKeys.Options and not press
+        if VideoQueueUtils.ToggleVideoPictureInPicture(m.top.videoQueue)
+            return true
+        end if
+    end if
+
+    if not press
+        return false
+    end if
+
+    if key = RemoteKeys.Play
+        if VideoQueueUtils.TogglePause(m.top.videoQueue)
+            return true
+        end if
+    end if
+
+    if key = RemoteKeys.Pause
+        if VideoQueueUtils.Pause(m.top.videoQueue)
+            return true
+        end if
+    end if
+
+    if key = RemoteKeys.PlayOnly
+        if VideoQueueUtils.Play(m.top.videoQueue)
+            return true
+        end if
+    end if
+
+    if key = RemoteKeys.Back
+        if VideoQueueUtils.IsVideoPlayerOpen(m.top.videoQueue) and not VideoQueueUtils.IsVideoPlayerFullScreen(m.top.videoQueue)
+            if VideoQueueUtils.ToggleVideoPictureInPicture(m.top.videoQueue)
+                return true
+            end if
+        end if
+        dialog = DialogUtils.ShowDialogEx({
+            message: Tr(Locale.Dialogs.ExitPlayletQuestion)
+            title: Tr(Locale.Buttons.exit)
+            buttons: [Tr(Locale.Buttons.exit), Tr(Locale.Buttons.Cancel)]
+        })
+        if dialog <> invalid
+            dialog.observeField("buttonSelected", FuncName(OnExitDialog), ["buttonSelected"])
+        end if
+        return true
+    end if
+
+    return false
+end function
+
+function OnExitDialog(event as object)
+    buttonIndex = event.GetData()
+    if buttonIndex = 0 ' Exit
+        LogInfo("Exiting app")
+        m.top.getScene().exitChannel = true
+    end if
+end function

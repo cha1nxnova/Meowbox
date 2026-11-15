@@ -1,0 +1,58 @@
+<component name="DeviceConnectedNotification" extends="Group">
+    <interface>
+        <field id="thumbnail" type="uri" alias="thumbnailPoster.uri" />
+        <field id="line1" type="string" alias="line1Label.text" />
+        <field id="line2" type="string" alias="line2Label.text" />
+        <field id="show" type="boolean" alwaysNotify="true" onChange="OnShow" />
+    </interface>
+    <children>
+        <Poster
+            width="350"
+            height="100"
+            opacity="0.9"
+            blendColor="#414141"
+            uri="pkg:/images/white.$$RES$$.9.png">
+
+            <CirclePoster
+                id="thumbnailPoster"
+                width="80"
+                height="80"
+                failedBitmapUri="pkg:/images/icons/user.png"
+                translation="[10,10]" />
+
+            <LayoutGroup
+                itemSpacings="[5,5]"
+                translation="[100,15]">
+                <Label
+                    width="230"
+                    font="font:SmallestBoldSystemFont"
+                    horizAlign="center"
+                    text="Device connected">
+                </Label>
+                <Label
+                    id="line1Label"
+                    width="230"
+                    font="font:SmallestBoldSystemFont"
+                    horizAlign="center" />
+                <Label
+                    id="line2Label"
+                    width="230"
+                    font="font:SmallestSystemFont"
+                    horizAlign="center" />
+            </LayoutGroup>
+        </Poster>
+        <Animation
+            id="translationAnimation"
+            duration="0.3"
+            optional="true">
+            <Vector2DFieldInterpolator
+                id="translationAnimationInterpolator"
+                key="[0.0, 0.5, 1.0]"
+                keyValue="[ [1280.0, 20.0], [1095.0, 20.0], [910.0, 20.0] ]"
+                fieldToInterp="DeviceConnectedNotification.translation" />
+        </Animation>
+        <Timer
+            id="animationTimer"
+            duration="3" />
+    </children>
+</component>

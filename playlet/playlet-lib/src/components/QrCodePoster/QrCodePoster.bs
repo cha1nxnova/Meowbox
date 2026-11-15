@@ -1,0 +1,105 @@
+import "pkg:/components/JobSystem/Jobs.bs"
+import "pkg:/components/JobSystem/JobSystem.bs"
+import "pkg:/source/utils/Logging.bs"
+import "pkg:/source/utils/StringUtils.bs"
+import "pkg:/source/utils/Types.bs"
+
+function Init()
+    m.busySpinner = m.top.findNode("busySpinner")
+    m.busySpinnerPoster = m.busySpinner.poster
+    m.busySpinnerPoster.loadDisplayMode = "limitSize"
+
+    m.top.observeField("width", FuncName(OnSizeChange))
+    m.top.observeField("height", FuncName(OnSizeChange))
+    OnSizeChange()
+
+    m.busySpinnerPoster.uri = "pkg:/images/spinner.png"
+
+    m.top.observeField("loadStatus", FuncName(OnLoadStatusChange))
+end function
+
+function OnSizeChange()
+    spinnerWidth = m.top.width / 2
+    spinnerHeight = m.top.height / 2
+    m.busySpinnerPoster.width = spinnerWidth
+    m.busySpinnerPoster.height = spinnerHeight
+    m.busySpinnerPoster.loadWidth = spinnerWidth
+    m.busySpinnerPoster.loadHeight = spinnerHeight
+    m.busySpinner.translation = [spinnerWidth / 2, spinnerHeight / 2]
+end function
+
+function OnTextChange() as void
+    GenerateQrCode()
+end function
+
+function OnLoadStatusChange() as void
+    if m.top.loadStatus <> "failed"
+        return
+    end if
+
+    ' If the image failed to load, it might have been deleted from cachefs:
+    ' Try to generate it again
+    LogInfo("QrCode image failed to load, trying to generate it again")
+    GenerateQrCode()
+end function
+
+function GenerateQrCode() as void
+    if m.generateQrCodeJob <> invalid
+        m.generateQrCodeJob.cancel = true
+    end if
+
+    text = m.top.text
+
+    width = m.top.loadWidth
+    if width = 0
+        width = m.top.width
+    end if
+
+    m.top.uri = ""
+
+    if StringUtils.IsNullOrEmpty(text)
+        m.top.isBusy = false
+        return
+    end if
+
+    m.top.isBusy = true
+
+    if m.jobQueue = invalid
+        m.jobQueue = m.top.getScene().findNode("JobQueue")
+    end if
+
+    input = {
+        poster: m.top
+        text: text
+        size: width
+        padding: m.top.padding
+    }
+
+    m.generateQrCodeJob = JobSystem.CreateCallback(OnGenerateQrCodeJobDone)
+    JobSystem.QueueJob(m.jobQueue, Jobs.GenerateQrCodeJob, input, m.generateQrCodeJob)
+end function
+
+function OnGenerateQrCodeJobDone(event as object) as void
+    JobSystem.UnobserveCallback(event.getRoSGNode())
+    m.generateQrCodeJob = invalid
+
+    info = event.getInfo()
+    if info.cancel
+        return
+    end if
+
+    m.top.isBusy = false
+end function
+
+function OnIsBusy()
+    isBusy = m.top.isBusy
+
+    if isBusy
+        m.busySpinnerPoster.rotation = 0
+        m.busySpinner.control = "start"
+        m.busySpinner.visible = true
+    else
+        m.busySpinner.control = "stop"
+        m.busySpinner.visible = false
+    end if
+end function

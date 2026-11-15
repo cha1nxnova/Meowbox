@@ -1,0 +1,355 @@
+import "pkg:/components/Services/Innertube/Constants.bs"
+import "pkg:/components/Services/Innertube/Context.bs"
+import "pkg:/components/Services/Innertube/NodesParser.bs"
+import "pkg:/source/services/HttpClient.bs"
+import "pkg:/source/utils/ObjectUtils.bs"
+import "pkg:/source/utils/TimeUtils.bs"
+
+namespace Innertube
+
+    enum RefreshErrorCode
+        InvalidGrant = "invalid_grant"
+        InvalidClient = "invalid_client"
+        UnauthorizedClient = "unauthorized_client"
+    end enum
+
+    function IsTerminalRefreshError(json as object) as boolean
+        if not IsAssociativeArray(json)
+            return false
+        end if
+        oauthError = ValidString(json.error)
+        return oauthError = RefreshErrorCode.InvalidGrant or oauthError = RefreshErrorCode.InvalidClient or oauthError = RefreshErrorCode.UnauthorizedClient
+    end function
+
+    ' A failed refresh is retried, unless the token endpoint rejected the credential or the client.
+    function RefreshRetryReason(response as HttpClient.Response) as string
+        if response.IsSuccess() or IsTerminalRefreshError(response.Json())
+            return ""
+        end if
+        return response.ErrorMessage()
+    end function
+
+    function GetClientIdentity(cancellation = invalid as dynamic) as object
+        request = HttpClient.Get("https://www.youtube.com/tv")
+        request.Headers({
+            "User-Agent": INNERTUBE_TV_USER_AGENT
+            "Referer": "https://www.youtube.com/tv"
+            "Accept-Language": "en-US"
+        })
+        request.Cancellation(cancellation)
+
+        response = request.Await()
+        if not response.IsSuccess()
+            return {
+                "error": `Failed to get client id: ${response.ErrorMessage()}`
+            }
+        end if
+
+        text = response.Text()
+
+        scriptRegex = /<script\s+id="base-js"\s+src="([^"]+)"[^>]*><\/script>/
+
+        match = scriptRegex.Match(text)
+        if match.Count() < 2
+            return {
+                "error": "Could not find base-js script"
+            }
+        end if
+
+        baseJsUrl = "https://www.youtube.com" + match[1]
+
+        request = HttpClient.Get(baseJsUrl)
+        request.Cancellation(cancellation)
+        response = request.Await()
+
+        if not response.IsSuccess()
+            return {
+                "error": `Failed to get base js: ${response.ErrorMessage()}`
+            }
+        end if
+
+        text = response.Text()
+
+        clientIdRegex = /clientId:"(?<client_id>[^"]+)",[^"]*?:"(?<client_secret>[^"]+)"/
+
+        match = clientIdRegex.Match(text)
+        if match.Count() < 3
+            return {
+                "error": "Could not find client id and secret"
+            }
+        end if
+
+        return {
+            "clientId": match[1]
+            "clientSecret": match[2]
+        }
+    end function
+
+    function GetDeviceAndUserCode(clientId as string, cancellation = invalid as dynamic) as object
+        deviceInfo = CreateObject("roDeviceInfo")
+
+        payload = {
+            "client_id": clientId
+            "scope": "http://gdata.youtube.com https://www.googleapis.com/auth/youtube-paid-content"
+            "device_id": deviceInfo.GetRandomUUID()
+            "device_model": "ytlr::"
+        }
+
+        request = HttpClient.Post("https://www.youtube.com/o/oauth2/device/code").JsonBody(payload)
+        request.Cancellation(cancellation)
+        response = request.Await()
+
+        if not response.IsSuccess()
+            return {
+                "error": `Failed to get device code: ${response.ErrorMessage()}`
+            }
+        end if
+
+        responseData = ToCamelCase(response.Json())
+
+        if responseData.DoesExist("errorCode")
+            return {
+                "error": "Failed to get device code: " + ToString(responseData)
+            }
+        end if
+
+        if responseData.DoesExist("expiresIn")
+            responseData["expiresTimestamp"] = TimeUtils.Now().AsSeconds() + responseData["expiresIn"]
+        end if
+
+        return responseData
+    end function
+
+    function PollForAccessToken(clientIdentity as object, deviceAndUserCode as object, cancellation = invalid as dynamic) as object
+        payload = {
+            "client_id": clientIdentity.clientId
+            "client_secret": clientIdentity.clientSecret
+            "code": deviceAndUserCode.deviceCode
+            "grant_type": "http://oauth.net/grant_type/device/1.0"
+        }
+
+        intervalMs = deviceAndUserCode.interval * 1000
+
+        while true
+            request = HttpClient.Post("https://www.youtube.com/o/oauth2/token").JsonBody(payload)
+            request.Cancellation(cancellation)
+            response = request.Await()
+
+            if not response.IsSuccess()
+                errorMessage = response.ErrorMessage()
+                LogError(errorMessage)
+                return {
+                    "error": errorMessage
+                }
+            end if
+
+            responseData = ToCamelCase(response.Json())
+            if not responseData.DoesExist("error")
+                if responseData.DoesExist("expiresIn")
+                    responseData["expiresTimestamp"] = TimeUtils.Now().AsSeconds() + responseData["expiresIn"]
+                end if
+                responseData["clientId"] = clientIdentity["clientId"]
+                responseData["clientSecret"] = clientIdentity["clientSecret"]
+                return responseData
+            end if
+
+            if responseData.error = "authorization_pending"
+                LogInfo("Waiting for user to authorize device", responseData)
+                sleep(intervalMs)
+                if CancellationUtils.IsCancelled(cancellation)
+                    return invalid
+                end if
+                continue while
+            else if responseData.error = "slow_down"
+                LogWarn("Polling too fast, slowing down", responseData)
+                sleep(intervalMs + 3000)
+                if CancellationUtils.IsCancelled(cancellation)
+                    return invalid
+                end if
+                continue while
+            else if responseData.error = "expired_token"
+                return responseData
+            else if responseData.error = "access_denied"
+                return responseData
+            else
+                return {
+                    "error": "Failed to get access token: " + ToString(responseData)
+                }
+            end if
+        end while
+
+        return invalid
+    end function
+
+    function RefreshAccessToken(accessToken as object, cancellation = invalid as dynamic) as object
+        payload = {
+            "client_id": accessToken.clientId
+            "client_secret": accessToken.clientSecret
+            "refresh_token": accessToken.refreshToken
+            "grant_type": "refresh_token"
+        }
+
+        request = HttpClient.Post("https://www.youtube.com/o/oauth2/token").JsonBody(payload)
+        request.Cancellation(cancellation)
+        request.RetryCount(2)
+        request.RetryIf(Innertube.RefreshRetryReason)
+        response = request.Await()
+
+        if not response.IsSuccess()
+            json = response.Json()
+            oauthError = ""
+            if IsAssociativeArray(json)
+                oauthError = ValidString(json.error)
+            end if
+            if oauthError = RefreshErrorCode.InvalidGrant
+                ' Dead user refresh token: flag the shared object so the job marks the profile.
+                accessToken.terminalRefreshError = true
+            else if oauthError = RefreshErrorCode.InvalidClient or oauthError = RefreshErrorCode.UnauthorizedClient
+                ' Fleet-wide app-side rejection. The credentials are scraped public TV-client
+                ' values, safe to log; don't clear the session — re-login uses the same client.
+                LogError("OAuth client rejected by token endpoint:", response.ErrorMessage(), "client_id:", accessToken.clientId, "client_secret:", accessToken.clientSecret)
+            end if
+            throw `Failed to refresh token: ${response.ErrorMessage()}`
+        end if
+
+        responseData = ToCamelCase(response.Json())
+        if responseData.DoesExist("errorCode")
+            throw "Failed to refresh token: " + ToString(responseData)
+        end if
+
+        return responseData
+    end function
+
+    function RevokeToken(token as string, cancellation = invalid as dynamic) as boolean
+        request = HttpClient.Post("https://www.youtube.com/o/oauth2/revoke").JsonBody({
+            "token": token
+        })
+        request.Cancellation(cancellation)
+        response = request.Await()
+        success = response.IsSuccess()
+        if not success
+            LogError(`Failed to revoke token: ${response.ErrorMessage()}`)
+        end if
+        return success
+    end function
+
+    function ListAccounts(accessToken as string, cancellation = invalid as dynamic) as object
+        deviceInfo = CreateObject("roDeviceInfo")
+
+        payload = {
+            "context": Innertube.CreateContext(Innertube.ClientType.Tv, deviceInfo)
+            "accountReadMask": {
+                "returnOwner": true
+                "returnBrandAccounts": true
+                "returnPersonaAccounts": true
+                "returnFamilyChildAccounts": true
+            }
+        }
+
+        request = HttpClient.Post("https://www.youtube.com/youtubei/v1/account/accounts_list").JsonBody(payload)
+        headers = {
+            "Authorization": `Bearer ${accessToken}`
+        }
+        headers.Append(Innertube.CreateHeaders(Innertube.ClientType.Tv))
+        request.Headers(headers)
+        request.Cancellation(cancellation)
+
+        response = request.Await()
+
+        if not response.IsSuccess()
+            return {
+                "error": `Failed to list accounts: ${response.ErrorMessage()}`
+            }
+        end if
+
+        accounts = ObjectUtils.Dig(response.Json(), ["contents", 0, "accountSectionListRenderer", "contents", 0, "accountItemSectionRenderer", "contents"])
+        if not IsArray(accounts)
+            return {
+                "error": "Could not parse accounts"
+            }
+        end if
+
+        parsedAccounts = []
+        for each account in accounts
+            accountItem = account["accountItem"]
+            if not IsAssociativeArray(accountItem)
+                continue for
+            end if
+
+            parsedAccount = {
+                "accountName": ParseText(accountItem["accountName"])
+                "accountPhoto": ObjectUtils.Dig(accountItem, ["accountPhoto", "thumbnails", 0, "url"])
+                "isSelected": ValidBool(accountItem["isSelected"])
+                "isDisabled": ValidBool(accountItem["isDisabled"])
+                "hasChannel": ValidBool(accountItem["hasChannel"])
+                "accountByline": ParseText(accountItem["accountByline"])
+                "channelHandle": ParseText(accountItem["channelHandle"])
+                "activeIdentifyToken": ParseAccountItemIdentityToken(accountItem)
+            }
+            parsedAccounts.Push(parsedAccount)
+        end for
+
+        return parsedAccounts
+    end function
+
+    function ParseAccountItemIdentityToken(accountItem as object) as string
+        ' Although selected (default) account would have a token, we usually don't
+        ' need it, since we don't need to pass the "onBehalfOfUser" argument
+        ' when using selected account.
+        if ValidBool(accountItem.isSelected)
+            return ""
+        end if
+
+        supportedTokens = ObjectUtils.Dig(accountItem, ["serviceEndpoint", "selectActiveIdentityEndpoint", "supportedTokens"])
+        if not IsArray(supportedTokens) or supportedTokens.Count() = 0
+            return ""
+        end if
+
+        for each supportedToken in supportedTokens
+            if not IsAssociativeArray(supportedToken)
+                continue for
+            end if
+
+            ' TODO:P2 should we stick with pageId, and ignore the rest?
+            pageId = ObjectUtils.Dig(supportedToken, ["pageIdToken", "pageId"])
+            if not StringUtils.IsNullOrEmpty(pageId)
+                return pageId
+            end if
+
+            obfuscatedGaiaId = ObjectUtils.Dig(supportedToken, ["accountStateToken", "obfuscatedGaiaId"])
+            if not StringUtils.IsNullOrEmpty(obfuscatedGaiaId)
+                return obfuscatedGaiaId
+            end if
+
+            datasyncIdToken = ObjectUtils.Dig(supportedToken, ["datasyncIdToken", "datasyncIdToken"])
+            if not StringUtils.IsNullOrEmpty(datasyncIdToken)
+                ' "datasyncIdToken": "123456789012345678901||123456789012345678901"
+                match = /(\d+)\|\|(\d+)/.match(datasyncIdToken)
+                if match.Count() = 3
+                    return match[1]
+                end if
+            end if
+        end for
+
+        return ""
+    end function
+
+    function ToCamelCase(obj as object) as object
+        if not IsAssociativeArray(obj)
+            return obj
+        end if
+
+        newObj = {}
+        for each key in obj
+            newKey = key
+            underScoreIndex = newKey.InStr("_")
+            while underScoreIndex <> -1 and underScoreIndex < newKey.Len() - 2
+                newKey = newKey.Left(underScoreIndex) + UCase(newKey.Mid(underScoreIndex + 1, 1)) + newKey.Mid(underScoreIndex + 2)
+                underScoreIndex = newKey.InStr("_")
+            end while
+            newObj[newKey] = obj[key]
+        end for
+        return newObj
+    end function
+
+end namespace

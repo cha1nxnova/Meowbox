@@ -1,0 +1,50 @@
+namespace Protobuf
+
+    class Encoder
+        private writer
+
+        function new(writer as object) as void
+            m.writer = writer
+        end function
+
+        function EncodeString(tag as integer, value as dynamic) as void
+            m.writer.WriteByte((tag << 3) or 2)
+            m.writer.WriteString(value)
+        end function
+
+        function EncodeInt32(tag as integer, value as dynamic) as void
+            m.writer.WriteByte((tag << 3) or 0)
+            m.writer.WriteVarInt(value)
+        end function
+
+        function EncodeInt64(tag as integer, value as dynamic) as void
+            m.writer.WriteByte((tag << 3) or 0)
+            ' TODO:P2 WriteInt64 doesn't exist
+            m.writer.WriteInt64(value)
+        end function
+
+        function EncodeFloat(tag as integer, value as dynamic) as void
+            m.writer.WriteByte((tag << 3) or 5)
+            ' TODO:P2 WriteFloat doesn't exist
+            m.writer.WriteFloat(value)
+        end function
+
+        function EncodeDouble(tag as integer, value as dynamic) as void
+            m.writer.WriteByte((tag << 3) or 1)
+            ' TODO:P2 WriteDouble doesn't exist
+            m.writer.WriteDouble(value)
+        end function
+
+        function EncodeBool(tag as integer, value as dynamic) as void
+            m.writer.WriteByte((tag << 3) or 0)
+            m.writer.WriteBool(value)
+        end function
+
+        function EncodeMessage(tag as integer, value as dynamic) as void
+            m.writer.WriteByte((tag << 3) or 2)
+            m.writer.WriteProtoByteArray(value)
+        end function
+
+    end class
+
+end namespace

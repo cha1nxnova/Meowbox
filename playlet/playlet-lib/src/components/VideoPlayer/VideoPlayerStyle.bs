@@ -1,0 +1,30 @@
+import "pkg:/source/utils/Theme.bs"
+
+function SetPlayerStyle()
+    m.top.trickPlayBar.filledBarBlendColor = Theme.Progress
+    m.top.bufferingBar.filledBarBlendColor = Theme.Progress
+    m.top.retrievingBar.filledBarBlendColor = Theme.Progress
+
+    ' Find the BusySpinner built into the Video node
+    busySpinner = FindChildNodeOfType(m.top, "BusySpinner")
+    if busySpinner <> invalid
+        busySpinner.poster.blendColor = Theme.Progress
+    end if
+end function
+
+function FindChildNodeOfType(node as object, nodeType as string) as object
+    if node.subtype() = nodeType
+        return node
+    end if
+
+    childCount = node.getChildCount()
+    children = node.getChildren(childCount, 0)
+    for i = 0 to childCount - 1
+        child = FindChildNodeOfType(children[i], nodeType)
+        if child <> invalid
+            return child
+        end if
+    end for
+
+    return invalid
+end function

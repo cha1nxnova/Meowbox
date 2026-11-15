@@ -1,0 +1,96 @@
+import "pkg:/source/utils/Locale.bs"
+import "pkg:/source/utils/StringUtils.bs"
+
+function Init()
+    m.normalFont = m.top.findNode("normalFont")
+    m.boldFont = m.top.findNode("boldFont")
+end function
+
+function OnContentSet() as void
+    content = m.top.itemContent
+    if content = invalid
+        return
+    end if
+
+    if content.type = "login"
+        m.top.circlePosterInnerUri = "pkg:/images/icons/user-200.png"
+        m.top.backendTypePosterUri = ""
+        ' bs:disable-next-line LINT3023
+        m.top.circlePosterInnerBlendColor = "#FFFFFFFF"
+        m.top.letter = ""
+        m.top.username = Tr(Locale.Buttons.Login)
+        m.top.serverUrl = ""
+        m.top.crownVisible = false
+        return
+    end if
+
+    username = content.username
+    m.top.username = username
+
+    thumbnail = content.thumbnail
+    if not StringUtils.IsNullOrEmpty(thumbnail)
+        m.top.circlePosterInnerUri = thumbnail
+        ' bs:disable-next-line LINT3023
+        m.top.circlePosterInnerBlendColor = "#FFFFFFFF"
+        m.top.letter = ""
+    else
+        m.top.circlePosterInnerUri = "pkg:/images/white-circle.png"
+        m.top.circlePosterInnerBlendColor = content.color
+
+        if not StringUtils.IsNullOrEmpty(username)
+            letter = username.Left(1)
+            if letter = "@" and Len(username) > 1
+                letter = username.Mid(1, 1)
+            end if
+            m.top.letter = UCase(letter)
+        else
+            m.top.letter = ""
+        end if
+    end if
+
+    m.top.crownVisible = content.isSelected
+
+    backendType = content.type
+    if backendType = "invidious"
+        m.top.serverUrl = content.serverUrl
+        m.top.backendTypePosterUri = "pkg:/images/invidious-logo.png"
+    else if backendType = "youtube"
+        m.top.serverUrl = "YouTube"
+        m.top.backendTypePosterUri = "pkg:/images/youtube-logo.png"
+    else
+        m.top.serverUrl = ""
+        m.top.backendTypePosterUri = ""
+    end if
+end function
+
+function OnRowListHasFocus()
+    if not m.top.rowListHasFocus
+        m.top.animate = false
+    end if
+end function
+
+function OnItemHasFocus()
+    m.top.animate = (m.top.itemHasFocus or m.top.focusPercent > 0.5) and m.top.rowListHasFocus
+end function
+
+function OnFocusPercent()
+    if m.top.focusPercent > 0.5 and m.top.rowListHasFocus
+        m.top.animate = true
+    else
+        m.top.animate = false
+    end if
+end function
+
+function OnAnimate()
+    animate = m.top.animate
+    m.top.shadowVisible = animate
+    m.top.serverLabelVisible = animate
+    m.top.circlePosterTranslation = [20, 20]
+    if animate
+        m.top.UsernameLabelFont = m.boldFont
+        m.top.animationControl = "start"
+    else
+        m.top.UsernameLabelFont = m.normalFont
+        m.top.animationControl = "stop"
+    end if
+end function

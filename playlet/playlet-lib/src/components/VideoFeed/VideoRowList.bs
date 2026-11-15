@@ -1,0 +1,366 @@
+import "pkg:/components/ChannelView/ChannelUtils.bs"
+import "pkg:/components/ContextMenu/ContextMenuUtils.bs"
+import "pkg:/components/JobSystem/Jobs.bs"
+import "pkg:/components/JobSystem/JobSystem.bs"
+import "pkg:/components/Navigation/LongPress.bs"
+import "pkg:/components/PlaylistView/PlaylistUtils.bs"
+import "pkg:/components/Services/Invidious/InvidiousToContentNode.bs"
+import "pkg:/components/VideoFeed/FeedLoadState.bs"
+import "pkg:/source/utils/DisposableObserve.bs"
+import "pkg:/source/utils/ErrorUtils.bs"
+import "pkg:/source/utils/Logging.bs"
+import "pkg:/source/utils/RemoteKeys.bs"
+import "pkg:/source/utils/Types.bs"
+
+' TODO:P1 add the option to remove a row if it does not have any content
+' E.g. Subscriptions, Watch History and Playlists can be empty
+function Init()
+    m.pendingLoadJobs = {}
+end function
+
+function OnNodeReady()
+    DisposableObserveField(m.top, "itemFocused", FuncName(OnItemFocused))
+    DisposableObserveField(m.top, "rowItemFocused", FuncName(OnRowItemFocused))
+    DisposableObserveField(m.top, "rowItemSelected", FuncName(OnRealRowItemSelected))
+    DisposableObserveField(m.top, "focusedChild", FuncName(OnFocusedChildChange))
+    DisposableObserveField(m.top, "visible", FuncName(OnVisibilityChange))
+
+    ' TODO:P1 Reload when subscriptions change
+    DisposableObserveFieldScoped(m.profilesService, "currentProfileChanged", FuncName(OnCurrentProfileChanged))
+    InitializeLongPress(["OK"])
+end function
+
+function OnFocusedChildChange() as void
+    if m.top.hasFocus()
+        LoadRowsIfNeeded()
+    end if
+end function
+
+function OnVisibilityChange()
+    if m.top.visible = true
+        LoadRowsIfNeeded()
+    end if
+end function
+
+function OnFeedsChange() as void
+    InitContent()
+end function
+
+function OnItemFocused()
+    LoadRowsIfNeeded()
+end function
+
+function OnRowItemFocused(event as object) as void
+    index = event.GetData()
+    if index = invalid or index.count() <> 2
+        LogWarn("Invalid index:", index)
+        return
+    end if
+
+    rowIndex = index[0]
+    rowItemIndex = index[1]
+
+    row = m.top.content.GetChild(rowIndex)
+    if not row.loadState = FeedLoadState.LoadedPage
+        return
+    end if
+    ' As we get close to the end of the row, load more content
+    if rowItemIndex > row.getChildCount() - 5
+        LoadRowContent(row)
+    end if
+end function
+
+function OnRowItemSelected(index as object) as void
+    content = m.top.content
+    if content = invalid
+        return
+    end if
+
+    if index = invalid or index.count() <> 2
+        LogWarn("Invalid index:", index)
+        return
+    end if
+
+    rowIndex = index[0]
+    rowItemIndex = index[1]
+
+    if rowIndex < 0 or rowIndex >= content.GetChildCount()
+        LogWarn("Invalid row index:", rowIndex)
+        return
+    end if
+    row = content.GetChild(rowIndex)
+
+    if rowItemIndex < 0 or rowItemIndex >= row.GetChildCount()
+        LogWarn("Invalid row item index:", rowItemIndex)
+        return
+    end if
+    rowItem = row.GetChild(rowItemIndex)
+
+    if rowItem.type = "video"
+        videoId = rowItem.videoId
+        LogInfo("Play video: " + videoId)
+        m.videoQueue.playVideo = rowItem
+    else if rowItem.type = "playlist"
+        playlistId = rowItem.playlistId
+        LogInfo("Open playlist: " + playlistId)
+        OpenPlaylist(rowItem)
+    else if rowItem.type = "channel"
+        authorId = rowItem.authorId
+        LogInfo("Open channel: " + authorId)
+        OpenChannel(rowItem)
+    else
+        LogWarnNoTelemetry("Unknown row item type:", rowItem.type)
+    end if
+end function
+
+function OnRowItemLongPressed(index as object) as void
+    content = m.top.content
+    if content = invalid
+        return
+    end if
+
+    if not IsArray(index) or index.count() <> 2
+        LogWarn("Invalid index:", index)
+        return
+    end if
+
+    rowIndex = index[0]
+    rowItemIndex = index[1]
+
+    if not IsInt(rowIndex) or rowIndex < 0 or rowIndex >= content.GetChildCount()
+        LogWarn("Invalid row index:", rowIndex)
+        return
+    end if
+    row = content.GetChild(rowIndex)
+
+    if not IsInt(rowItemIndex) or rowItemIndex < 0 or rowItemIndex >= row.GetChildCount()
+        LogWarn("Invalid row item index:", rowItemIndex)
+        return
+    end if
+    rowItem = row.GetChild(rowItemIndex)
+
+    contextMenuProviders = [m.top, m.bookmarksService, m.top.screen]
+    ContextMenuUtils.Open(contextMenuProviders, m.appController, rowItem)
+end function
+
+function GetContextMenuOptionsForItem(rowItem as object) as object
+    options = []
+
+    if rowItem.type = "video"
+        options.push(ContextMenuUtils.CreateOption(Tr(Locale.ContextMenu.PlayVideo), m.videoQueue, "FuncPlayVideo", [rowItem]))
+        options.push(ContextMenuUtils.CreateOption(Tr(Locale.ContextMenu.QueueVideo), m.videoQueue, "FuncAddToQueueVideo", [rowItem]))
+
+        authorId = rowItem.authorId
+        if not StringUtils.IsNullOrEmpty(authorId)
+            options.push(ContextMenuUtils.CreateOption(Tr(Locale.ContextMenu.OpenChannel), m.top, "OpenVideoChannel", [rowItem]))
+        end if
+    else if rowItem.type = "playlist"
+        options.push(ContextMenuUtils.CreateOption(Tr(Locale.ContextMenu.PlayPlaylist), m.videoQueue, "FuncPlayPlaylist", [rowItem, 0]))
+        options.push(ContextMenuUtils.CreateOption(Tr(Locale.ContextMenu.QueuePlaylist), m.videoQueue, "FuncAddToQueuePlaylist", [rowItem]))
+
+        options.push(ContextMenuUtils.CreateOption(Tr(Locale.ContextMenu.OpenPlaylist), m.top, "OpenPlaylist", [rowItem]))
+
+        authorId = rowItem.authorId
+        if not StringUtils.IsNullOrEmpty(authorId)
+            options.push(ContextMenuUtils.CreateOption(Tr(Locale.ContextMenu.OpenChannel), m.top, "OpenPlaylistChannel", [rowItem]))
+        end if
+    else if rowItem.type = "channel"
+        options.push(ContextMenuUtils.CreateOption(Tr(Locale.ContextMenu.OpenChannel), m.top, "OpenChannel", [rowItem]))
+    else
+        LogWarnNoTelemetry("Unknown long pressed item type:", rowItem.type)
+        return []
+    end if
+
+    return options
+end function
+
+function OpenPlaylist(playlist as object)
+    PlaylistUtils.Open(playlist)
+end function
+
+function OpenChannel(channel as object)
+    ChannelUtils.Open(channel)
+end function
+
+function OpenVideoChannel(video as object) as void
+    authorId = video.authorId
+    if StringUtils.IsNullOrEmpty(authorId)
+        LogWarn("Invalid authorId:", authorId)
+        return
+    end if
+    channel = InvidiousContent.ToChannelContentNode(invalid, { authorId: authorId })
+    ChannelUtils.Open(channel)
+end function
+
+function OpenPlaylistChannel(playlist as object) as void
+    authorId = playlist.authorId
+    if StringUtils.IsNullOrEmpty(authorId)
+        LogWarn("Invalid authorId:", authorId)
+        return
+    end if
+    channel = InvidiousContent.ToChannelContentNode(invalid, { authorId: authorId })
+    ChannelUtils.Open(channel)
+end function
+
+function Refresh(_unused as dynamic)
+    InitContent()
+end function
+
+function OnCurrentProfileChanged()
+    ' TODO:P2: Reload only content that is authenticated
+    ' Should not reload if the page is not visible. Instead, capture state and reload when the page becomes visible
+    InitContent()
+end function
+
+function InitContent() as void
+    CancelCurrentJobs()
+
+    if m.top.feeds = invalid
+        m.top.content = invalid
+        return
+    end if
+
+    input = {
+        node: m.top
+        feeds: m.top.feeds
+    }
+
+    callback = JobSystem.CreateCallback(OnVideoRowListContentJobDone)
+    m.pendingLoadJobs[callback.id] = { callback: callback }
+    JobSystem.QueueJob(m.jobQueue, Jobs.VideoRowListContentJob, input, callback)
+end function
+
+function CancelCurrentJobs()
+    pendingLoadJobs = m.pendingLoadJobs
+    for each id in pendingLoadJobs
+        callback = pendingLoadJobs[id].callback
+        callback.cancel = true
+    end for
+    m.pendingLoadJobs = {}
+end function
+
+function OnVideoRowListContentJobDone(event as object) as void
+    JobSystem.UnobserveCallback(event.getRoSGNode())
+    m.pendingLoadJobs.Delete(event.getNode())
+
+    info = event.getInfo()
+    if info.cancel
+        return
+    end if
+
+    LoadRowsIfNeeded()
+end function
+
+function LoadRowsIfNeeded() as void
+    if m.top.content = invalid or not m.top.visible
+        return
+    end if
+
+    itemsToLoad = GetRowsToLoad()
+    for each item in itemsToLoad
+        LoadRowContent(item)
+    end for
+end function
+
+function GetRowsToLoad() as object
+    focus = m.top.itemFocused
+    if focus = -1
+        focus = 0
+    end if
+
+    contentNode = m.top.content
+    rowCount = contentNode.getChildCount()
+    if rowCount = 0
+        return []
+    end if
+
+    subContentNodes = []
+    range = m.top.numRows + 1
+    for i = -range to range
+        index = focus + i
+        if index < 0
+            continue for
+        end if
+        if index >= rowCount
+            continue for
+        end if
+        subContentNode = contentNode.getChild(index)
+        if subContentNode.loadState <> FeedLoadState.None
+            continue for
+        end if
+        subContentNodes.push(subContentNode)
+    end for
+
+    return subContentNodes
+end function
+
+function LoadRowContent(contentNode as object) as void
+    ' Do not spin up multiple jobs for the same content node
+    for each id in m.pendingLoadJobs
+        job = m.pendingLoadJobs[id]
+        if contentNode.isSameNode(job.content) and not job.callback.done
+            LogInfo("Row content already loading:", contentNode.title)
+            return
+        end if
+    end for
+
+    LogInfo("Loading row content:", contentNode.title)
+
+    contentNode.loadState = FeedLoadState.Loading
+    input = {
+        rowList: m.top
+        feedContentNode: contentNode
+        invidious: m.invidious
+    }
+
+    callback = JobSystem.CreateCallback(OnVideoRowListRowContentJobDone)
+    m.pendingLoadJobs[callback.id] = { callback: callback, content: contentNode }
+    JobSystem.QueueJob(m.jobQueue, Jobs.VideoRowListRowContentJob, input, callback)
+end function
+
+function OnVideoRowListRowContentJobDone(event as object) as void
+    JobSystem.UnobserveCallback(event.getRoSGNode())
+    m.pendingLoadJobs.Delete(event.getNode())
+
+    info = event.getInfo()
+    if info.cancel
+        return
+    end if
+
+    LoadRowsIfNeeded()
+end function
+
+function OnRealRowItemSelected()
+    ' This is the event that fires when m.top.rowItemSelected changes
+    LongPressHandler(RemoteKeys.Ok, true)
+end function
+
+function OnKeyEvent(key as string, press as boolean) as boolean
+    ' This OnKeyEvent should not handle OK/true, because that will block rowItemSelected from firing
+    ' Do not pass OK/true to LongPressHandler, since we did that in OnRealRowItemSelected
+    if not (key = RemoteKeys.Ok and press)
+        if LongPressHandler(key, press)
+            return true
+        end if
+    end if
+
+    if key = RemoteKeys.OkLongPress and press
+        OnRowItemLongPressed(m.top.rowItemFocused)
+        return true
+    end if
+
+    if key = RemoteKeys.Ok and not press
+        ' item was selected, but was not a long press, this is a request to open the video/channel/playlist
+        OnRowItemSelected(m.top.rowItemSelected)
+        return true
+    end if
+    return false
+end function
+
+function OnDispose()
+    CancelCurrentJobs()
+    DisposeObservers()
+    m.top.screen = invalid
+    m.top.content = invalid
+    m.top.itemComponentName = invalid
+end function

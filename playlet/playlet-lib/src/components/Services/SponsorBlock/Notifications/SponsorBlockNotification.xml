@@ -1,0 +1,57 @@
+<component name="SponsorBlockNotification" extends="Group">
+    <interface>
+        <field id="segmentId" type="string" />
+        <field id="categoryText" type="string" alias="categoryLabel.text" />
+        <field id="actionText" type="string" alias="actionLabel.text" />
+        <field id="doShow" type="boolean" onChange="OnDoShow" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Poster
+            width="250"
+            height="70"
+            opacity="0.8"
+            blendColor="#414141"
+            uri="pkg:/images/white.$$RES$$.9.png">
+            <Poster
+                uri="libpkg:/images/LogoSponsorBlockSimple256px.png"
+                width="50"
+                height="50"
+                translation="[10,10]">
+            </Poster>
+            <LayoutGroup vertAlignment="center" translation="[70,35]">
+                <Label
+                    id="categoryLabel"
+                    font="font:TinyBoldSystemFont"
+                    horizAlign="center"
+                    width="170"
+                    lineSpacing="0"
+                    maxLines="2"
+                    wrap="true">
+                </Label>
+                <Label
+                    id="actionLabel"
+                    font="font:TinySystemFont"
+                    horizAlign="center"
+                    width="170"
+                    lineSpacing="0"
+                    maxLines="2"
+                    wrap="true">
+                </Label>
+            </LayoutGroup>
+        </Poster>
+        <Animation
+            id="translationAnimation"
+            duration="0.3"
+            optional="true">
+            <Vector2DFieldInterpolator
+                id="translationAnimationInterpolator"
+                key="[0.0, 0.5, 1.0]"
+                keyValue="[ [1280.0, 20.0], [1140.0, 20.0], [1000.0, 20.0] ]"
+                fieldToInterp="SponsorBlockNotification.translation" />
+        </Animation>
+        <Timer
+            id="animationTimer"
+            duration="3"
+        />
+    </children>
+</component>

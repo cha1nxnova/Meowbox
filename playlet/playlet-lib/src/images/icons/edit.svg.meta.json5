@@ -1,0 +1,11 @@
+{
+  inputHash: 'd9b1c470702d79235742d3d2103d52e4',
+  outputs: [
+    {
+      outputFilePath: 'images/icons/edit.png',
+      outputHash: 'f2e941276d42d29547ac69618fffc656',
+      width: 48,
+      height: 48,
+    },
+  ],
+}

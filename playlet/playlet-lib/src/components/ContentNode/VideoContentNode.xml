@@ -1,0 +1,31 @@
+<component name="VideoContentNode" extends="ContentNode">
+    <interface>
+        <field id="type" type="string" value="video" />
+        <!-- index in a playlist -->
+        <field id="index" type="integer" value="-1" />
+        <!-- index in a feed -->
+        <field id="feedSourcesIndex" type="integer" value="-1" />
+        <!-- index in the queue -->
+        <field id="queueIndex" type="integer" value="-1" />
+
+        <!-- NOTE: "_author" not "author". See PlaylistContentNode.xml for explanation -->
+        <field id="_author" type="string" />
+        <field id="authorId" type="string" />
+        <field id="isUpcoming" type="boolean" />
+        <field id="lengthSeconds" type="integer" />
+        <field id="lengthText" type="string" />
+        <field id="liveNow" type="boolean" />
+        <field id="premiereTimestampText" type="string" />
+        <field id="publishedText" type="string" />
+        <field id="thumbnail" type="uri" />
+        <field id="timestamp" type="integer" value="-1" />
+        <field id="title" type="string" />
+        <field id="videoId" type="string" />
+        <field id="viewCountText" type="string" />
+        <!-- lines is from the tv client (author name + video info) -->
+        <field id="lines" type="stringarray" />
+        <!-- videoInfo is from web client -->
+        <field id="videoInfo" type="string" />
+        <field id="percentDurationWatched" type="float" />
+    </interface>
+</component>

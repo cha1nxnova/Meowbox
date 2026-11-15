@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+  The front door when Meowbox and Playlet share one package: pick the
+  television or YouTube. The television is opened and closed right here;
+  choosing YouTube is reported upward, because the shell around us owns it.
+
+  choice   set to "youtube" when that tile is chosen
+-->
+<component name="MeowHub" extends="Group">
+  <interface>
+    <field id="choice" type="string" alwaysNotify="true" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/meowbox/MeowHub.brs" />
+  <children>
+    <Group id="front">
+      <Rectangle width="1280" height="720" color="0x120E1FFF" />
+      <Rectangle width="1280" height="8" color="0xFFA630FF" />
+      <Poster translation="[64, 44]" width="90" height="75" uri="pkg:/images/logo.png" />
+      <Label translation="[172, 46]" text="MEOWBOX" color="0xF6EEDDFF">
+        <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="48" />
+      </Label>
+      <Label translation="[172, 92]" text="what are we watching?" color="0x7D7396FF">
+        <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="24" />
+      </Label>
+
+      <!-- the television -->
+      <Group id="tile0" translation="[136, 190]">
+        <Rectangle id="ring0" translation="[-8, -8]" width="496" height="376" color="0xFFA630FF" />
+        <Rectangle width="480" height="360" color="0x18122BFF" />
+        <Poster translation="[150, 36]" width="180" height="150" uri="pkg:/images/logo.png" />
+        <Label translation="[0, 214]" width="480" horizAlign="center" text="SPELUNKR TV" color="0xF6EEDDFF">
+          <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="48" />
+        </Label>
+        <Label translation="[40, 272]" width="400" height="60" wrap="true" maxLines="2" horizAlign="center" text="Dozens of always-on channels of forgotten tape, in step with everyone watching" color="0xA99FBFFF" lineSpacing="2">
+          <Font role="font" uri="font:SystemFontFile" size="20" />
+        </Label>
+      </Group>
+
+      <!-- YouTube -->
+      <Group id="tile1" translation="[664, 190]">
+        <Rectangle id="ring1" translation="[-8, -8]" width="496" height="376" color="0xFFA630FF" />
+        <Rectangle width="480" height="360" color="0x18122BFF" />
+        <PixelLogo id="play" translation="[160, 31]" size="160" />
+        <Label translation="[0, 214]" width="480" horizAlign="center" text="YOUTUBE" color="0xF6EEDDFF">
+          <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="48" />
+        </Label>
+        <Label translation="[40, 272]" width="400" height="60" wrap="true" maxLines="2" horizAlign="center" text="Playlet: search, subscriptions and casting, without the ads" color="0xA99FBFFF" lineSpacing="2">
+          <Font role="font" uri="font:SystemFontFile" size="20" />
+        </Label>
+      </Group>
+
+      <Label translation="[0, 640]" width="1280" horizAlign="center" text="LEFT / RIGHT  choose        OK  open        BACK  leave" color="0x7D7396FF">
+        <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="22" />
+      </Label>
+    </Group>
+  </children>
+</component>

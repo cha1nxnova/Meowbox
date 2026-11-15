@@ -1,0 +1,14 @@
+import "InvidiousService.bs"
+
+function Init()
+    m.top.apiDefinitions = StringUtils.ParseJsonSafe(ReadAsciiFile("libpkg:/config/invidious_video_api.yaml"))
+    m.service = new Invidious.InvidiousService(m.top)
+end function
+
+function GetInstance(_unused as dynamic) as string
+    return m.service.GetInstance()
+end function
+
+function GetInvidiousInstance(_unused as dynamic) as string
+    return m.service.GetInvidiousInstance()
+end function

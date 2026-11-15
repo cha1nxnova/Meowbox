@@ -1,0 +1,9 @@
+import "pkg:/source/utils/Types.bs"
+
+function Init()
+    m.top.observeField("buttonSelected", FuncName(CloseDialog))
+end function
+
+function CloseDialog()
+    m.top.close = true
+end function

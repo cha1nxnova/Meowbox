@@ -1,0 +1,222 @@
+import "pkg:/components/ContentNode/ProfileContentAuthTokenUtils.bs"
+import "pkg:/components/Services/Innertube/Constants.bs"
+import "pkg:/components/Services/Innertube/DrmLicenseRequests.bs"
+import "pkg:/components/Services/Innertube/InnertubeService.bs"
+import "pkg:/components/Services/Innertube/PoTokens.bs"
+import "pkg:/components/Web/WebServer/Http/HttpRouter.bs"
+import "pkg:/source/services/HttpClient.bs"
+import "pkg:/source/utils/Types.bs"
+
+namespace Http
+
+    class InnertubeRouter extends HttpRouter
+
+        function new(server as object)
+            super()
+
+            m.innertube = server.sceneNodes.innertube
+            m.profilesService = server.sceneNodes.profilesService
+            m.proxyRequestAllowedKeys = { "Method": true, "Url": true, "Headers": true, "Body": true, "CacheSeconds": true }
+        end function
+
+        @get("/api/innertube/potoken")
+        function GetPoToken(context as object) as object
+            response = context.response
+
+            identity = ""
+            sessionData = m.innertube.sessionData
+            if IsAssociativeArray(sessionData)
+                identity = ValidString(sessionData.livingRoomPoTokenId)
+            end if
+
+            if StringUtils.IsNullOrEmpty(identity)
+                response.Default(503, "No current identity")
+                return true
+            end if
+
+            result = {
+                "identity": identity
+            }
+            entry = Innertube.PoTokens.GetPoTokenEntryForIdentity(identity)
+            if IsAssociativeArray(entry)
+                result["poToken"] = entry.token
+                result["mintedAt"] = entry.mintedAt
+                result["expiresAt"] = entry.expiresAt
+            end if
+
+            response.Json(result)
+            return true
+        end function
+
+        @post("/api/innertube/potoken")
+        function SetPoToken(context as object) as object
+            request = context.request
+            response = context.response
+
+            payload = request.BodyJson()
+            if payload = invalid or not IsAssociativeArray(payload)
+                response.Default(400, "Invalid payload")
+                return true
+            end if
+            if StringUtils.IsNullOrEmpty(payload.poToken)
+                response.Default(400, "Invalid poToken")
+                return true
+            end if
+            if StringUtils.IsNullOrEmpty(payload.identity)
+                response.Default(400, "Invalid identity")
+                return true
+            end if
+
+            if not IsInt(payload.mintedAt) or not IsInt(payload.expiresAt)
+                response.Default(400, "Invalid mintedAt/expiresAt")
+                return true
+            end if
+
+
+            identity = ""
+            sessionData = m.innertube.sessionData
+            if IsAssociativeArray(sessionData)
+                identity = ValidString(sessionData.livingRoomPoTokenId)
+            end if
+
+            if StringUtils.IsNullOrEmpty(identity)
+                response.Default(503, "No current identity")
+                return true
+            end if
+
+            ' Reject identities other than the device's current one (guards the shared registry).
+            if payload.identity <> identity
+                response.Default(409, "identity is not the device's current identity")
+                return true
+            end if
+
+            Innertube.PoTokens.StorePoToken(payload.identity, payload.poToken, payload.expiresAt, payload.mintedAt)
+            response.Default(204, "PoToken updated successfully")
+            return true
+        end function
+
+        @delete("/api/innertube/potoken/all")
+        function ClearPoTokens(context as object) as object
+            response = context.response
+
+            Innertube.PoTokens.ClearAllPoTokens()
+            response.Default(204, "PoTokens cleared")
+            return true
+        end function
+
+        @post("/api/innertube/proxy")
+        function ProxyRequest(context as object) as boolean
+            request = context.request
+            response = context.response
+
+            requestArgs = request.BodyJson()
+            if not IsAssociativeArray(requestArgs)
+                response.Default(400, "Invalid request body")
+                return true
+            end if
+
+            for each key in requestArgs
+                if not m.proxyRequestAllowedKeys.DoesExist(key)
+                    response.Default(400, `Unsupported key: "${key}"`)
+                    return true
+                end if
+            end for
+
+            requestHeaders = requestArgs.Headers
+            ' Proxied web-app requests (e.g. BotGuard attestation) may omit a
+            ' User-Agent; fall back to ours instead of Roku's default.
+            if StringUtils.IsNullOrEmpty(requestHeaders["User-Agent"])
+                requestHeaders["User-Agent"] = VIDEO_PLAYER_USER_AGENT
+            end if
+
+            method = "GET"
+            if requestArgs.Method <> invalid
+                method = requestArgs.Method
+            end if
+            proxyRequest = new HttpClient.Request(method, requestArgs.Url)
+            proxyRequest.Headers(requestHeaders)
+            if requestArgs.Body <> invalid
+                proxyRequest.TextBody(requestArgs.Body)
+            end if
+            if requestArgs.CacheSeconds <> invalid
+                if requestArgs.CacheSeconds > 0
+                    proxyRequest.CacheForSeconds(requestArgs.CacheSeconds)
+                else
+                    proxyRequest.NoCache()
+                end if
+            end if
+            httpRes = proxyRequest.Await()
+
+            result = {
+                "status": httpRes.StatusCode()
+                "headers": httpRes.Headers()
+                "body": httpRes.Text()
+            }
+
+            response.Json(result)
+            return true
+        end function
+
+        @post("/api/innertube/get_drm_license")
+        function GetDrmLicense(context as object) as object
+            request = context.request
+            response = context.response
+
+            drmStringQueryParams = ["videoId", "videoLoadId", "drmParams", "drmSessionId", "cpn"]
+            for each paramName in drmStringQueryParams
+                if StringUtils.IsNullOrEmpty(request.query[paramName])
+                    response.Default(400, "Missing " + paramName)
+                    return true
+                end if
+            end for
+
+            licenseRequest = request.BodyBytes()
+            if not IsByteArray(licenseRequest) or licenseRequest.count() = 0
+                response.Default(400, "Missing licenseRequest")
+                return true
+            end if
+
+            options = {
+                "videoId": request.query.videoId
+                "drmParams": request.query.drmParams
+                "drmSessionId": request.query.drmSessionId
+                "cpn": request.query.cpn
+                "licenseRequest": licenseRequest.ToBase64String()
+            }
+
+            currentProfile = m.profilesService.currentProfile
+            tokenResult = invalid
+            if currentProfile <> invalid and currentProfile.type = "youtube"
+                tokenResult = ProfileContentAuthTokenUtils.EnsureFreshAccessToken(currentProfile)
+            end if
+            if tokenResult <> invalid and tokenResult.state = ProfileContentAuthTokenUtils.AccessTokenState.Ok
+                options["accessToken"] = tokenResult.token
+            else
+                options["visitorData"] = m.innertube.sessionData.visitorData
+            end if
+
+            DrmLicenseRequests.RecordSent(request.query.videoLoadId)
+            licenseResponse = InnertubeService.GetDrmLicense(options)
+            DrmLicenseRequests.RecordResponse(request.query.videoLoadId, licenseResponse)
+
+            license = licenseResponse.license
+            if not IsByteArray(license) or license.Count() = 0
+                LogTelemetryEvent({
+                    level: "error"
+                    message: `DRM license request failed: ${ValidString(licenseResponse.error)}\nvideoId: ${request.query.videoId}\nvideo_load_id: ${request.query.videoLoadId}`
+                    fingerprint: ["DRM license request failed"]
+                })
+                response.Default(500, FormatJson(licenseResponse))
+                return true
+            end if
+
+            response.http_code = 200
+            response.SetBodyDataBuffer(license)
+            response.ContentType("text/html; charset=utf-8")
+            response.headers["Cache-Control"] = "no-cache"
+            return true
+        end function
+
+    end class
+
+end namespace

@@ -1,0 +1,33 @@
+import "pkg:/components/Services/Innertube/Context.bs"
+import "pkg:/source/services/HttpClient.bs"
+import "pkg:/source/utils/OptionUtils.bs"
+import "pkg:/source/utils/StringUtils.bs"
+
+namespace Innertube
+
+    function CreateBrowseRequest(browseId as string, clienType as Innertube.ClientType, options = invalid as object) as HttpClient.Request
+        params = OptionUtils.GetOrDefault(options, "params", "")
+        continuation = OptionUtils.GetOrDefault(options, "continuation", "")
+
+        deviceInfo = CreateObject("roDeviceInfo")
+
+        payload = {
+            "context": Innertube.CreateContext(clienType, deviceInfo, options)
+        }
+
+        if not StringUtils.IsNullOrEmpty(continuation)
+            payload["continuation"] = continuation
+        else
+            payload["browseId"] = browseId
+            if not StringUtils.IsNullOrEmpty(params)
+                payload["params"] = params
+            end if
+        end if
+
+        request = HttpClient.Post("https://www.youtube.com/youtubei/v1/browse?prettyPrint=false&alt=json").JsonBody(payload)
+        request.Headers(Innertube.CreateHeaders(clienType))
+
+        return request
+    end function
+
+end namespace

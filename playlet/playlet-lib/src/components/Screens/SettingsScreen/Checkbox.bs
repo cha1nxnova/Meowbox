@@ -1,0 +1,35 @@
+import "pkg:/source/utils/MathUtils.bs"
+import "pkg:/source/utils/Types.bs"
+
+function Init()
+    m.top.observeField("checkedState", FuncName(OnCheckedStateChange))
+    m.minItemWidth = m.top.itemSize[0]
+end function
+
+function OnValueChange()
+    m.top.checkedState = [m.top.value]
+end function
+
+function OnCheckedStateChange() as void
+    checkedState = m.top.checkedState
+    if checkedState = invalid or checkedState.Count() = 0
+        return
+    end if
+    m.top.value = checkedState[0]
+end function
+
+function OnTitleChange()
+    title = m.top.title
+
+    ' Creating a label is wasteful, but
+    ' - Internal label of the checkbox is not accessible
+    ' - ifFont.GetOneLineWidth is a Main/Task thread only
+    label = CreateObject("roSGNode", "Label")
+    label.font = m.top.focusedFont
+    label.text = title
+    titleWidth = label.boundingRect().width
+    size = titleWidth + 50
+
+    size = MathUtils.Max(size, m.minItemWidth)
+    m.top.itemSize = [size, m.top.itemSize[1]]
+end function

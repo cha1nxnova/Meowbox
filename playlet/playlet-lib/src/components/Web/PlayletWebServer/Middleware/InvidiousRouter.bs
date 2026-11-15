@@ -1,0 +1,141 @@
+import "pkg:/components/ContentNode/ProfileContentAuthTokenUtils.types.bs"
+import "pkg:/components/Services/Invidious/InvidiousService.bs"
+import "pkg:/components/Web/WebServer/Http/HttpRouter.bs"
+import "pkg:/source/utils/CryptoUtils.bs"
+
+namespace Http
+
+    class InvidiousRouter extends HttpRouter
+
+        function new(server as object)
+            super()
+
+            m.server = server
+            m.profilesNode = server.sceneNodes.profilesService
+            m.invidiousNode = server.sceneNodes.invidious
+            m.invidiousService = new Invidious.InvidiousService(m.invidiousNode)
+        end function
+
+        @get("/invidious/login")
+        function Login(context as object) as boolean
+            request = context.request
+            response = context.response
+
+            ' The login link carries the nonce, so its server comes from the
+            ' device (a profile's, or the configured instance), never the URL.
+            server = ""
+            profileId = request.query["profile"]
+            if profileId <> invalid
+                server = m.GetProfileServer(ValidString(profileId))
+                if server = invalid
+                    response.Default(400, "Unknown profile")
+                    return true
+                end if
+            end if
+
+            if m.loginNonce = invalid
+                m.loginNonce = CreateObject("roDeviceInfo").GetRandomUUID()
+            end if
+
+            authLink = m.invidiousService.GetAuthorizeTokenLink(server, m.loginNonce)
+            if authLink = invalid
+                response.Default(503, "Invidious server not configured")
+                return true
+            end if
+            response.Redirect(authLink)
+            return true
+        end function
+
+        @get("/invidious/token_callback")
+        function OnTokenReceived(context as object) as boolean
+            request = context.request
+            response = context.response
+
+            if request.query["token"] <> invalid and request.query["ref"] <> invalid and request.query["username"] <> invalid
+                ' The callback is a plain GET any web page can trigger, so it only
+                ' accepts a login that went through a link this device handed out.
+                nonce = request.query["nonce"]
+                if m.loginNonce = invalid or not IsString(nonce) or nonce <> m.loginNonce
+                    response.Default(403, "Invalid login link. Please start the login again.")
+                    return true
+                end if
+                m.loginNonce = invalid
+
+                ' Invidious encodes token and username twice
+                token = request.query["token"].DecodeUriComponent().DecodeUriComponent()
+                username = request.query["username"].DecodeUriComponent().DecodeUriComponent()
+                referer = request.query["ref"].DecodeUriComponent()
+
+                profile = CreateObject("roSGNode", "ProfileContentNode")
+                profile.username = username
+                profile.accessToken = token
+                profile.serverUrl = referer
+
+                m.profilesNode@.LoginWithProfile(profile)
+            end if
+            response.Redirect("/")
+            return true
+        end function
+
+        function GetProfileServer(profileId as string) as dynamic
+            profilesDto = m.profilesNode@.GetProfilesDto(false)
+            profiles = profilesDto.profiles
+            for each profile in profiles
+                if profile.id = profileId and profile.type = "invidious"
+                    return profile.serverUrl
+                end if
+            end for
+            return invalid
+        end function
+
+        ' This is an endpoint allowing the web app to make an authenticated request
+        ' without needing the Invidious token
+        ' This is a GET not a POST for better caching
+        @get("/invidious/authenticated-request")
+        function AuthRequestProxy(context as object) as boolean
+            request = context.request
+            response = context.response
+
+            profile = m.invidiousService.GetCurrentProfile()
+            if profile = invalid
+                response.Default(403, "Not logged in")
+                return true
+            end if
+            if profile.authState = ProfileContentAuthTokenUtils.ProfileAuthState.NeedsReauth
+                response.Default(403, "Session expired. Please sign in again.")
+                return true
+            end if
+
+            feedSource = request.query["feed-source"]
+            if feedSource = invalid
+                response.Default(400, "Expected feed-source")
+                return true
+            end if
+
+            feedSource = StringUtils.ParseJsonSafe(feedSource)
+            if feedSource = invalid
+                response.Default(400, "Expected valid JSON for feed-source")
+                return true
+            end if
+
+            options = {
+                httpServer: m.server
+            }
+            if feedSource.state <> invalid and feedSource.state.queryParams <> invalid
+                options.additionalQueryParams = feedSource.state.queryParams
+            end if
+
+            invResponse = m.invidiousService.MakeRequest(feedSource, options)
+
+            if not invResponse.success
+                response.Default(500, `Failed to make request: ${invResponse.error}`)
+                return true
+            end if
+
+            response.Json(invResponse.result)
+            return true
+        end function
+
+    end class
+
+end namespace

@@ -1,0 +1,1057 @@
+import "pkg:/components/Services/Innertube/InnertubeService.bs"
+import "pkg:/components/Web/WebServer/Http/HttpRouter.bs"
+
+namespace Http
+
+    class PlayletInvidiousBackendRouter extends HttpRouter
+
+        function new(server as object)
+            super()
+
+            m.innertube = server.sceneNodes.innertube
+            m.loungeService = server.sceneNodes.loungeService
+            m.preferences = server.sceneNodes.preferences
+        end function
+
+        @get("/playlet-invidious-backend/authorize_token")
+        function AuthorizeToken(context as object) as boolean
+            response = context.response
+
+            response.Json({
+                "error": "Playlet built-in Invidious backend is not a real Invidious instance, and does not support accounts. Please use the login with YouTube option instead."
+            })
+            response.http_code = 400
+            return true
+        end function
+
+        @post("/playlet-invidious-backend/api/v1/auth/tokens/unregister")
+        function UnregisterToken(context as object) as boolean
+            request = context.request
+            response = context.response
+
+            token = request.BodyText()
+
+            if StringUtils.IsNullOrEmpty(token)
+                response.Json({
+                    "error": "Missing 'token' body parameter"
+                })
+                response.http_code = 400
+                return true
+            end if
+
+            if not InnertubeService.AuthRevokeToken(token)
+                response.Json({
+                    "error": "Failed to revoke token"
+                })
+                response.http_code = 500
+                return true
+            end if
+
+            response.Default(204, "OK")
+            return true
+        end function
+
+        @get("/playlet-invidious-backend/api/v1/auth/feed")
+        function GetAuthFeed(context as object) as boolean
+            request = context.request
+            response = context.response
+
+            accessToken = m.RequireAccessToken(request, response)
+            if accessToken = invalid
+                return true
+            end if
+
+            options = {
+                "accessToken": accessToken
+                "disableShorts": m.preferences["content_feed.disable_shorts"]
+            }
+
+            activeIdentifyToken = request.query.activeIdentifyToken
+            if not StringUtils.IsNullOrEmpty(activeIdentifyToken)
+                options.onBehalfOfUser = activeIdentifyToken
+            end if
+
+            continuation = request.query.continuation
+            if not StringUtils.IsNullOrEmpty(continuation)
+                options.continuation = continuation
+            end if
+
+            result = InnertubeService.GetSubscriptions(options)
+            if result.error <> invalid
+                response.Json(result)
+                response.http_code = 500
+                return true
+            end if
+
+            if not IsArray(result.feeds) or result.feeds.Count() = 0
+                ' Not an error, just no subscriptions
+                response.Json({
+                    "videos": []
+                })
+                return true
+            end if
+
+            responseBody = {
+                "videos": ValidArray(result.feeds[0].items)
+            }
+
+            if result.feeds[0].DoesExist("continuation")
+                responseBody.continuation = result.feeds[0].continuation
+            end if
+
+            response.Json(responseBody)
+
+            if result.DoesExist("cache-control")
+                response.headers["cache-control"] = result["cache-control"]
+            end if
+
+            return true
+        end function
+
+        @get("/playlet-invidious-backend/api/v1/auth/subscriptions")
+        function GetAuthSubscriptions(context as object) as boolean
+            request = context.request
+            response = context.response
+
+            accessToken = m.RequireAccessToken(request, response)
+            if accessToken = invalid
+                return true
+            end if
+
+            response.Json([])
+            return true
+        end function
+
+        @get("/playlet-invidious-backend/api/v1/auth/playlists")
+        function GetAuthPlaylists(context as object) as boolean
+            request = context.request
+            response = context.response
+
+            accessToken = m.RequireAccessToken(request, response)
+            if accessToken = invalid
+                return true
+            end if
+
+            options = {
+                "accessToken": accessToken
+            }
+
+            activeIdentifyToken = request.query.activeIdentifyToken
+            if not StringUtils.IsNullOrEmpty(activeIdentifyToken)
+                options.onBehalfOfUser = activeIdentifyToken
+            end if
+
+            continuation = request.query.continuation
+            if not StringUtils.IsNullOrEmpty(continuation)
+                options.continuation = continuation
+            end if
+
+            result = InnertubeService.GetPlaylists(options)
+            if result.error <> invalid
+                response.Json(result)
+                response.http_code = 500
+                return true
+            end if
+
+            if not IsArray(result.feeds) or result.feeds.Count() = 0
+                response.Json({
+                    "error": "Failed to get auth playlists"
+                })
+                response.http_code = 500
+                return true
+            end if
+
+            response.Json(result.feeds[0])
+
+            if result.DoesExist("cache-control")
+                response.headers["cache-control"] = result["cache-control"]
+            end if
+
+            return true
+        end function
+
+        @get("/playlet-invidious-backend/api/v1/auth/history")
+        function GetAuthHistory(context as object) as boolean
+            request = context.request
+            response = context.response
+
+            accessToken = m.RequireAccessToken(request, response)
+            if accessToken = invalid
+                return true
+            end if
+
+            options = {
+                "accessToken": accessToken
+            }
+
+            activeIdentifyToken = request.query.activeIdentifyToken
+            if not StringUtils.IsNullOrEmpty(activeIdentifyToken)
+                options.onBehalfOfUser = activeIdentifyToken
+            end if
+
+            continuation = request.query.continuation
+            hasContinuation = not StringUtils.IsNullOrEmpty(continuation)
+            if hasContinuation
+                options.continuation = continuation
+            end if
+
+            if not hasContinuation
+                page = ValidString(request.query.page).ToInt()
+                if page > 1
+                    LogErrorNoTelemetry("Playlet backend does not use history pagination (use continuation instead)")
+                    response.Json({
+                        "items": []
+                    })
+                    return true
+                end if
+            end if
+
+            result = InnertubeService.GetWatchHistory(options)
+            if result.error <> invalid
+                response.Json(result)
+                response.http_code = 500
+                return true
+            end if
+
+            if not IsArray(result.feeds) or result.feeds.Count() = 0
+                ' Not an error, just no history
+                response.Json({
+                    "items": []
+                })
+                return true
+            end if
+
+            response.Json(result.feeds[0])
+
+            return true
+        end function
+
+        @get("/playlet-invidious-backend/api/v1/stats")
+        function GetStats(context as object) as boolean
+            response = context.response
+
+            response.Json({
+                "error": "Playlet built-in Invidious backend is not a real Invidious instance, and does not support stats."
+            })
+            response.http_code = 400
+            return true
+        end function
+
+        @get("/playlet-invidious-backend/api/v1/trending")
+        function GetTrending(context as object) as boolean
+            request = context.request
+            response = context.response
+
+            raw = request.query.raw <> invalid
+
+            options = {
+                "disableShorts": m.preferences["content_feed.disable_shorts"]
+                raw: raw
+                type: request.query.type
+            }
+
+            result = InnertubeService.GetTrending(options)
+            if raw
+                response.Json(result)
+                return true
+            end if
+
+            if result.error <> invalid
+                response.Json(result)
+                response.http_code = 500
+                return true
+            end if
+
+            if not IsArray(result.feeds) or result.feeds.Count() = 0
+                response.Json({
+                    "error": "Failed to get trending feed"
+                })
+                response.http_code = 500
+                return true
+            end if
+
+            response.Json(ValidArray(result.feeds[0].items))
+
+            if result.DoesExist("cache-control")
+                response.headers["cache-control"] = result["cache-control"]
+            end if
+
+            return true
+        end function
+
+        @get("/playlet-invidious-backend/api/v1/popular")
+        function GetPopular(context as object) as boolean
+            request = context.request
+            response = context.response
+
+            isRecommended = request.query.recommended = "true"
+            if isRecommended
+                return m.GetAuthRecommended(context)
+            end if
+
+            response.Json({
+                "error": "Playlet built-in Invidious backend does not support popular videos."
+            })
+            response.http_code = 400
+            return true
+        end function
+
+        function GetAuthRecommended(context as object) as boolean
+            request = context.request
+            response = context.response
+
+            accessToken = m.RequireAccessToken(request, response)
+            if accessToken = invalid
+                return true
+            end if
+
+            options = {
+                "accessToken": accessToken
+                "disableShorts": m.preferences["content_feed.disable_shorts"]
+            }
+
+            activeIdentifyToken = request.query.activeIdentifyToken
+            if not StringUtils.IsNullOrEmpty(activeIdentifyToken)
+                options.onBehalfOfUser = activeIdentifyToken
+            end if
+
+            continuation = request.query.continuation
+            if not StringUtils.IsNullOrEmpty(continuation)
+                options.continuation = continuation
+            end if
+
+            result = InnertubeService.GetHome(options)
+            if result.error <> invalid
+                response.Json(result)
+                response.http_code = 500
+                return true
+            end if
+
+            if not IsArray(result.feeds) or result.feeds.Count() = 0
+                ' Not an error, just no recommended videos, usually when there's no history
+                response.Json({
+                    "items": []
+                })
+                return true
+            end if
+
+            response.Json(result.feeds[0])
+
+            return true
+        end function
+
+        @get("/playlet-invidious-backend/api/v1/search/suggestions")
+        function GetSearchSuggestions(context as object) as boolean
+            request = context.request
+            response = context.response
+
+            query = request.query.q
+
+            result = InnertubeService.SearchSuggestions(query)
+            if result.error <> invalid
+                response.Json(result)
+                response.http_code = 500
+                return true
+            end if
+
+            result.query = query
+
+            if result.DoesExist("cache-control")
+                response.headers["cache-control"] = result["cache-control"]
+            end if
+
+            response.Json(result)
+            return true
+        end function
+
+        @get("/playlet-invidious-backend/api/v1/search")
+        function GetSearch(context as object) as boolean
+            request = context.request
+            response = context.response
+
+            query = request.query.q
+            continuation = request.query.continuation
+            raw = request.query.raw <> invalid
+
+            options = {
+                "disableShorts": m.preferences["content_feed.disable_shorts"]
+                raw: raw
+            }
+
+            searchFilters = {}
+            sort = request.query.sort
+            if not StringUtils.IsNullOrEmpty(sort)
+                searchFilters.sort = sort
+            end if
+            date = request.query.date
+            if not StringUtils.IsNullOrEmpty(date)
+                searchFilters.date = date
+            end if
+            _type = request.query.type
+            if not StringUtils.IsNullOrEmpty(_type)
+                searchFilters.type = _type
+            end if
+            duration = request.query.duration
+            if not StringUtils.IsNullOrEmpty(duration)
+                searchFilters.duration = duration
+            end if
+            features = request.query.features
+            if not StringUtils.IsNullOrEmpty(features)
+                searchFilters.features = features.Split(",")
+            end if
+
+            if searchFilters.Count() > 0
+                options.searchFilters = searchFilters
+            end if
+            if not StringUtils.IsNullOrEmpty(continuation)
+                options.continuation = continuation
+            end if
+
+            fetchedPages = 0
+            while true
+                ' Content can be filtered (for example, shorts removed)
+                ' so we could be fetching multiple pages.
+                if fetchedPages > 3
+                    response.Json({
+                        "error": "Failed to search: no results found"
+                    })
+                    response.http_code = 500
+                    return true
+                end if
+                result = InnertubeService.Search(query, options)
+                fetchedPages += 1
+
+                if raw
+                    response.Json(result)
+                    return true
+                end if
+
+                if result.error <> invalid
+                    response.Json(result)
+                    response.http_code = 500
+                    return true
+                end if
+
+                if not IsArray(result.feeds) or result.feeds.Count() = 0
+                    response.Json({
+                        "error": "Failed to search: no results found"
+                    })
+                    response.http_code = 500
+                    return true
+                end if
+
+                feed = result.feeds[0]
+                if feed.items.Count() > 0
+                    response.Json(feed)
+                    if fetchedPages = 1 and result.DoesExist("cache-control")
+                        response.headers["cache-control"] = result["cache-control"]
+                    end if
+                    return true
+                end if
+
+                if StringUtils.IsNullOrEmpty(feed.continuation)
+                    response.Json({
+                        "error": "Failed to search: no results found"
+                    })
+                    response.http_code = 500
+                    return true
+                end if
+
+                LogDebug("Search returned no results, fetching next page with continuation")
+                options.continuation = feed.continuation
+            end while
+
+            return true
+        end function
+
+        @get("/playlet-invidious-backend/api/v1/resolveurl")
+        function ResolveUrl(context as object) as boolean
+            request = context.request
+            response = context.response
+
+            url = request.query.url
+            raw = request.query.raw <> invalid
+
+            if StringUtils.IsNullOrEmpty(url)
+                response.Json({
+                    "error": "Missing 'url' query parameter"
+                })
+                response.http_code = 400
+                return true
+            end if
+
+            json = InnertubeService.ResolveUrl(url)
+            if json = invalid
+                response.Json({
+                    "error": "Failed to resolve URL"
+                })
+                response.http_code = 500
+                return true
+            end if
+
+            if raw
+                response.Json(json)
+                return true
+            end if
+
+            endpoint = json["endpoint"]
+            pageType = ValidString(ObjectUtils.Dig(endpoint, ["commandMetadata", "webCommandMetadata", "webPageType"]))
+            if pageType = "WEB_PAGE_TYPE_UNKNOWN" or pageType = ""
+                response.Json({
+                    "error": "Unknown page type"
+                })
+                response.http_code = 400
+                return true
+            end if
+
+            subEndpoint = endpoint["watchEndpoint"]
+            if subEndpoint = invalid
+                subEndpoint = endpoint["browseEndpoint"]
+                if subEndpoint = invalid
+                    subEndpoint = endpoint
+                end if
+            end if
+
+            params = ObjectUtils.Dig(subEndpoint, ["params"])
+
+            result = {
+                "pageType": pageType
+            }
+
+            browseId = ObjectUtils.Dig(subEndpoint, ["browseId"])
+            if not StringUtils.IsNullOrEmpty(browseId)
+                result["ucid"] = browseId
+            end if
+
+            videoId = ObjectUtils.Dig(subEndpoint, ["videoId"])
+            if not StringUtils.IsNullOrEmpty(videoId)
+                result["videoId"] = videoId
+            end if
+
+            playlistId = ObjectUtils.Dig(subEndpoint, ["playlistId"])
+            if not StringUtils.IsNullOrEmpty(playlistId)
+                result["playlistId"] = playlistId
+            end if
+
+            startTimeSeconds = ObjectUtils.Dig(subEndpoint, ["startTimeSeconds"])
+            if ValidInt(startTimeSeconds) > 0
+                result["startTimeSeconds"] = startTimeSeconds
+            end if
+
+            if IsString(params)
+                result["params"] = params
+            end if
+
+            response.Json(result)
+            return true
+        end function
+
+        @get("*")
+        function GetAll(context as object) as boolean
+            request = context.request
+            route = request.route
+
+            if route.StartsWith("/playlet-invidious-backend/api/v1/videos/")
+                return m.GetVideo(context)
+            else if route.StartsWith("/playlet-invidious-backend/api/v1/playlists/")
+                return m.GetPlaylist(context)
+            else if route.StartsWith("/playlet-invidious-backend/api/v1/auth/playlists/")
+                return m.GetAuthPlaylist(context)
+            else if route.StartsWith("/playlet-invidious-backend/api/v1/channels/")
+                return m.GetChannel(context)
+            else if route.StartsWith("/playlet-invidious-backend/channel")
+                return m.RedirectChannel(context)
+            end if
+
+            return false
+        end function
+
+        @post("*")
+        function PostAll(context as object) as boolean
+            request = context.request
+            route = request.route
+
+            if route.StartsWith("/playlet-invidious-backend/api/v1/auth/subscriptions/")
+                return m.SubscribeToChannel(context)
+            end if
+
+            return false
+        end function
+
+        function GetVideo(context as object) as boolean
+            request = context.request
+            response = context.response
+            route = request.route
+
+            videoId = route.Mid("/playlet-invidious-backend/api/v1/videos/".Len())
+            if videoId.InStr("?") > 0
+                videoId = videoId.Left(videoId.InStr("?"))
+            end if
+            raw = request.query.raw <> invalid
+            videoInfoBatched = request.query.video_info_batched <> invalid
+
+            visitorData = ""
+            sessionData = m.innertube.sessionData
+            if IsAssociativeArray(sessionData)
+                visitorData = ValidString(sessionData.visitorData)
+            end if
+
+            options = {
+                "raw": raw
+                "visitorData": visitorData
+            }
+
+            if videoInfoBatched
+                options["retry"] = false
+                metadata = InnertubeService.GetVideoInfoBatched([videoId], options)
+                if IsArray(metadata.videos) and metadata.videos.Count() > 0
+                    metadata = metadata.videos[0]
+                else
+                    metadata = {
+                        "error": "Failed to get video info with video_info_batched=true"
+                    }
+                end if
+            else
+                options["credentialTransferToken"] = m.loungeService.credentialTransferToken
+                metadata = InnertubeService.GetVideoMetadata(videoId, options)
+            end if
+
+            response.Json(metadata)
+
+            if metadata.error <> invalid
+                response.http_code = 500
+                return true
+            end if
+
+            ' If we're only interested in video info and not streaming data,
+            ' we can return longer cache time.
+            if videoInfoBatched
+                response.headers["cache-control"] = "public, max-age=259200" ' 3 days
+            end if
+
+            return true
+        end function
+
+        function GetPlaylist(context as object) as boolean
+            request = context.request
+            response = context.response
+            route = request.route
+
+            playlistId = context.playlistId
+            if StringUtils.IsNullOrEmpty(playlistId)
+                playlistId = route.Mid("/playlet-invidious-backend/api/v1/playlists/".Len())
+                if playlistId.InStr("?") > 0
+                    playlistId = playlistId.Left(playlistId.InStr("?"))
+                end if
+            end if
+            continuation = request.query.continuation
+            raw = request.query.raw <> invalid
+            infoOnly = request.query.info_only <> invalid
+
+            options = {
+                raw: raw
+            }
+
+            accessToken = m.GetAccessToken(request)
+            if accessToken <> invalid
+                options["accessToken"] = accessToken
+
+                activeIdentifyToken = request.query.activeIdentifyToken
+                if not StringUtils.IsNullOrEmpty(activeIdentifyToken)
+                    options.onBehalfOfUser = activeIdentifyToken
+                end if
+            end if
+
+            if playlistId.StartsWith("RD")
+                if not StringUtils.IsNullOrEmpty(continuation)
+                    options.videoId = continuation
+                else
+                    videoId = request.query.videoId
+                    if not StringUtils.IsNullOrEmpty(videoId)
+                        options.videoId = videoId
+                    end if
+                end if
+
+                playlist = InnertubeService.GetMix(playlistId, options)
+            else
+                if not StringUtils.IsNullOrEmpty(continuation)
+                    options.continuation = continuation
+                end if
+
+                playlist = InnertubeService.GetPlaylist(playlistId, options)
+            end if
+
+            if raw
+                response.Json(playlist)
+                return true
+            end if
+
+            if playlist.error <> invalid
+                response.Json(playlist)
+                response.http_code = 500
+                return true
+            end if
+
+            index = request.query.index
+            if not StringUtils.IsNullOrEmpty(index)
+                index = index.ToInt()
+                if index > 1
+                    LogErrorNoTelemetry("Playlet backend does not use playlist pagination (use continuation instead)")
+                    playlist.videos = []
+                end if
+            end if
+
+            ' info_only is Playlet specific. If set, we only care about the playlist info,
+            ' not the videos. This usually means we're loading info for a bookmark.
+            ' When that's the case, we want to get rid of the continuation, because a
+            ' continuation from an unauthenticated innertube request is not compatible
+            ' with an authenticated innertube request.
+            if infoOnly
+                playlist.videos = []
+                playlist.Delete("continuation")
+            end if
+
+            response.Json(playlist)
+            return true
+        end function
+
+        function GetAuthPlaylist(context as object) as boolean
+            request = context.request
+            response = context.response
+            route = request.route
+
+            accessToken = m.RequireAccessToken(request, response)
+            if accessToken = invalid
+                return true
+            end if
+
+            playlistId = route.Mid("/playlet-invidious-backend/api/v1/auth/playlists/".Len())
+            if playlistId.InStr("?") > 0
+                playlistId = playlistId.Left(playlistId.InStr("?"))
+            end if
+
+            context.playlistId = playlistId
+            return m.GetPlaylist(context)
+        end function
+
+        function GetChannel(context as object) as boolean
+            request = context.request
+            response = context.response
+            route = request.route
+
+            channelAndTab = route.Mid("/playlet-invidious-backend/api/v1/channels/".Len())
+            if channelAndTab.InStr("?") > 0
+                channelAndTab = channelAndTab.Left(channelAndTab.InStr("?"))
+            end if
+            channelAndTab = channelAndTab.Split("/")
+
+            continuation = request.query.continuation
+            raw = request.query.raw <> invalid
+
+            options = {
+                raw: raw
+            }
+
+            if not StringUtils.IsNullOrEmpty(continuation)
+                options.continuation = continuation
+            end if
+
+            if channelAndTab.Count() = 1
+                channelId = channelAndTab[0]
+                channel = InnertubeService.GetChannel(channelId, options)
+                if raw
+                    response.Json(channel)
+                    return true
+                end if
+
+                if channel.error <> invalid
+                    response.Json(channel)
+                    response.http_code = 500
+                    return true
+                end if
+
+                response.Json(channel)
+                if channel.DoesExist("cache-control")
+                    response.headers["cache-control"] = channel["cache-control"]
+                end if
+
+                return true
+            else if channelAndTab.Count() = 2
+                channelId = channelAndTab[0]
+                _tab = channelAndTab[1]
+
+                params = request.query.params
+                if not StringUtils.IsNullOrEmpty(params)
+                    options.params = params
+                end if
+
+                ' sort by is a special sorting argument handled by Playlet backend.
+                ' It's a JSON object that could have the "params" key or "continuation"
+                ' key. In this case, we will override these options with the values
+                ' from the "sort_by" query parameter. If we do get an Invidious "sort_by"
+                ' (such as "newest", "oldest", etc.), we'll ignore it, as it is not supported.
+                sortBy = request.query.sort_by
+                if not StringUtils.IsNullOrEmpty(sortBy) and sortBy.StartsWith("{")
+                    sortBy = StringUtils.ParseJsonSafe(sortBy)
+                    if IsAssociativeArray(sortBy)
+                        if sortBy.DoesExist("params")
+                            options.params = sortBy.params
+                        end if
+                        if sortBy.DoesExist("continuation")
+                            options.continuation = sortBy.continuation
+                        end if
+                    end if
+                end if
+
+                channel = InnertubeService.GetChannel(channelId, options)
+                if raw
+                    response.Json(channel)
+                    return true
+                end if
+
+                if channel.error <> invalid
+                    response.Json(channel)
+                    response.http_code = 500
+                    return true
+                end if
+
+                result = {}
+                if _tab = "playlists" or _tab = "podcasts" or _tab = "releases" or _tab = "courses"
+                    result ["playlists"] = channel.items
+                else
+                    result ["videos"] = channel.items
+                end if
+                if channel.DoesExist("continuation")
+                    result.continuation = channel.continuation
+                end if
+                if channel.DoesExist("sortOptions")
+                    ' Transform sort options from:
+                    '   [{
+                    '    "title": "string",
+                    '    "isSelected": "boolean"
+                    '    "params?": "string",
+                    '    "continuation?": "string"
+                    '   }]
+                    ' to:
+                    '   [{
+                    '    "title": "string",
+                    '    "isSelected": "boolean"
+                    '    "params?": "string",
+                    '    "continuation?": "string"
+                    '    "id": "{ \"params\": \"string\", \"continuation\": \"string\" }"
+                    '   }]
+                    ' This so sorting doesn't interfere with actual params or continuation.
+                    ' Sort options are later parsed by Playlet backend.
+                    sortOptions = channel.sortOptions
+                    if IsArray(sortOptions) and sortOptions.Count() > 0
+                        for i = 0 to sortOptions.Count() - 1
+                            sortOption = sortOptions[i]
+                            sortOptionId = {}
+                            if sortOption.DoesExist("params")
+                                sortOptionId["params"] = sortOption.params
+                            end if
+                            if sortOption.DoesExist("continuation")
+                                sortOptionId["continuation"] = sortOption.continuation
+                            end if
+                            sortOption.id = FormatJson(sortOptionId)
+                        end for
+                    end if
+                    result["sortOptions"] = sortOptions
+                end if
+                response.Json(result)
+                if channel.DoesExist("cache-control")
+                    response.headers["cache-control"] = channel["cache-control"]
+                end if
+
+                return true
+            end if
+
+            return false
+        end function
+
+        function SubscribeToChannel(context as object) as boolean
+            request = context.request
+            response = context.response
+            route = request.route
+
+            accessToken = m.RequireAccessToken(request, response)
+            if accessToken = invalid
+                return true
+            end if
+
+            channelId = route.Mid("/playlet-invidious-backend/api/v1/auth/subscriptions/".Len())
+            if channelId.InStr("?") > 0
+                channelId = channelId.Left(channelId.InStr("?"))
+            end if
+
+            if StringUtils.IsNullOrEmpty(channelId)
+                response.Json({
+                    "error": "Missing 'channelId' path parameter"
+                })
+                response.http_code = 400
+                return true
+            end if
+
+            options = {
+                "accessToken": accessToken
+            }
+
+            activeIdentifyToken = request.query.activeIdentifyToken
+            if not StringUtils.IsNullOrEmpty(activeIdentifyToken)
+                options.onBehalfOfUser = activeIdentifyToken
+            end if
+
+            result = InnertubeService.SubscribeToChannel(channelId, options)
+
+            if result.success <> true
+                response.Json(result)
+                response.http_code = 500
+                return true
+            end if
+
+            response.Default(204, "OK")
+            return true
+        end function
+
+        @delete("*")
+        function DeleteAll(context as object) as boolean
+            request = context.request
+            route = request.route
+
+            if route.StartsWith("/playlet-invidious-backend/api/v1/auth/subscriptions/")
+                return m.UnsubscribeFromChannel(context)
+            end if
+
+            return false
+        end function
+
+        function UnsubscribeFromChannel(context as object) as boolean
+            request = context.request
+            response = context.response
+            route = request.route
+
+            accessToken = m.RequireAccessToken(request, response)
+            if accessToken = invalid
+                return true
+            end if
+
+            channelId = route.Mid("/playlet-invidious-backend/api/v1/auth/subscriptions/".Len())
+            if channelId.InStr("?") > 0
+                channelId = channelId.Left(channelId.InStr("?"))
+            end if
+
+            if StringUtils.IsNullOrEmpty(channelId)
+                response.Json({
+                    "error": "Missing 'channelId' path parameter"
+                })
+                response.http_code = 400
+                return true
+            end if
+
+            options = {
+                "accessToken": accessToken
+            }
+
+            activeIdentifyToken = request.query.activeIdentifyToken
+            if not StringUtils.IsNullOrEmpty(activeIdentifyToken)
+                options.onBehalfOfUser = activeIdentifyToken
+            end if
+
+            result = InnertubeService.UnsubscribeFromChannel(channelId, options)
+
+            if result.success <> true
+                response.Json(result)
+                response.http_code = 500
+                return true
+            end if
+
+            response.Default(204, "OK")
+            return true
+        end function
+
+        @get("/playlet-invidious-backend/watch")
+        function RedirectWatch(context as object) as boolean
+            request = context.request
+            response = context.response
+
+            videoId = request.query.v
+            t = request.query.t
+
+            if StringUtils.IsNullOrEmpty(videoId)
+                response.Json({
+                    "error": "Missing 'v' query parameter"
+                })
+                response.http_code = 400
+                return true
+            end if
+
+            url = `https://redirect.invidious.io/watch?v=${videoId}`
+            if not StringUtils.IsNullOrEmpty(t)
+                url = `${url}&t=${t}`
+            end if
+            response.Redirect(url)
+            return true
+        end function
+
+        @get("/playlet-invidious-backend/playlist")
+        function RedirectPlaylist(context as object) as boolean
+            request = context.request
+            response = context.response
+
+            playlistId = request.query.list
+            if StringUtils.IsNullOrEmpty(playlistId)
+                response.Json({
+                    "error": "Missing 'list' query parameter"
+                })
+                response.http_code = 400
+                return true
+            end if
+
+            response.Redirect(`https://redirect.invidious.io/playlist?list=${playlistId}`)
+            return true
+        end function
+
+        function RedirectChannel(context as object) as boolean
+            request = context.request
+            response = context.response
+            route = request.route
+
+            channelId = route.Mid("/playlet-invidious-backend/channel/".Len())
+            if StringUtils.IsNullOrEmpty(channelId)
+                response.Json({
+                    "error": "Missing 'channelId' path parameter"
+                })
+                response.http_code = 400
+                return true
+            end if
+
+            response.Redirect(`https://redirect.invidious.io/channel/${channelId}`)
+            return true
+        end function
+
+
+        function GetAccessToken(request as object) as dynamic
+            accessToken = request.headers["authorization"]
+            if StringUtils.IsNullOrEmpty(accessToken) or not accessToken.StartsWith("Bearer ")
+                return invalid
+            end if
+
+            return accessToken.Mid("Bearer ".Len())
+        end function
+
+        function RequireAccessToken(request as object, response as object) as dynamic
+            accessToken = m.GetAccessToken(request)
+            if accessToken = invalid
+                response.Json({
+                    "error": "Missing or invalid 'Authorization' header. Please login again."
+                })
+                response.http_code = 403
+                return invalid
+            end if
+
+            return accessToken
+        end function
+
+    end class
+
+end namespace

@@ -1,0 +1,7 @@
+<component name="FeedContentNode" extends="ContentNode">
+    <interface>
+        <field id="feedSources" type="array" />
+        <field id="feedSourcesIndex" type="integer" />
+        <field id="loadState" type="string" />
+    </interface>
+</component>

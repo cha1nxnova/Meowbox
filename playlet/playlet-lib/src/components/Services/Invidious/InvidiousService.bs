@@ -1,0 +1,804 @@
+import "pkg:/components/ContentNode/ProfileContentAuthTokenUtils.bs"
+import "pkg:/components/Dialog/DialogUtils.bs"
+import "pkg:/components/Services/Innertube/InnertubeService.bs"
+import "pkg:/components/Services/Innertube/LiveStreamInfo.bs"
+import "pkg:/components/VideoFeed/PaginationType.bs"
+import "pkg:/source/services/HttpClient.bs"
+import "pkg:/source/utils/CryptoUtils.bs"
+import "pkg:/source/utils/Logging.bs"
+import "pkg:/source/utils/OptionUtils.bs"
+import "pkg:/source/utils/OptionUtils.bs"
+import "pkg:/source/utils/RegistryUtils.bs"
+import "pkg:/source/utils/StringUtils.bs"
+import "pkg:/source/utils/TimeUtils.bs"
+
+namespace Invidious
+    const INSTANCES_API = "https://api.invidious.io/instances.json?sort_by=type,users"
+
+    const PLAYLET_BUILT_IN_INSTANCE = "http://127.0.0.1:8888/playlet-invidious-backend"
+    const INSTANCE_EXAMPLE = "https://invidious.example.com"
+
+    const TOKEN_CALLBACK = "/invidious/token_callback"
+
+    const STATS_ENDPOINT = "/api/v1/stats"
+
+    const VIDEOS_ENDPOINT = "/api/v1/videos"
+    const PLAYLISTS_ENDPOINT = "/api/v1/playlists"
+    const CHANNELS_ENDPOINT = "/api/v1/channels"
+    const HISTORY_ENDPOINT = "/api/v1/auth/history"
+
+    const SEARCH_SUGGEST_ENDPOINT = "/api/v1/search/suggestions"
+
+    const AUTH_SCOPES = "GET:feed,GET:playlists*,POST:tokens/*,:history*,:subscriptions*"
+
+    const AUTH_PLAYLISTS = "/api/v1/auth/playlists"
+    const AUTH_SUBSCRIPTIONS = "/api/v1/auth/subscriptions"
+    const AUTH_TOKENS_UNREGISTER = "/api/v1/auth/tokens/unregister"
+    const AUTH_TOKENS_REGISTER = "/api/v1/auth/tokens/register"
+
+    const TOKEN_TIMESPAN = 60 * 60 * 24 * 365 * 2 '2 years
+
+    const ERROR_NOT_AUTHENTICATED = "Not authenticated"
+
+    class InvidiousService
+        public invidiousNode as object
+
+        function new(invidiousNode as object)
+            m.invidiousNode = invidiousNode
+        end function
+
+        function GetUserCountryCode() as string
+            if m._userCountryCode = invalid
+                m._userCountryCode = m.invidiousNode.applicationInfo@.GetUserCountryCode()
+
+                ' GetUserCountryCode() can return OT, which is not a valid country code.
+                ' https://github.com/iBicha/playlet/issues/372
+                if ValidString(m._userCountryCode) = "OT"
+                    m._userCountryCode = "US"
+                end if
+            end if
+            return m._userCountryCode
+        end function
+
+        function GetAuthenticationHeaders(token as string) as object
+            return {
+                "Authorization": `Bearer ${token}`
+            }
+        end function
+
+        function GetCurrentProfile() as object
+            if m.profilesService = invalid
+                m.profilesService = m.invidiousNode.profilesService
+            end if
+            if m.profilesService = invalid
+                return invalid
+            end if
+            return m.profilesService.currentProfile
+        end function
+
+        function GetInstance() as string
+            if m.preferences = invalid
+                m.preferences = m.invidiousNode.preferences
+            end if
+
+            backend = m.preferences["backend.selected"]
+            if backend = "invidious"
+                instance = m.GetInvidiousInstance()
+                if not StringUtils.IsNullOrEmpty(instance)
+                    return instance
+                end if
+            end if
+
+            return PLAYLET_BUILT_IN_INSTANCE
+        end function
+
+        function GetInvidiousInstance() as string
+            if m.preferences = invalid
+                m.preferences = m.invidiousNode.preferences
+            end if
+
+            return m.preferences["invidious.instance"]
+        end function
+
+        function MarkVideoWatched(auth as ProfileContentAuthTokenUtils.AccessTokenResult, videoId as dynamic, cancellation = invalid as object) as void
+            if StringUtils.IsNullOrEmpty(videoId) or auth = invalid or auth.state <> ProfileContentAuthTokenUtils.AccessTokenState.Ok
+                return
+            end if
+
+            url = `${auth.serverUrl}${Invidious.HISTORY_ENDPOINT}/${videoId}`
+            request = HttpClient.Post(url)
+            request.Headers(m.GetAuthenticationHeaders(auth.token))
+            request.Cancellation(cancellation)
+            response = request.Await()
+            m.MarkNeedsReauthIfCredentialsRejected(response, auth.profile)
+        end function
+
+        function SearchSuggestions(q as string, cancellation = invalid as object) as object
+            instance = m.GetInstance()
+            url = `${instance}${Invidious.SEARCH_SUGGEST_ENDPOINT}`
+
+            request = HttpClient.Get(url)
+            request.QueryParam("region", m.GetUserCountryCode())
+            request.QueryParam("q", q)
+            request.CacheForSeconds(60 * 60 * 24)
+
+            request.Cancellation(cancellation)
+
+            response = request.Await()
+
+            if not response.IsSuccess()
+                return {
+                    error: response.ErrorMessage()
+                }
+            end if
+            return response.Json()
+        end function
+
+        function GetVideoMetadata(videoId as string, options = invalid as object) as object
+            cancellation = OptionUtils.Get(options, "cancellation")
+            retryCount = OptionUtils.GetOrDefault(options, "retryCount", 1)
+
+            instance = m.GetInstance()
+            url = `${instance}${Invidious.VIDEOS_ENDPOINT}/${videoId}`
+
+            request = HttpClient.Get(url)
+            request.Cancellation(cancellation)
+            request.RetryCount(retryCount)
+            ' In some cases, video info requests return "HTTP/0.9 when not allowed" errors.
+            ' Retrying should usually fix the issue.
+            request.RetryIf(function(response as HttpClient.Response) as string
+                errorMessage = response.ErrorMessage()
+                if response.StatusCode() = HttpClient.CurlErrors.CURLE_UNSUPPORTED_PROTOCOL and errorMessage.InStr("HTTP/0.9") <> -1
+                    return errorMessage
+                end if
+                return ""
+            end function)
+
+            response = request.Await()
+            if not response.IsSuccess()
+                return {
+                    error: response.ErrorMessage()
+                }
+            end if
+
+            metadata = response.Json()
+            if not IsAssociativeArray(metadata)
+                return metadata
+            end if
+            ' Playlet's built-in instance answers with innertube metadata, parser and live
+            ' timeline included; an Invidious server sends neither.
+            if StringUtils.IsNullOrEmpty(metadata["parser"])
+                metadata["parser"] = "invidious"
+            end if
+            ' The Invidious adaptiveFormats urls are already signed googlevideo urls;
+            ' Invidious sends no chunk readahead or cpn.
+            if Invidious.NeedsLiveStreamInfo(metadata)
+                Innertube.GetLiveStreamInfo(metadata, metadata.adaptiveFormats, 0, invalid, cancellation)
+            end if
+
+            return metadata
+        end function
+
+        function GetPlaylist(playlistId as string, index = 0 as integer, continuation = "" as string, cancellation = invalid as object) as object
+            profile = m.GetCurrentProfile()
+            auth = invalid
+            if profile <> invalid
+                auth = ProfileContentAuthTokenUtils.EnsureFreshAccessToken(profile)
+            end if
+            isAuthenticatedRequest = auth <> invalid and auth.state = ProfileContentAuthTokenUtils.AccessTokenState.Ok
+            if isAuthenticatedRequest
+                url = `${auth.serverUrl}${Invidious.AUTH_PLAYLISTS}/${playlistId}`
+                request = HttpClient.Get(url)
+                request.Headers(m.GetAuthenticationHeaders(auth.token))
+                if not StringUtils.IsNullOrEmpty(auth.activeIdentifyToken)
+                    request.QueryParam("activeIdentifyToken", auth.activeIdentifyToken)
+                end if
+            else
+                instance = m.GetInstance()
+                url = `${instance}${Invidious.PLAYLISTS_ENDPOINT}/${playlistId}`
+                request = HttpClient.Get(url)
+            end if
+
+            if continuation <> ""
+                request.QueryParam("continuation", continuation)
+            else
+                request.QueryParam("index", index)
+            end if
+            request.Cancellation(cancellation)
+
+            response = request.Await()
+            if isAuthenticatedRequest
+                m.MarkNeedsReauthIfCredentialsRejected(response, auth.profile)
+            end if
+            return response
+        end function
+
+        function GetChannel(authorId as string, cancellation = invalid as object) as object
+            instance = m.GetInstance()
+            url = `${instance}${Invidious.CHANNELS_ENDPOINT}/${authorId}`
+
+            request = HttpClient.Get(url)
+            request.Cancellation(cancellation)
+            request.CacheForSeconds(60 * 60 * 24)' 24 hours
+            request.RetryCount(2)
+
+            return request.Await()
+        end function
+
+        function MarkFeedPagination(feedContentNode as object) as object
+            feedSources = feedContentNode.feedSources
+            feedSourcesIndex = feedContentNode.feedSourcesIndex
+
+            feedSource = feedSources[feedSourcesIndex]
+
+            if m.endpoints = invalid
+                m.endpoints = m.invidiousNode.apiDefinitions
+            end if
+
+            endpoint = m.endpoints[feedSource.endpoint]
+            if endpoint = invalid or StringUtils.IsNullOrEmpty(endpoint.paginationType)
+                return feedSource
+            end if
+
+            feedSourceState = feedSource.state
+            if not feedSourceState.DoesExist("queryParams")
+                feedSourceState["queryParams"] = {}
+            end if
+
+            feedSourceState.paginationType = endpoint.paginationType
+
+            continuation = feedSourceState.continuation
+            hasContinuation = not StringUtils.IsNullOrEmpty(continuation)
+            if not hasContinuation
+                feedSourceState.queryParams.Delete("continuation")
+            end if
+
+            if feedSourceState.paginationType = PaginationType.Continuation or hasContinuation
+                if hasContinuation
+                    feedSourceState.queryParams.continuation = continuation
+                end if
+                feedSourceState.queryParams.Delete("page")
+            else if feedSourceState.paginationType = PaginationType.Pages
+                if not IsInt(feedSourceState.page)
+                    feedSourceState.page = 0
+                end if
+                feedSourceState.page += 1
+                feedSourceState.queryParams.page = feedSourceState.page
+            end if
+
+            feedSource.state = feedSourceState
+            feedSources[feedSourcesIndex] = feedSource
+            feedContentNode.feedSources = feedSources
+            return feedSource
+        end function
+
+        function MakeRequest(feedSource as object, options = invalid as dynamic) as object
+            additionalQueryParams = OptionUtils.Get(options, "additionalQueryParams")
+            cancellation = OptionUtils.Get(options, "cancellation")
+            httpServer = OptionUtils.Get(options, "httpServer")
+
+            if m.endpoints = invalid
+                m.endpoints = m.invidiousNode.apiDefinitions
+            end if
+
+            endpoint = m.endpoints[feedSource.endpoint]
+            if endpoint = invalid
+                return {
+                    success: false
+                    error: `Endpoint ${feedSource.endpoint} not found`
+                }
+            end if
+
+            profile = invalid
+
+            if endpoint.authenticated = true
+                profile = m.GetCurrentProfile()
+                auth = invalid
+                if profile <> invalid
+                    auth = ProfileContentAuthTokenUtils.EnsureFreshAccessToken(profile)
+                end if
+                if auth = invalid or auth.state <> ProfileContentAuthTokenUtils.AccessTokenState.Ok
+                    return {
+                        success: false
+                        error: ERROR_NOT_AUTHENTICATED
+                    }
+                end if
+                request = HttpClient.Get(auth.serverUrl + endpoint.url)
+                request.Headers(m.GetAuthenticationHeaders(auth.token))
+                if not StringUtils.IsNullOrEmpty(auth.activeIdentifyToken)
+                    request.QueryParam("activeIdentifyToken", auth.activeIdentifyToken)
+                end if
+            else
+                request = HttpClient.Get(m.GetInstance() + endpoint.url)
+            end if
+
+            if endpoint.queryParams <> invalid
+                for each queryParamKey in endpoint.queryParams
+                    queryParam = endpoint.queryParams[queryParamKey]
+                    if queryParam.default <> invalid
+                        if IsString(queryParam.type) and queryParam.type = "#ISO3166"
+                            if queryParam.default = "GetUserCountryCode"
+                                request.QueryParam(queryParamKey, m.GetUserCountryCode())
+                            else
+                                request.QueryParam(queryParamKey, queryParam.default)
+                            end if
+                        else if IsArray(queryParam.default) and queryParam.arrayType <> invalid
+                            request.QueryParamArray(queryParamKey, queryParam.default, queryParam.arrayType)
+                        else
+                            request.QueryParam(queryParamKey, queryParam.default)
+                        end if
+                    end if
+                end for
+            end if
+
+            if feedSource.cacheSeconds <> invalid
+                request.CacheForSeconds(feedSource.cacheSeconds)
+            else if endpoint.cacheSeconds <> invalid
+                request.CacheForSeconds(endpoint.cacheSeconds)
+            end if
+
+            if feedSource.tryCount <> invalid
+                request.RetryCount(feedSource.tryCount - 1)
+            else if endpoint.tryCount <> invalid
+                request.RetryCount(endpoint.tryCount - 1)
+            end if
+
+            if feedSource.queryParams <> invalid
+                request.QueryParams(feedSource.queryParams)
+            end if
+
+            if additionalQueryParams <> invalid
+                request.QueryParams(additionalQueryParams)
+            end if
+
+            if feedSource.pathParams <> invalid
+                request.PathParams(feedSource.pathParams)
+            end if
+
+            request.Cancellation(cancellation)
+
+            response = m.SendRequest(request, httpServer)
+
+            responseHandler = invalid
+            if IsString(endpoint.responseHandler) and m.DoesExist(endpoint.responseHandler)
+                responseHandler = endpoint.responseHandler
+            else
+                responseHandler = "DefaultHandler"
+            end if
+
+            result = m[responseHandler]({
+                feedSource: feedSource
+                response: response
+                profile: profile
+            })
+
+            if result <> invalid
+                return {
+                    success: true
+                    result: result
+                }
+            else
+                return {
+                    success: false
+                    error: response.ErrorMessage()
+                    cancelled: response.IsCancelled()
+                }
+            end if
+        end function
+
+        function SendRequest(request as HttpClient.Request, httpServer as dynamic) as HttpClient.Response
+            if httpServer = invalid
+                return request.Await()
+            end if
+
+            url = request.GetFullUrl()
+            isUrlToLocalServer = url.StartsWith("http://127.0.0.1:8888") or url.StartsWith(m.invidiousNode.webServer@.GetServerAddress())
+            if not isUrlToLocalServer
+                return request.Await()
+            end if
+
+            parsedUrl = UrlUtils.ParseUrl(url)
+            responseObj = httpServer.ProcessRequestLocal(request.GetMethod(), parsedUrl.path, request.GetHeaders(), ValidString(request.GetTextBody()))
+            body = ""
+            if responseObj.body <> invalid
+                body = responseObj.body.ToAsciiString()
+            end if
+            return new HttpClient.Response({
+                statusCode: responseObj.http_code
+                headers: responseObj.headers
+                text: body
+            })
+        end function
+
+        function DefaultHandler(context as object) as object
+            response = context.response
+
+            if not response.IsSuccess()
+                return invalid
+            end if
+
+            json = response.Json()
+            if json = invalid
+                return invalid
+            end if
+
+            if IsArray(json)
+                json = {
+                    items: json
+                }
+            end if
+            return json
+        end function
+
+        function PlaylistHandler(context as object) as object
+            response = context.response
+
+            if not response.IsSuccess()
+                ' Similar to VideoInfoHandler, we can return a valid response
+                ' in case of a deleted playlist.
+                return {
+                    isLastPage: true
+                    items: [{
+                        "type": "playlist"
+                        "playlistId": context.feedSource.pathParams.plid
+                        "title": "[Playlist not found]"
+                    }]
+                }
+            end if
+
+            json = response.Json()
+            if json = invalid
+                return invalid
+            end if
+
+            result = {
+                items: json.videos
+            }
+            if json.continuation <> invalid
+                result.continuation = json.continuation
+            end if
+            return result
+        end function
+
+        function ChannelVideosHandler(context as object) as object
+            response = context.response
+
+            if not response.IsSuccess()
+                ' Similar to VideoInfoHandler, we can return a valid response
+                ' in case of a deleted channel.
+                return {
+                    isLastPage: true
+                    items: [{
+                        "type": "video"
+                        "videoId": "-----------"
+                        "title": "[Channel videos not found]"
+                    }]
+                }
+            end if
+
+            json = response.Json()
+            if json = invalid
+                return invalid
+            end if
+
+            return {
+                items: json.videos
+                continuation: json.continuation
+                sortOptions: json.sortOptions
+            }
+        end function
+
+        function ChannelPlaylistsHandler(context as object) as object
+            response = context.response
+
+            if not response.IsSuccess()
+                return invalid
+            end if
+
+            json = response.Json()
+            if json = invalid
+                json = {
+                    playlists: []
+                }
+            end if
+
+            return {
+                items: json.playlists
+                continuation: json.continuation
+                sortOptions: json.sortOptions
+            }
+        end function
+
+        function VideoInfoHandler(context as object) as object
+            response = context.response
+
+            if not response.IsSuccess()
+                ' In some cases, such as a video became private, or a live stream ended,
+                ' Invidious returns a 500 error. We can in this case return a valid response
+                ' with just a video id, which will allow us to show a valid thumbnail if possible.
+                ' This is to makes it possible to load a bookmarked video and delete it even if
+                ' it is no longer valid.
+                return {
+                    items: [{
+                        "type": "video"
+                        "videoId": context.feedSource.pathParams.id
+                        "title": "[Video not available]"
+                    }]
+                }
+            end if
+
+            json = response.Json()
+            if json = invalid
+                return invalid
+            end if
+
+            json.type = "video"
+            return {
+                items: [json]
+            }
+        end function
+
+        function PlaylistInfoHandler(context as object) as object
+            response = context.response
+
+            if not response.IsSuccess()
+                ' Similar to VideoInfoHandler, we can return a valid response
+                ' in case of a deleted playlist.
+                return {
+                    items: [{
+                        "type": "playlist"
+                        "playlistId": context.feedSource.pathParams.plid
+                        "title": "[Playlist not found]"
+                    }]
+                }
+            end if
+
+            json = response.Json()
+            if json = invalid
+                return invalid
+            end if
+
+            json.type = "playlist"
+            ' Since we only want the playlist info, we can remove the videos array
+            json.Delete("videos")
+            return {
+                items: [json]
+            }
+        end function
+
+        function ChannelInfoHandler(context as object) as object
+            response = context.response
+
+            if not response.IsSuccess()
+                ' Similar to VideoInfoHandler, we can return a valid response
+                ' in case of a deleted channel.
+                return {
+                    items: [{
+                        "type": "channel"
+                        "authorId": context.feedSource.pathParams.ucid
+                        "author": "[Channel not found]"
+                    }]
+                }
+            end if
+
+            json = response.Json()
+            if json = invalid
+                return invalid
+            end if
+
+            json.type = "channel"
+            return {
+                items: [json]
+            }
+        end function
+
+        function AuthFeedHandler(context as object) as object
+            response = context.response
+
+            m.MarkNeedsReauthIfCredentialsRejected(response, context.profile)
+
+            if not response.IsSuccess()
+                return invalid
+            end if
+
+            json = response.Json()
+            if json = invalid
+                return invalid
+            end if
+
+            videos = []
+
+            if IsArray(json.notifications)
+                videos.Append(json.notifications)
+            end if
+
+            if IsArray(json.videos)
+                videos.Append(json.videos)
+            end if
+
+            result = {
+                items: videos
+            }
+
+            if json.continuation <> invalid
+                result.continuation = json.continuation
+            end if
+
+            return result
+        end function
+
+        function WatchHistoryHandler(context as object) as object
+            response = context.response
+
+            m.MarkNeedsReauthIfCredentialsRejected(response, context.profile)
+
+            if not response.IsSuccess()
+                return invalid
+            end if
+
+            json = response.Json()
+            if IsArray(json)
+                videos = []
+                if json.Count() = 0
+                    return {
+                        items: videos
+                    }
+                end if
+
+                videoDictionary = {}
+
+                videosMetadata = InnertubeService.GetVideoInfoBatched(json)
+                if not StringUtils.IsNullOrEmpty(videosMetadata.error)
+                    LogError("Failed to load video metadata", videosMetadata.error)
+                else
+                    for each video in videosMetadata.videos
+                        videoDictionary[video.videoId] = video
+                    end for
+                end if
+
+                for each videoId in json
+                    video = videoDictionary[videoId]
+                    if video = invalid
+                        video = {
+                            "type": "video"
+                            "videoId": videoId
+                            "videoThumbnails": [{
+                                "quality": "medium"
+                                "url": `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`
+                                "width": 320
+                                "height": 180
+                            }]
+                        }
+                    end if
+
+                    videos.push(video)
+                end for
+
+                json = {
+                    items: videos
+                }
+            end if
+
+            return json
+        end function
+
+        function MarkNeedsReauthIfCredentialsRejected(response as HttpClient.Response, profile as object) as void
+            if response.StatusCode() <> 403
+                return
+            end if
+
+            body = response.Text()
+            LogWarn(`Invidious instance responded with 403: ${body}`)
+            if profile = invalid or profile.type <> "invidious"
+                return
+            end if
+
+            ' Invidious answers 403 to any exception on /api/v1/auth/*, including a route failing after
+            ' authentication succeeded. Only these errors, raised while validating the session, mean it's dead.
+            if body.InStr("Request must be authenticated") <> -1 or body.InStr("Invalid signature") <> -1 or body.InStr("Erroneous token") <> -1 or body.InStr("Token is expired") <> -1
+                profile@.MarkNeedsReauth()
+            end if
+        end function
+
+        function VerifyTokenScope(token as string) as boolean
+            tokenObject = StringUtils.ParseJsonSafe(token)
+            if tokenObject = invalid
+                LogWarn("Failed to json parse token:", token)
+                return false
+            end if
+            if not IsArray(tokenObject.scopes)
+                LogWarn("Token scopes are not an array:", tokenObject.scopes)
+                return false
+            end if
+
+            scopes = tokenObject.scopes.join(",")
+            expectedScopes = Invidious.AUTH_SCOPES
+            validScopes = expectedScopes = scopes
+
+            if not validScopes
+                LogWarn(`Token scopes do not match expected scopes. Expected: "${expectedScopes}", got: "${scopes}"`)
+            end if
+            return validScopes
+        end function
+
+        function UnregisterToken(instance as string, token as string) as object
+            url = `${instance}${Invidious.AUTH_TOKENS_UNREGISTER}`
+
+            request = HttpClient.Post(url).TextBody(token)
+            request.Headers(m.GetAuthenticationHeaders(token))
+            request.Header("Content-Type", "application/json")
+
+            return request.Await()
+        end function
+
+        function GetAuthorizeTokenLink(serverUrl as string, loginNonce as string) as dynamic
+            instance = serverUrl
+            if StringUtils.IsNullOrEmpty(instance)
+                instance = m.GetInvidiousInstance()
+            end if
+            if StringUtils.IsNullOrEmpty(instance)
+                return invalid
+            end if
+
+            ' Make sure the host is not on https, because https cannot redirect to http, which is our local server
+            invidiousHost = instance.Replace("https://", "http://")
+
+            address = m.invidiousNode.webServer@.GetServerAddress()
+            if address = invalid
+                return invalid
+            end if
+
+            expire = TimeUtils.Now().AsSeconds() + Invidious.TOKEN_TIMESPAN
+
+            callbackUrl = `${address}${Invidious.TOKEN_CALLBACK}?ref=${instance}&nonce=${loginNonce}`.EncodeUriComponent()
+            scope = `${Invidious.AUTH_SCOPES}`.EncodeUriComponent()
+            return `${invidiousHost}/authorize_token?scopes=${scope}&callback_url=${callbackUrl}&expire=${expire}`
+        end function
+
+        function GetSubscriptions(auth as ProfileContentAuthTokenUtils.AccessTokenResult, cancellation = invalid as object) as object
+            url = `${auth.serverUrl}${Invidious.AUTH_SUBSCRIPTIONS}`
+            request = HttpClient.Get(url)
+            request.Headers(m.GetAuthenticationHeaders(auth.token))
+            request.Cancellation(cancellation)
+
+            response = request.Await()
+            m.MarkNeedsReauthIfCredentialsRejected(response, auth.profile)
+            return response
+        end function
+
+        function Subscribe(auth as ProfileContentAuthTokenUtils.AccessTokenResult, channelId as string, cancellation = invalid as object) as object
+            url = `${auth.serverUrl}${Invidious.AUTH_SUBSCRIPTIONS}/${channelId}`
+            request = HttpClient.Post(url)
+            if not StringUtils.IsNullOrEmpty(auth.activeIdentifyToken)
+                request.QueryParam("activeIdentifyToken", auth.activeIdentifyToken)
+            end if
+            request.Headers(m.GetAuthenticationHeaders(auth.token))
+            request.Cancellation(cancellation)
+
+            response = request.Await()
+            m.MarkNeedsReauthIfCredentialsRejected(response, auth.profile)
+            return response
+        end function
+
+        function Unsubscribe(auth as ProfileContentAuthTokenUtils.AccessTokenResult, channelId as string, cancellation = invalid as object) as object
+            url = `${auth.serverUrl}${Invidious.AUTH_SUBSCRIPTIONS}/${channelId}`
+            request = HttpClient.Delete(url)
+            if not StringUtils.IsNullOrEmpty(auth.activeIdentifyToken)
+                request.QueryParam("activeIdentifyToken", auth.activeIdentifyToken)
+            end if
+            request.Headers(m.GetAuthenticationHeaders(auth.token))
+            request.Cancellation(cancellation)
+
+            response = request.Await()
+            m.MarkNeedsReauthIfCredentialsRejected(response, auth.profile)
+            return response
+        end function
+    end class
+
+    ' Whether a /videos response is a live video still missing the live timeline the
+    ' innertube path gets: the built-in instance's responses carry it already.
+    function NeedsLiveStreamInfo(metadata as object) as boolean
+        return ValidBool(metadata.liveNow) and IsArray(metadata.adaptiveFormats) and StringUtils.IsNullOrEmpty(metadata.liveHeadUrl)
+    end function
+
+end namespace

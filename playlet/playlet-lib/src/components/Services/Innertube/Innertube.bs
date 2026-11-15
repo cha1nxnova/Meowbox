@@ -1,0 +1,36 @@
+import "pkg:/components/JobSystem/Jobs.bs"
+import "pkg:/components/JobSystem/JobSystem.bs"
+import "pkg:/components/Services/Innertube/Constants.bs"
+
+function Init()
+end function
+
+function OnNodeReady()
+    QueueSessionDataJob()
+end function
+
+function EnsureSessionDataJob(_unused as dynamic) as object
+    QueueSessionDataJob()
+    return m.innertubeSessionDataJob
+end function
+
+function QueueSessionDataJob() as void
+    if m.innertubeSessionDataJob <> invalid and not m.innertubeSessionDataJob.done
+        return
+    end if
+
+    input = {
+        innertube: m.top
+    }
+
+    m.innertubeSessionDataJob = JobSystem.CreateCallback(OnInnertubeSessionDataJobDone)
+    JobSystem.QueueJob(m.top.jobQueue, Jobs.InnertubeSessionDataJob, input, m.innertubeSessionDataJob)
+end function
+
+function OnInnertubeSessionDataJobDone(event as object) as void
+    node = event.getRoSGNode()
+    JobSystem.UnobserveCallback(node)
+    if m.innertubeSessionDataJob <> invalid and m.innertubeSessionDataJob.isSameNode(node)
+        m.innertubeSessionDataJob = invalid
+    end if
+end function

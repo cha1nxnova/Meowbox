@@ -1,0 +1,213 @@
+import "pkg:/components/Web/WebServer/Http/HttpRequest.bs"
+import "pkg:/components/Web/WebServer/Http/HttpResponse.bs"
+import "pkg:/components/Web/WebServer/Http/HttpRouter.bs"
+import "pkg:/source/utils/Logging.bs"
+import "pkg:/source/utils/StringUtils.bs"
+import "pkg:/source/utils/Types.bs"
+
+namespace Http
+
+    class HttpStaticFilesRouter extends HttpRouter
+        private root
+        private route
+        private etags
+
+        private showDirectories
+        private showHidden
+        private fsCheck
+        private staticFiles
+        private staticCompressed
+
+        function new(route as string, root as string, etags as object, options = {} as object)
+            super()
+
+            m.root = root
+            m.route = route
+            m.etags = etags
+
+            ' showDirectories: if true, will generate a directory listing for directories. Otherwise, 403.
+            m.showDirectories = ValidBool(options.showDirectories)
+            ' showHidden: if true, will show hidden files. Hidden files are those that start with a dot.
+            ' Actual attributes not checked.
+            m.showHidden = ValidBool(options.showHidden)
+            ' fsCheck: if true, will use roFilesystem to check if file exists.
+            ' Otherwise, will use roByteArray.ReadFile() to check if file exists.
+            ' fsCheck should be false primarily for libpkg:/ files, which do not work with roFilesystem.
+            m.fsCheck = ValidBool(options.fsCheck)
+            ' staticFiles: if true, Etag tags will be cached to skip reading the file entirely.
+            m.staticFiles = ValidBool(options.staticFiles)
+            ' staticCompressed: the files are .gz and already compressed.
+            m.staticCompressed = m.staticFiles and ValidBool(options.staticCompressed)
+        end function
+
+        @get("*")
+        function GetFileOrFolder(context as object) as boolean
+            request = context.request
+            response = context.response
+            server = context.server
+
+            if not request.route.StartsWith(m.route)
+                return false
+            end if
+
+            path_in_route = request.route.Mid(m.route.Len())
+
+            decoded_path = path_in_route.DecodeUri()
+            full_path = StringUtils.PathJoin(m.root, decoded_path)
+
+            if m.staticCompressed
+                full_path += ".gz"
+            end if
+
+            if m.staticFiles
+                ' Although we have an Etag middleware, having a check here allows us to
+                ' skip reading the file entirely if the Etag matches.
+                if m.etags.AddFileEtagFromCache(request, response, full_path)
+                    if m.etags.ClearContentIfNoneMatch(request, response)
+                        return true
+                    end if
+                end if
+            end if
+
+            if not m.fsCheck
+                ' libpkg:/ does not work with roFilesystem...
+                buffer = createObject("roByteArray")
+                if buffer.ReadFile(full_path) and buffer.count() > 0
+                    mimetype = server.utils.MimeType(decoded_path)
+                    response.SetBodyDataBuffer(buffer)
+                    response.ContentType(mimetype)
+                    response.http_code = 200
+
+                    if m.staticFiles
+                        m.etags.AddEtagFromBody(request, response, full_path)
+                    end if
+
+                    if m.staticCompressed
+                        response.headers["Content-Encoding"] = "gzip"
+                    end if
+                    return true
+                end if
+            end if
+
+            path = CreateObject("roPath", full_path)
+            fs = CreateObject("roFilesystem")
+
+            if not path.isValid()
+                ' Skip, let next middleware handle it
+                return false
+            else if not fs.exists(path)
+                ' Skip, let next middleware handle it
+                return false
+            end if
+
+            stat = fs.stat(path)
+            if stat = invalid
+                response.Default(500, "fstat() failed.")
+                return true
+            end if
+
+            if stat.type = "directory"
+                if not m.showDirectories
+                    response.Default(403, "Forbidden")
+                    return true
+                end if
+                response.ContentType("text/html")
+                m.GenerateDirectoryListing(path, request, response)
+                if m.staticFiles
+                    m.etags.AddEtagFromBody(request, response, full_path)
+                end if
+                return true
+            else if stat.type = "file"
+                mimetype = server.utils.MimeType(decoded_path)
+                response.ContentType(mimetype)
+                response.SetBodyDataFile(path)
+                response.http_code = 200
+                LogInfo("uri:", request.uri, "target:", path, "content-type:", mimetype, "content-length", stat.size)
+                if m.staticFiles
+                    m.etags.AddEtagFromBody(request, response, full_path)
+                end if
+                if m.staticCompressed
+                    response.headers["Content-Encoding"] = "gzip"
+                end if
+                return true
+            else
+                response.Default(403, "Not a regular file.")
+                return true
+            end if
+        end function
+
+        function GenerateDirectoryListing(path as object, request as HttpRequest, response as HttpResponse) as boolean
+            fs = CreateObject("roFilesystem")
+            dirList = fs.GetDirectoryListing(path)
+            if dirList = invalid
+                response.Default(500, "Couldn't list directory")
+                return false
+            end if
+
+            ' for tabbed alignment of file sizes
+            maxlen = 0
+            for each item in dirList
+                il = item.len()
+                if maxlen < il
+                    maxlen = il
+                end if
+            end for
+
+            listing = `<html>
+<head>
+<title>${response.settings.ServerName}</title>
+</head>
+<body>
+    <h1>${request.uri.DecodeUri()}</h1>
+    <tt><pre>\n`
+
+            dir = path.getString()
+            if dir.len() > 0 and dir.right(1) <> "/"
+                dir = dir + "/"
+            end if
+            uriDir = request.uri
+            if uriDir.len() > 0 and uriDir.right(1) <> "/"
+                uriDir = uriDir + "/"
+            end if
+
+            routeDir = m.route
+            if routeDir.len() > 0 and routeDir.right(1) <> "/"
+                routeDir = routeDir + "/"
+            end if
+
+            if not uriDir = routeDir
+                uri = uriDir + ".."
+                listing += `<a href="${uri}">..</a>\n`
+            end if
+
+            for each item in dirList
+                if m.showHidden or item.left(1) <> "."
+                    indicator = invalid
+                    stat = fs.stat(dir + item)
+                    if stat <> invalid
+                        if stat.doesexist("type") and stat.type = "directory"
+                            indicator = "/"
+                        else if stat.doesexist("size")
+                            indicator = string(maxlen - item.len(), " ") + Stri(stat.size)
+                        end if
+                    end if
+                    if indicator <> invalid
+                        uri = uriDir + item
+                        safe_url = uri ' UrlEncode(uri) ' too much encoding
+                        listing += `<a href="${safe_url}">${item}${indicator}</a>\n`
+                    else
+                        LogWarn("insufficient stat info to include '" + dir + item + "'")
+                    end if
+                end if
+            end for
+
+            listing += `</pre></tt><hr>${response.GeneratedBy()}</body></html>`
+
+            response.SetBodyDataString(listing)
+            response.http_code = 200
+            response.KeepAlive(true)
+            return true
+        end function
+    end class
+
+end namespace

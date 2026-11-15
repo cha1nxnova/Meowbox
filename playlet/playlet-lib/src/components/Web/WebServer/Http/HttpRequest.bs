@@ -1,0 +1,280 @@
+import "HttpRequestState.bs"
+import "pkg:/components/Web/WebServer/Http/HttpConnection.bs"
+import "pkg:/components/Web/WebServer/Http/HttpUtils.bs"
+import "pkg:/source/utils/ByteArrayUtils.bs"
+import "pkg:/source/utils/Logging.bs"
+import "pkg:/source/utils/MathUtils.bs"
+import "pkg:/source/utils/Types.bs"
+import "pkg:/source/utils/UrlUtils.bs"
+
+namespace Http
+    const BUFFER_READ_LENGTH = 65536
+
+    function GetHttpRequestId() as integer
+        m.http_request_id = ValidInt(m.http_request_id) + 1
+        return m.http_request_id
+    end function
+
+    class HttpRequest
+        ' members
+        private method = invalid
+        private uri = invalid
+        private route = invalid
+        private query = invalid
+        private protocol = invalid
+        private encoder = invalid
+        private buffer = invalid
+        private buffer_index = 0
+        private headers = invalid
+        private body_bytes = invalid
+        private body_string = invalid
+        private state = Http.HttpRequestState.INIT
+        private id = 0
+        ' copied members
+        private ready_for_response = false
+
+        function new()
+            m.id = Http.GetHttpRequestId()
+            m.headers = CreateObject("roAssociativeArray")
+        end function
+
+        function FromParsedData(method as string, uri as string, headers as object, body as dynamic)
+            m.method = method
+            m.uri = uri
+            m.ParseUri()
+            m.headers = headers
+            if IsString(body)
+                m.body_string = body
+            else if IsByteArray(body)
+                m.body_bytes = body
+            end if
+            m.state = Http.HttpRequestState.DONE
+        end function
+
+        function Receive(socket as object) as integer
+            if not IsByteArray(m.buffer)
+                m.buffer = CreateObject("roByteArray")
+                m.buffer_index = 0
+            end if
+
+            lengthToRead = MathUtils.Min(socket.GetCountRcvBuf(), BUFFER_READ_LENGTH)
+            if lengthToRead <= 0
+                return 0
+            end if
+
+            newSize = m.buffer_index + lengthToRead
+            if m.buffer.Count() < newSize
+                m.buffer[newSize - 1] = 0
+            end if
+            received = socket.Receive(m.buffer, m.buffer_index, lengthToRead)
+            if received > 0
+                m.buffer_index += received
+            end if
+            return received
+        end function
+
+        function ProcessNext(connection as HttpConnection) as boolean
+            if m.state = Http.HttpRequestState.DONE
+                return m.ready_for_response
+            end if
+
+            if m.state = Http.HttpRequestState.INIT
+                m.state = Http.HttpRequestState.READING_START_AND_HEADERS
+            end if
+
+            if m.state = Http.HttpRequestState.READING_START_AND_HEADERS
+                if m.ParseStartAndHeaders()
+                    m.ParseUri()
+                    m.ProcessHeaders(connection)
+                    m.state = Http.HttpRequestState.READING_BODY
+                end if
+            end if
+
+            if m.state = Http.HttpRequestState.READING_BODY
+                if m.ParseBody()
+                    m.buffer = invalid
+                    m.state = Http.HttpRequestState.DONE
+                end if
+            end if
+
+            return m.ready_for_response
+        end function
+
+        function ParseStartAndHeaders() as boolean
+            if m.buffer.Count() = 0
+                return false
+            end if
+
+            if m.buffer.Count() = m.buffer_size_at_last_delimiter_check
+                return false
+            end if
+
+            bufferStr = m.buffer.ToAsciiString()
+            bodyDelimiterIndex = bufferStr.InStr(`\r\n\r\n`)
+            if bodyDelimiterIndex = -1
+                m.buffer_size_at_last_delimiter_check = m.buffer.Count()
+                return false
+            end if
+
+            m.content_index = bodyDelimiterIndex + 4
+            if m.buffer[m.content_index - 4] <> 13 or m.buffer[m.content_index - 3] <> 10 or m.buffer[m.content_index - 2] <> 13 or m.buffer[m.content_index - 1] <> 10
+                LogError("invalid request: malformed headers")
+                m.ready_for_response = true
+                return false
+            end if
+
+            startAndHeaders = bufferStr.Left(bodyDelimiterIndex)
+            lines = startAndHeaders.Split(`\r\n`)
+            if lines.count() < 2
+                LogError("invalid request: expected at least start line and one header")
+                m.ready_for_response = true
+                return false
+            end if
+
+            startLine = lines[0]
+            if not m.ParseStartLine(startLine)
+                m.ready_for_response = true
+                return false
+            end if
+
+            for i = 1 to lines.count() - 1
+                if not m.ParseHeader(lines[i])
+                    m.ready_for_response = true
+                    return false
+                end if
+            end for
+
+            return true
+        end function
+
+        function ParseStartLine(startLine as string) as boolean
+            if startLine = ""
+                LogError("empty request")
+                return false
+            end if
+
+            firstChar = startLine.Mid(0, 1)
+            if Asc(firstChar) = &h16
+                LogErrorNoTelemetry("TLS handshake detected. HTTPS is not supported.")
+                return false
+            end if
+
+            parts = startLine.tokenize(" ")
+            if parts.count() <> 3
+                LogError("invalid start line: " + startLine)
+                return false
+            end if
+
+            m.method = Ucase(parts[0])
+            m.uri = parts[1]
+            m.protocol = Ucase(parts[2])
+            LogInfo(`${m.method} '${m.uri}'`)
+
+            return true
+        end function
+
+        function ParseHeader(line as string) as boolean
+            splitIndex = line.InStr(":")
+            if splitIndex <= 0
+                LogError("invalid header line:", line)
+                return false
+            end if
+            key = line.Left(splitIndex).Trim()
+            value = line.Mid(splitIndex + 1).Trim()
+            m.headers[key] = value
+            return true
+        end function
+
+        function ParseBody() as boolean
+            if m.headers["Content-Length"] = invalid
+                m.ready_for_response = true
+                if m.buffer.Count() = m.content_index
+                    return true
+                else
+                    LogError("invalid request: request body found, but no Content-Length header")
+                    return false
+                end if
+            end if
+
+            contentLength = m.headers["Content-Length"].toInt()
+            bodyLength = m.buffer.Count() - m.content_index
+            if bodyLength > contentLength
+                LogError("invalid request: request body is larger than Content-Length")
+                m.ready_for_response = true
+                return false
+            end if
+
+            if bodyLength < contentLength
+                return false
+            end if
+
+            m.body_bytes = ByteArrayUtils.Slice(m.buffer, m.content_index)
+            m.ready_for_response = true
+            return true
+        end function
+
+        function ProcessHeaders(connection as HttpConnection)
+            m.ParseConnection(connection)
+        end function
+
+        function ParseUri()
+            m.route = m.uri
+            split = m.route.Instr("?")
+            if split <> -1
+                m.route = m.route.Left(split)
+                m.query = UrlUtils.ParseQueryComponents(m.uri)
+            else
+                m.query = {}
+            end if
+        end function
+
+        function ParseConnection(connection as HttpConnection)
+            connectionStr = m.headers.connection
+            if connectionStr <> invalid
+                connection.close = (lcase(connectionStr.trim()) = "close")
+            end if
+        end function
+
+        function BodyBytes() as object
+            if IsByteArray(m.body_bytes)
+                return m.body_bytes
+            end if
+
+            if IsString(m.body_string)
+                m.body_bytes = CreateObject("roByteArray")
+                m.body_bytes.FromAsciiString(m.body_string)
+            end if
+
+            return m.body_bytes
+        end function
+
+        function BodyText() as string
+            if IsString(m.body_string)
+                return m.body_string
+            end if
+
+            if IsByteArray(m.body_bytes)
+                m.body_string = ValidString(m.body_bytes.ToAsciiString())
+            else
+                m.body_string = ""
+            end if
+
+            return m.body_string
+        end function
+
+        function BodyJson() as dynamic
+            if m.body_json <> invalid
+                return m.body_json
+            end if
+
+            text = m.BodyText()
+            if text = ""
+                return invalid
+            end if
+
+            m.body_json = StringUtils.ParseJsonSafe(text)
+            return m.body_json
+        end function
+    end class
+
+end namespace

@@ -1,0 +1,11 @@
+{
+  inputHash: 'd466e40bf2d88cb744cf1eb62849f79f',
+  outputs: [
+    {
+      outputFilePath: 'images/icons/player/pause.png',
+      outputHash: '454495f09757ba5c22ae05af7447f346',
+      width: 63,
+      height: 63,
+    },
+  ],
+}

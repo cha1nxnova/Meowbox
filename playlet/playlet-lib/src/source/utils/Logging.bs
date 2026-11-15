@@ -1,0 +1,91 @@
+enum LogLevel
+    ERROR = 0
+    WARN = 1
+    INFO = 2
+    DEBUG = 3
+end enum
+
+function LogError(_arg1 = invalid as dynamic, _arg2 = invalid as dynamic, _arg3 = invalid as dynamic, _arg4 = invalid as dynamic, _arg5 = invalid as dynamic, _arg6 = invalid as dynamic, _arg7 = invalid as dynamic, _arg8 = invalid as dynamic, _arg9 = invalid as dynamic, _arg10 = invalid as dynamic, _arg11 = invalid as dynamic, _arg12 = invalid as dynamic, _arg13 = invalid as dynamic, _arg14 = invalid as dynamic, _arg15 = invalid as dynamic, _arg16 = invalid as dynamic) as void
+    throw "FATAL: Calling LogError() which is a stub function"
+end function
+
+function LogErrorNoTelemetry(_arg1 = invalid as dynamic, _arg2 = invalid as dynamic, _arg3 = invalid as dynamic, _arg4 = invalid as dynamic, _arg5 = invalid as dynamic, _arg6 = invalid as dynamic, _arg7 = invalid as dynamic, _arg8 = invalid as dynamic, _arg9 = invalid as dynamic, _arg10 = invalid as dynamic, _arg11 = invalid as dynamic, _arg12 = invalid as dynamic, _arg13 = invalid as dynamic, _arg14 = invalid as dynamic, _arg15 = invalid as dynamic, _arg16 = invalid as dynamic) as void
+    throw "FATAL: Calling LogErrorNoTelemetry() which is a stub function"
+end function
+
+function LogWarn(_arg1 = invalid as dynamic, _arg2 = invalid as dynamic, _arg3 = invalid as dynamic, _arg4 = invalid as dynamic, _arg5 = invalid as dynamic, _arg6 = invalid as dynamic, _arg7 = invalid as dynamic, _arg8 = invalid as dynamic, _arg9 = invalid as dynamic, _arg10 = invalid as dynamic, _arg11 = invalid as dynamic, _arg12 = invalid as dynamic, _arg13 = invalid as dynamic, _arg14 = invalid as dynamic, _arg15 = invalid as dynamic, _arg16 = invalid as dynamic) as void
+    throw "FATAL: Calling LogWarn() which is a stub function"
+end function
+
+function LogWarnNoTelemetry(_arg1 = invalid as dynamic, _arg2 = invalid as dynamic, _arg3 = invalid as dynamic, _arg4 = invalid as dynamic, _arg5 = invalid as dynamic, _arg6 = invalid as dynamic, _arg7 = invalid as dynamic, _arg8 = invalid as dynamic, _arg9 = invalid as dynamic, _arg10 = invalid as dynamic, _arg11 = invalid as dynamic, _arg12 = invalid as dynamic, _arg13 = invalid as dynamic, _arg14 = invalid as dynamic, _arg15 = invalid as dynamic, _arg16 = invalid as dynamic) as void
+    throw "FATAL: Calling LogWarnNoTelemetry() which is a stub function"
+end function
+
+function LogInfo(_arg1 = invalid as dynamic, _arg2 = invalid as dynamic, _arg3 = invalid as dynamic, _arg4 = invalid as dynamic, _arg5 = invalid as dynamic, _arg6 = invalid as dynamic, _arg7 = invalid as dynamic, _arg8 = invalid as dynamic, _arg9 = invalid as dynamic, _arg10 = invalid as dynamic, _arg11 = invalid as dynamic, _arg12 = invalid as dynamic, _arg13 = invalid as dynamic, _arg14 = invalid as dynamic, _arg15 = invalid as dynamic, _arg16 = invalid as dynamic) as void
+    throw "FATAL: Calling LogInfo() which is a stub function"
+end function
+
+function LogDebug(_arg1 = invalid as dynamic, _arg2 = invalid as dynamic, _arg3 = invalid as dynamic, _arg4 = invalid as dynamic, _arg5 = invalid as dynamic, _arg6 = invalid as dynamic, _arg7 = invalid as dynamic, _arg8 = invalid as dynamic, _arg9 = invalid as dynamic, _arg10 = invalid as dynamic, _arg11 = invalid as dynamic, _arg12 = invalid as dynamic, _arg13 = invalid as dynamic, _arg14 = invalid as dynamic, _arg15 = invalid as dynamic, _arg16 = invalid as dynamic) as void
+    throw "FATAL: Calling LogDebug() which is a stub function"
+end function
+
+function LogTelemetryEvent(event as object)
+    m.global.telemetry.LogEvent = event
+end function
+
+function ToString(value as dynamic) as string
+    if getInterface(value, "ifString") <> invalid
+        return value
+    end if
+
+    valueType = type(value)
+
+    if valueType = "<uninitialized>"
+        return valueType
+    else if value = invalid
+        return "<invalid>"
+    else if GetInterface(value, "ifToStr") <> invalid
+        return value.toStr()
+    else if valueType = "roSGNode"
+        return "Node(" + value.subType() + ":" + value.id + ")"
+    else if valueType = "roAssociativeArray"
+        return AssocArrayToString(value)
+    else if valueType = "roArray"
+        return ArrayToString(value)
+    else if valueType = "roDateTime"
+        return value.ToISOString()
+    end if
+
+    return "<" + valueType + ">"
+end function
+
+function AssocArrayToString(dict as object) as string
+    result = "{"
+    ' This is in case the dictionary has a `count` key
+    count = dict.ifAssociativeArray.count()
+    i = 0
+    for each key in dict
+        result += key + ": " + ToString(dict[key])
+        if i < count - 1
+            result += ", "
+        end if
+        i++
+    end for
+    result += "}"
+    return result
+end function
+
+function ArrayToString(array as object) as string
+    result = "["
+    count = array.count()
+    i = 0
+    for each item in array
+        result += ToString(item)
+        if i < count - 1
+            result += ", "
+        end if
+        i++
+    end for
+    result += "]"
+    return result
+end function

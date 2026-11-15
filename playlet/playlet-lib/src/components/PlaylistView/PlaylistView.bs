@@ -1,0 +1,266 @@
+import "pkg:/components/ChannelView/ChannelUtils.bs"
+import "pkg:/components/ContextMenu/ContextMenuUtils.bs"
+import "pkg:/components/Navigation/LongPress.bs"
+import "pkg:/components/Services/Invidious/InvidiousToContentNode.bs"
+import "pkg:/components/VideoFeed/FeedLoadState.bs"
+import "pkg:/source/utils/ErrorUtils.bs"
+import "pkg:/source/utils/FocusManagement.bs"
+import "pkg:/source/utils/Logging.bs"
+import "pkg:/source/utils/RemoteKeys.bs"
+import "pkg:/source/utils/StringUtils.bs"
+import "pkg:/source/utils/Types.bs"
+
+function Init()
+    m.busySpinner = m.top.findNode("busySpinner")
+    m.busyspinner.poster.width = 100
+    m.busyspinner.poster.height = 100
+    m.busySpinner.poster.uri = "pkg:/images/spinner.png"
+
+    m.background = m.top.findNode("background")
+    m.backgroundSmall = m.top.findNode("backgroundSmall")
+    m.titleLabel = m.top.findNode("titleLabel")
+    m.subtitleLabel = m.top.findNode("subtitleLabel")
+    m.updatedLabel = m.top.findNode("updatedLabel")
+    m.descriptionLabel = m.top.findNode("descriptionLabel")
+    m.list = m.top.findNode("list")
+end function
+
+function OnNodeReady()
+    m.list.ObserveField("itemFocused", FuncName(OnItemFocused))
+    InitializeLongPress(["OK"])
+end function
+
+function OnFocusChange() as void
+    if not m.top.focus
+        return
+    end if
+
+    NodeSetFocus(m.list, true)
+end function
+
+function OnContentSet() as void
+    content = m.top.content
+    if content = invalid
+        return
+    end if
+
+    m.titleLabel.text = content.title
+    ' Starts with RD means a mix, not a playlist
+    if content.playlistId.StartsWith("RD")
+        m.subtitleLabel.text = ""
+    else
+        statsText = content.statsText
+        if statsText.Len() > 0
+            m.subtitleLabel.text = statsText
+        else
+            ' NOTE: "_author" not "author". See PlaylistContentNode.xml for explanation.
+            m.subtitleLabel.text = `${content._author} • ${content.videoCountText} • ${content.viewCountText}`
+        end if
+    end if
+    m.updatedLabel.text = content.updatedText
+    m.descriptionLabel.text = content.description
+
+    ' We use two Posters to cross fade from the low res thumbnail to the high res thumbnail.
+    ' We can't use a single Poster because we're using the blendColor. There's no loadingBitmapBlendColor.
+    m.backgroundSmall.uri = content.thumbnail
+    m.background.uri = content.thumbnailBackground
+
+    itemFocused = m.list.itemFocused
+    if not content.isSameNode(m.list.content)
+        m.list.content = content
+    end if
+    if itemFocused > -1 and content.getChildCount() > itemFocused
+        m.list.jumpToItem = itemFocused
+    end if
+    m.top.isLoading = content.isLoading or content.loadState = FeedLoadState.Loading
+    LoadPlaylistIfNeeded()
+end function
+
+function OnKeyEvent(key as string, press as boolean) as boolean
+    if LongPressHandler(key, press)
+        return true
+    end if
+
+    if key = RemoteKeys.OkLongPress and press
+        OnItemLongPressed(m.list.itemFocused)
+        return true
+    end if
+
+    if key = RemoteKeys.Ok and not press
+        OnItemSelected(m.list.itemFocused)
+        return true
+    end if
+
+    if press = false
+        return false
+    end if
+
+    if key = RemoteKeys.Back
+        Close()
+        return true
+    end if
+
+    return false
+end function
+
+function Close()
+    if m.playlistLoadTask <> invalid
+        m.playlistLoadTask.cancel = true
+        m.playlistLoadTask = invalid
+    end if
+
+    m.appController@.PopScreen()
+end function
+
+function OnItemFocused()
+    LoadPlaylistIfNeeded()
+end function
+
+function OnItemSelected(index as integer) as void
+    playlist = m.list.content
+    if playlist = invalid
+        return
+    end if
+
+    if index < 0 or index >= playlist.getChildCount()
+        return
+    end if
+
+    playlistId = playlist.playlistId
+    video = playlist.getChild(index)
+    videoId = video.videoId
+    if not StringUtils.IsNullOrEmpty(videoId)
+        LogInfo("Play playlist:", playlistId, "video:", videoId)
+        m.videoQueue.playPlaylist = {
+            playlistNode: playlist
+            playlistIndex: index
+        }
+    end if
+end function
+
+function OnItemLongPressed(index as integer) as void
+    playlist = m.list.content
+    if playlist = invalid
+        return
+    end if
+
+    if index < 0 or index >= playlist.getChildCount()
+        return
+    end if
+
+    playlistId = playlist.playlistId
+    video = playlist.getChild(index)
+    videoId = video.videoId
+    if StringUtils.IsNullOrEmpty(videoId)
+        LogWarn("Long press video with no id in playlist/ playlist:", playlistId, "video:", videoId)
+        return
+    end if
+
+    LogInfo("Long press: playlist:", playlistId, "video:", videoId)
+
+    contextMenuProviders = [m.top]
+    ContextMenuUtils.Open(contextMenuProviders, m.appController, video)
+end function
+
+function GetContextMenuOptionsForItem(video as object) as object
+    playlist = m.list.content
+    if playlist = invalid
+        return []
+    end if
+
+    index = m.list.itemFocused
+    if index < 0 or index >= playlist.getChildCount()
+        return []
+    end if
+
+    selectedVideo = playlist.getChild(m.list.itemFocused)
+    if selectedVideo = invalid or not selectedVideo.isSameNode(video)
+        return []
+    end if
+
+    options = [
+        ContextMenuUtils.CreateOption(Tr(Locale.ContextMenu.PlayPlaylist), m.videoQueue, "FuncPlayPlaylist", [playlist, index]),
+        ContextMenuUtils.CreateOption(Tr(Locale.ContextMenu.QueuePlaylist), m.videoQueue, "FuncAddToQueuePlaylist", [playlist])
+        ContextMenuUtils.CreateOption(Tr(Locale.ContextMenu.PlayVideo), m.videoQueue, "FuncPlayVideo", [video]),
+        ContextMenuUtils.CreateOption(Tr(Locale.ContextMenu.QueueVideo), m.videoQueue, "FuncAddToQueueVideo", [video]),
+    ]
+
+    playlistAuthorId = playlist.authorId
+    videoAuthorId = video.authorId
+
+    if not StringUtils.IsNullOrEmpty(playlistAuthorId) or not StringUtils.IsNullOrEmpty(videoAuthorId)
+        if playlistAuthorId = videoAuthorId
+            options.push(ContextMenuUtils.CreateOption(Tr(Locale.ContextMenu.OpenChannel), m.top, "OpenPlaylistChannel", [playlist]))
+        else
+            if not StringUtils.IsNullOrEmpty(playlistAuthorId)
+                options.push(ContextMenuUtils.CreateOption(Tr(Locale.ContextMenu.OpenPlaylistChannel), m.top, "OpenPlaylistChannel", [playlist]))
+            end if
+            if not StringUtils.IsNullOrEmpty(videoAuthorId)
+                options.push(ContextMenuUtils.CreateOption(Tr(Locale.ContextMenu.OpenVideoChannel), m.top, "OpenVideoChannel", [video]))
+            end if
+        end if
+    end if
+
+    options.append(m.bookmarksService@.GetMenuForPlaylist(playlist))
+    options.append(m.bookmarksService@.GetMenuForVideo(video))
+
+    return options
+end function
+
+function OpenPlaylistChannel(playlist as object) as void
+    authorId = playlist.authorId
+    if StringUtils.IsNullOrEmpty(authorId)
+        LogWarn("Invalid authorId:", authorId)
+        return
+    end if
+    channel = InvidiousContent.ToChannelContentNode(invalid, { authorId: authorId })
+    ChannelUtils.Open(channel)
+end function
+
+function OpenVideoChannel(video as object) as void
+    authorId = video.authorId
+    if StringUtils.IsNullOrEmpty(authorId)
+        LogWarn("Invalid authorId:", authorId)
+        return
+    end if
+    channel = InvidiousContent.ToChannelContentNode(invalid, { authorId: authorId })
+    ChannelUtils.Open(channel)
+end function
+
+'TODO:P1 a playlist could have been opened from the bookmarks, which can be as old as 3 days
+' We should make a request in this case, and let the cache handle freshness.
+function LoadPlaylistIfNeeded() as void
+    content = m.top.content
+    if content = invalid
+        return
+    end if
+
+    if not content.loadState = FeedLoadState.LoadedPage and not content.loadState = FeedLoadState.None
+        return
+    end if
+
+    videoCount = content.videoCount
+    currentVideosCount = content.getChildCount()
+    if videoCount = currentVideosCount
+        return
+    end if
+
+    itemFocused = m.list.itemFocused
+    if itemFocused < currentVideosCount - 5
+        return
+    end if
+
+    m.top.content@.LoadPlaylistPage(m.top.invidious, m.top.jobQueue)
+end function
+
+function OnLoadingChanged(event as object)
+    isLoading = event.GetData()
+    if isLoading
+        m.busyspinner.poster.rotation = 0
+        m.busySpinner.visible = true
+        m.busySpinner.control = "start"
+    else
+        m.busySpinner.visible = false
+        m.busySpinner.control = "stop"
+    end if
+end function

@@ -1,0 +1,31 @@
+namespace MathUtils
+
+    function Max(a as dynamic, b as dynamic) as dynamic
+        if a > b
+            return a
+        else
+            return b
+        end if
+    end function
+
+    function Min(a as dynamic, b as dynamic) as dynamic
+        if a < b
+            return a
+        else
+            return b
+        end if
+    end function
+
+    function Clamp(value as dynamic, minValue as dynamic, maxValue as dynamic) as dynamic
+        return Max(Min(value, maxValue), minValue)
+    end function
+
+    function FormatFloat(X as float) as float
+        X = X * 10
+        X = X + 0.5
+        X = Fix(X)
+        X = X / 10
+        return X
+    end function
+
+end namespace

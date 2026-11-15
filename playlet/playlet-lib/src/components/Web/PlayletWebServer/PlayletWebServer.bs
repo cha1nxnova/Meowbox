@@ -1,0 +1,110 @@
+import "pkg:/components/Web/PlayletWebServer/Middleware/BookmarksRouter.bs"
+import "pkg:/components/Web/PlayletWebServer/Middleware/CacheRouter.bs"
+import "pkg:/components/Web/PlayletWebServer/Middleware/DashRouter.bs"
+import "pkg:/components/Web/PlayletWebServer/Middleware/DialRouter.bs"
+import "pkg:/components/Web/PlayletWebServer/Middleware/HlsRouter.bs"
+import "pkg:/components/Web/PlayletWebServer/Middleware/HomeLayoutRouter.bs"
+import "pkg:/components/Web/PlayletWebServer/Middleware/HomeRouter.bs"
+import "pkg:/components/Web/PlayletWebServer/Middleware/InnertubeRouter.bs"
+import "pkg:/components/Web/PlayletWebServer/Middleware/InvidiousRouter.bs"
+import "pkg:/components/Web/PlayletWebServer/Middleware/PlayletInvidiousBackendRouter.bs"
+import "pkg:/components/Web/PlayletWebServer/Middleware/PlayletLibUrlsRouter.bs"
+import "pkg:/components/Web/PlayletWebServer/Middleware/PreferencesRouter.bs"
+import "pkg:/components/Web/PlayletWebServer/Middleware/ProfilesRouter.bs"
+import "pkg:/components/Web/PlayletWebServer/Middleware/RegistryRouter.bs"
+import "pkg:/components/Web/PlayletWebServer/Middleware/SearchHistoryRouter.bs"
+import "pkg:/components/Web/PlayletWebServer/Middleware/StateApiRouter.bs"
+import "pkg:/components/Web/PlayletWebServer/Middleware/VideoQueueRouter.bs"
+import "pkg:/components/Web/PlayletWebServer/Middleware/ViewRouter.bs"
+import "pkg:/components/Web/WebServer/Middleware/CorsMiddleware.bs"
+import "pkg:/components/Web/WebServer/Middleware/CsrfMiddleware.bs"
+import "pkg:/components/Web/WebServer/Middleware/EtagMiddleware.bs"
+import "pkg:/components/Web/WebServer/Middleware/HttpStaticFilesRouter.bs"
+import "pkg:/components/Web/WebServer/WebSockets/WebSocketMiddleware.bs"
+
+function Init()
+end function
+
+function OnNodeReady()
+    m.sceneNodes = {
+        "appController": m.top.appController
+        "preferences": m.top.preferences
+        "innertube": m.top.innertube
+        "invidious": m.top.invidious
+        "profilesService": m.top.profilesService
+        "applicationInfo": m.top.applicationInfo
+        "videoQueue": m.top.videoQueue
+        "bookmarksService": m.top.bookmarksService
+        "loungeService": m.top.loungeService
+        "jobQueue": m.top.jobQueue
+    }
+end function
+
+function GetServerAddress(_unused as dynamic) as dynamic
+    port = m.top.port
+    ip = m.top.applicationInfo@.GetLocalIpAddress()
+    if StringUtils.IsNullOrEmpty(ip)
+        return invalid
+    end if
+    return `http://${ip}:${port}`
+end function
+
+function SetupRoutes(server as object)
+    server.sceneNodes = m.sceneNodes
+    #if DEBUG
+        'CORS is mostly for developing the web app
+        server.UseRouter(new Http.CorsMiddleware())
+    #else
+        ' CsrfMiddleware relies on this: a page whose origin is allowed can send its header.
+        server.UseRouter(new Http.CorsMiddleware(""))
+    #end if
+    server.UseRouter(new Http.CsrfMiddleware("X-Playlet", [
+        ' Phones and smart speakers can't send the header.
+        "/dial/"
+        ' The player's license requests change nothing on the device, and a page can't read the license.
+        "/api/innertube/get_drm_license"
+        ' Every write needs the caller's bearer token.
+        "/playlet-invidious-backend/"
+    ]))
+    if server.settings.WebSocketsEnabled
+        server.UseRouter(new Http.WebSocketMiddleware())
+    end if
+    server.UseRouter(new Http.HomeRouter())
+    server.UseRouter(new Http.StateApiRouter(server))
+    server.UseRouter(new Http.DashRouter(server))
+    server.UseRouter(new Http.HlsRouter(server))
+    server.UseRouter(new Http.PreferencesRouter(server))
+    server.UseRouter(new Http.InvidiousRouter(server))
+    server.UseRouter(new Http.ProfilesRouter(server))
+    server.UseRouter(new Http.VideoQueueRouter(server))
+    server.UseRouter(new Http.BookmarksRouter(server))
+    server.UseRouter(new Http.HomeLayoutRouter(server))
+    server.UseRouter(new Http.ViewRouter(server))
+    server.UseRouter(new Http.SearchHistoryRouter(server))
+    server.UseRouter(new Http.PlayletLibUrlsRouter(server))
+    server.UseRouter(new Http.DialRouter(server))
+    server.UseRouter(new Http.CacheRouter(server))
+    server.UseRouter(new Http.RegistryRouter())
+    server.UseRouter(new Http.PlayletInvidiousBackendRouter(server))
+    server.UseRouter(new Http.InnertubeRouter(server))
+
+    etags = new Http.EtagUtils()
+    server.UseRouter(new Http.HttpStaticFilesRouter("/", "libpkg:/www", etags, { staticFiles: true, staticCompressed: true }))
+    server.UseRouter(new Http.HttpStaticFilesRouter("/config", "libpkg:/config", etags, { staticFiles: true }))
+    server.UseRouter(new Http.HttpStaticFilesRouter("/locale", "libpkg:/locale", etags, { staticFiles: true }))
+    server.UseRouter(new Http.HttpStaticFilesRouter("/logs", "cachefs:/logs", etags, { fsCheck: true }))
+
+    #if DEBUG
+        options = { showDirectories: true, showHidden: true, staticFiles: true }
+        server.UseRouter(new Http.HttpStaticFilesRouter("/debug/libpkg", "libpkg:/", etags, options))
+        options = { showDirectories: true, showHidden: true, fsCheck: true, staticFiles: true }
+        server.UseRouter(new Http.HttpStaticFilesRouter("/debug/pkg", "pkg:/", etags, options))
+        options = { showDirectories: true, showHidden: true, fsCheck: true }
+        server.UseRouter(new Http.HttpStaticFilesRouter("/debug/tmp", "tmp:/", etags, options))
+        options = { showDirectories: true, showHidden: true, fsCheck: true }
+        server.UseRouter(new Http.HttpStaticFilesRouter("/debug/cachefs", "cachefs:/", etags, options))
+        options = { showDirectories: true, showHidden: true, fsCheck: true, staticFiles: true }
+        server.UseRouter(new Http.HttpStaticFilesRouter("/debug/common", "common:/", etags, options))
+    #end if
+    server.UsePostRouter(new Http.EtagMiddleware(etags))
+end function

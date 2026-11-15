@@ -1,0 +1,93 @@
+<component name="NavBar" extends="Group" includes="AutoBind,Focus">
+    <interface>
+        <field id="screensContainer" type="node" />
+        <field id="appController" type="node" />
+        <field id="content" type="node" alias="ItemsList.content" />
+        <field id="itemsList" type="node" bind="./ItemsList" />
+        <field id="initialFocus" type="int" value="-1" />
+        <field id="screenOffset" type="float" value="170" />
+    </interface>
+
+    <children>
+        <Rectangle
+            id="SideBar"
+            width="170"
+            height="720"
+            color="#004B53"
+            opacity="0.9"
+            translation="[62,0]"
+            visible="false">
+        </Rectangle>
+
+        <Rectangle
+            id="Background"
+            height="720"
+            width="62"
+            color="#004B53"
+            opacity="0.9">
+
+            <Poster
+                id="LogoFav"
+                width="42"
+                height="42"
+                translation="[16, 48]"
+                uri="pkg:/images/logo-fav.png" />
+            <Poster
+                id="Logo"
+                width="106"
+                height="42"
+                translation="[16, 48]"
+                opacity="0"
+                uri="pkg:/images/logo-dark.png">
+                <AppVersionLabel
+                    fontUri="font:BoldSystemFontFile"
+                    fontSize="16"
+                    translation="[0, 48]" />
+            </Poster>
+
+            <!-- Marks the selected section, also while the nav bar is collapsed and not focused.
+                 Positioned by NavBar.bs next to the selected item -->
+            <Rectangle
+                id="SelectionIndicator"
+                width="5"
+                height="38"
+                color="#EBEBEB"
+                translation="[0, 156]"
+                visible="false" />
+
+            <MarkupList
+                id="ItemsList"
+                itemSize="[190,50]"
+                itemComponentName="NavBarComponent"
+                focusFootprintBitmapUri=""
+                focusBitmapUri="pkg:/images/white.$$RES$$.9.png"
+                focusBitmapBlendColor="0x0096A6FF"
+                vertFocusAnimationStyle="floatingFocus"
+                numRows="7"
+                scrollSpeed="99999"
+                itemSpacing="[0, 16]"
+                translation="[13, 150]">
+            </MarkupList>
+        </Rectangle>
+
+        <Animation
+            id="FadeAnimation"
+            duration="0.2">
+            <FloatFieldInterpolator
+                id="SideBarFadeInterpolator"
+                key="[0.0, 0.5, 1.0]"
+                keyValue="[0.0, 0.5, 1.0]"
+                fieldToInterp="SideBar.opacity" />
+            <FloatFieldInterpolator
+                id="LogoFadeInterpolator"
+                key="[0.0, 0.5, 1.0]"
+                keyValue="[0.0, 0.5, 1.0]"
+                fieldToInterp="Logo.opacity" />
+            <FloatFieldInterpolator
+                id="BackgroundFadeInterpolator"
+                key="[0.0, 0.5, 1.0]"
+                keyValue="[0.9, 0.95, 1.0]"
+                fieldToInterp="Background.opacity" />
+        </Animation>
+    </children>
+</component>

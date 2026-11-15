@@ -1,0 +1,47 @@
+{
+    "extends": "bsconfig.base.jsonc",
+    "files": [
+        "source/**",
+        "components/**",
+        "!components/**/*.part.xml",
+        "images/**",
+        "!**/*.psd",
+        "!**/*.svg",
+        "!**/*.svg.meta.json5",
+        "!**/*.proto",
+        "locale/**",
+        "config/**",
+        "lib/**",
+        "www/**",
+        "manifest"
+    ],
+    "plugins": [
+        "@rokucommunity/bslint",
+        "rooibos-roku",
+        "../tools/bs-plugins/jobsystem-plugin.ts",
+        "../tools/bs-plugins/manifest-edit-plugin.ts",
+        "../tools/bs-plugins/component-includes-plugin.ts",
+        "../tools/bs-plugins/bindings-plugin.ts",
+        "../tools/bs-plugins/oninit-plugin.ts",
+        "../tools/bs-plugins/json-yaml-plugin.ts",
+        "../tools/bs-plugins/validation-plugin.ts",
+        "../tools/bs-plugins/logger-plugin.ts",
+        "../tools/bs-plugins/web-server-plugin.ts",
+        "../tools/bs-plugins/locale-validation-plugin.ts",
+        "../tools/bs-plugins/proto-gen-plugin.ts",
+        // Must be last: fails the command if any plugin above failed to load
+        "../tools/bs-plugins/critical-exit-guard-plugin.ts"
+    ],
+    "rooibos": {
+        "logLevel": 2,
+        "tags": ["!integration"],
+        "isGlobalMethodMockingEnabled": true,
+        "isRecordingCodeCoverage": false,
+        "printTestTimes": true,
+        "showOnlyFailures": true,
+        "catchCrashes": true,
+        "keepAppOpen": false,
+        "sendHomeOnFinish": true,
+        "lineWidth": 120
+    }
+}

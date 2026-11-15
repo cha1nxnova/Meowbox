@@ -1,0 +1,11 @@
+{
+  inputHash: '038e9e6566e77d5df4c93c44e6ebcefe',
+  outputs: [
+    {
+      outputFilePath: 'images/black-gradient.png',
+      outputHash: 'f71c5a64aafefd4aa01efd9039840a69',
+      width: 1,
+      height: 256,
+    },
+  ],
+}

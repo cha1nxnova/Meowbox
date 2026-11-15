@@ -1,0 +1,11 @@
+{
+  inputHash: '013e23ccfeb3a84b1edac277441bc950',
+  outputs: [
+    {
+      outputFilePath: 'images/icons/player/previous.png',
+      outputHash: '442fb0f7dfb1e59b8d716fda6c73f226',
+      width: 42,
+      height: 42,
+    },
+  ],
+}

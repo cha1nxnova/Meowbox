@@ -1,0 +1,54 @@
+import "pkg:/components/JobSystem/Jobs.bs"
+import "pkg:/components/JobSystem/JobSystem.bs"
+import "pkg:/source/services/ApplicationInfo.bs"
+
+function Init()
+    m.service = new ApplicationInfo(m.top)
+end function
+
+function GetAppInfo(_unused as dynamic) as object
+    return m.service.GetAppInfo()
+end function
+
+function GetDeviceInfo(_unused as dynamic) as object
+    return m.service.GetDeviceInfo()
+end function
+
+function GetUserCountryCode(_unused as dynamic) as string
+    return m.service.GetUserCountryCode()
+end function
+
+function GetLocalIpAddress(_unused as dynamic) as dynamic
+    return m.service.GetLocalIpAddress()
+end function
+
+function GetLatestPlayletLibVersion(_unused as dynamic) as dynamic
+    lib_version_latest = m.top.lib_version_latest
+    if not StringUtils.IsNullOrEmpty(lib_version_latest)
+        return lib_version_latest
+    end if
+
+    if m.latestLibVersionJob <> invalid
+        return invalid
+    end if
+
+    m.latestLibVersionJob = JobSystem.CreateCallback(OnLatestLibVersionJobDone)
+    JobSystem.QueueJob(m.top.jobQueue, Jobs.LatestLibVersionJob, {}, m.latestLibVersionJob)
+
+    return invalid
+end function
+
+function OnLatestLibVersionJobDone(event as object) as void
+    JobSystem.UnobserveCallback(event.getRoSGNode())
+    m.latestLibVersionJob = invalid
+
+    info = event.getInfo()
+    if not info.success
+        return
+    end if
+
+    data = info.data
+    if data.latest <> invalid
+        m.top.lib_version_latest = data.latest
+    end if
+end function

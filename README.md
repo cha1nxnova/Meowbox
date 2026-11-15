@@ -1,11 +1,13 @@
 # Meowbox
 
-A sideloadable Roku channel with two parts:
+A sideloadable Roku channel for the 24/7 channels from [spelunkr.tv](https://spelunkr.tv), kept in step with the website and captioned where words exist. Unofficial; video comes from the Internet Archive.
 
-- **TV**: the 24/7 channels from [spelunkr.tv](https://spelunkr.tv), kept in step with the website. Unofficial; video comes from the Internet Archive.
-- **Web**: a small reading browser (text and links).
+A Roku holds one sideloaded channel at a time, so there are two packages to choose from:
 
-The ready-to-install package is `dist/Meowbox.zip`.
+| Package | What is in it |
+|---|---|
+| `dist/Meowbox.zip` (about 60 KB) | The television alone. |
+| `dist/Meowbox-Playlet.zip` (about 1 MB) | The television and a fork of [Playlet](https://github.com/iBicha/playlet), an unofficial YouTube client, behind one front door. See [Playlet](#playlet) below. |
 
 ## Install
 
@@ -17,36 +19,59 @@ The channel starts on its own and stays on the home screen as the dev channel.
 
 ## Remote
 
-| Watching TV | |
+| Watching | |
 |---|---|
 | Up / Down | Channel up / down |
 | Left or Right | Channel guide |
 | OK | Show or hide what's on |
-| `*` | Menu: guide, web browser, re-sync, about |
+| `*` | Menu: guide, captions, re-sync, about |
+| Instant replay | Step captions: on, translations only, off |
 | Play | Re-sync the channel |
 | Back | Leave the app |
 
-| Web browser | |
-|---|---|
-| Up / Down | Move line by line |
-| OK | Follow the `[link]` on the line (a line with several asks which) |
-| Rewind / Fast-forward | Page up / down |
-| Play | Type an address |
-| `*` | Menu: search, address, start page, reload, bookmark, back to TV |
-| Back | Previous page; from the first page, back to TV |
-
 ## What to expect
 
-**TV.** Each channel plays what the website is playing, at the same point, including the text cards between shows, "up next" cards and the ad-break clips. The last channel is remembered. The lineup is re-read every ten minutes, so new playlists arrive without reinstalling.
+Each channel plays what the website is playing, at the same point, including the text cards between shows, "up next" cards and the ad-break clips. The last channel is remembered. The lineup is re-read every ten minutes, so new playlists arrive without reinstalling.
 
-Not carried over from the website: chat, accounts, clips, subtitles, the pixel logos, and the music laid over the silent-film channel (Vacation Slides plays silent).
+The channels' pixel logos are drawn from the same data the website uses, so they match it.
 
-**Web.** A Roku has no web engine, and sideloaded channels can't bring one, so this is a reader rather than a Chromium-style browser. It fetches a page and shows its text and links. No JavaScript, no CSS, no logins or forms beyond a site's search box. Sites built entirely by scripts come up empty; wikis, forums, search results and "lite" news editions read well. Picture links open full screen, and links to video or audio files play.
+Not carried over from the website: chat, accounts, clips, and the music laid over the silent-film channel (Vacation Slides plays silent).
+
+## Captions
+
+Meowbox does not listen to the sound and does not use a captioning service, so there is nothing to pay for and nothing to run. It looks for words that already exist for the tape on air, in this order:
+
+1. **The website's subtitles**: English for tapes in other languages. A few hundred tapes have them, mostly on Waku Waku and Rocket Punch.
+2. **Caption files on the Internet Archive**, next to the video: ones people uploaded, then the ones the Archive's own speech recognition made. Roughly three tapes in ten have one, most often on the Computer Chronicles, classroom-film and old-movie channels.
+
+A tape with neither plays without captions; the `CC` mark in the banner shows which case you are in. Machine-made captions are as good as the machine was: expect wrong words and loose timing here and there.
+
+The setting has three steps: **on** (anything found), **translations** (only the website's subtitles), **off**. It is remembered.
+
+## Playlet
+
+`playlet/` is a fork of Playlet 0.48.10 (see `playlet/UPSTREAM.md`). What the fork changes:
+
+- **It shares the package.** The combined channel opens on a front door with two tiles, the television and YouTube. Back from the television returns to the front door. A launch or a cast that names a video goes straight to Playlet.
+- **It keeps to itself.** Upstream Playlet downloads its newest library from GitHub at every start; the fork loads the library in the package, so the changes here are the ones you get.
+- **It looks like SmartTube**: near-black background, a teal side bar, video cards that turn white under the cursor.
+- **Subtitles have settings** (Settings > Subtitles): follow the Roku, always on, or off; a preferred language; YouTube's own translation when a video has no track in that language. "Always on" works by switching the Roku's caption setting on, so it stays on in other channels too.
+- **A sleep timer** (Settings > Sleep timer, or from the phone page): playback stops after 15 to 90 minutes.
+
+Playlet is licensed under the GNU Affero General Public License v3 (`playlet/LICENSE`). That licence covers `playlet/` and any package built with it, which means `dist/Meowbox-Playlet.zip`: if you pass that package on, pass on the source with it (this repository is the source).
 
 ## Build
 
 ```sh
-./build.sh        # writes dist/Meowbox.zip from roku/
+./build.sh        # dist/Meowbox.zip          needs only zip
+./build.sh all    # dist/Meowbox-Playlet.zip  needs Node 22; run "npm ci" in playlet/ once
+```
+
+The pictures in `roku/images/` are drawn by a script, and the caption and logo helpers have checks that run off-device:
+
+```sh
+node art/make-art.js      # needs Playwright; Pillow, if present, shrinks the files
+npx @rokucommunity/brs roku/source/captions.brs roku/source/logo.brs tests/captions_test.brs
 ```
 
 ## Layout
@@ -55,12 +80,19 @@ Not carried over from the website: chat, accounts, clips, subtitles, the pixel l
 roku/manifest
 roku/source/engine.brs       schedule maths: what is on a channel at a given moment
 roku/source/broadcast.brs    lineup loading and the "on air" record the screen plays
-roku/source/web.brs          addresses and HTML-to-lines for the browser
-roku/source/net.brs          HTTP helper
-roku/components/MainScene    the TV screen: player, cards, banner, guide, menu
-roku/components/BroadcastTask  background worker for the TV side
-roku/components/BrowserView  the browser screen
-roku/components/BrowserTask  background worker for the browser
+roku/source/captions.brs     finding and reading captions: SubRip, WebVTT, the website's files
+roku/source/logo.brs         the channels' pixel logos as rectangles and colours
+roku/source/net.brs          HTTP helper and addresses
+roku/components/MainScene      the app when Meowbox is on its own: a MeowTV and nothing else
+roku/components/MeowTV         the television: player, captions, cards, banner, guide, menu
+roku/components/BroadcastTask  background worker for the schedule
+roku/components/CaptionTask    background worker for captions
+roku/components/PixelLogo      draws a channel logo
+roku/components/MeowRow        one row of the guide or the menu
+roku/fonts/                    Jersey 15 (SIL Open Font License), cut down to Latin
+roku/hub/MeowHub               the front door of the combined package
+art/                           the Meowbox mark and the script that draws the images
+playlet/                       the Playlet fork (its own README: playlet/README.upstream.md)
 ```
 
 The lineup is read from `https://data.spelunkr.tv/` and, if that does not answer, from the snapshot at `https://spelunkr.tv/broadcast/`.

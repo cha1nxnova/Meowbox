@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+  The background worker for captions. Given the tape on air it looks for words
+  somebody has already written down (see source/captions.brs) and hands back
+  cues ready to show. It has its own thread so a slow answer never holds up a
+  channel change.
+
+  request  { seq, tapeId, file, capKey, index, wide }
+             index: where the lineup says the website's subtitle index is
+             wide:  true to also look among the tape's files on the Internet Archive
+  result   { seq, cues: [{ t0, t1, text }], source, credit }
+             source: "" | "site-machine" | "site-archive" | "ia-person" | "ia-machine"
+-->
+<component name="CaptionTask" extends="Task">
+  <interface>
+    <field id="request" type="assocarray" alwaysNotify="true" />
+    <field id="result" type="assocarray" alwaysNotify="true" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/source/net.brs" />
+  <script type="text/brightscript" uri="pkg:/source/captions.brs" />
+  <script type="text/brightscript" uri="pkg:/components/CaptionTask.brs" />
+</component>

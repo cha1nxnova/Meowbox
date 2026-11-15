@@ -1,0 +1,339 @@
+' TEST-ONLY. Imports the REAL coordinator handlers and runs them against a faked (Group) device. Init() is the
+' per-component one-liner (calls the shared Initialize); OnNodeReady is invoked by TestSetup with stub deps (no
+' AutoBind). The spec drives the device via the Test* interface functions (callFunc reaches only interface funcs).
+import "pkg:/components/VideoPlayerDev/VideoPlayerDev.bs"
+import "pkg:/source/tests/LoggingGlobals.bs"
+
+function Init()
+    ' intentionally empty: Initialize runs in TestSetup (at test time, when the global logger is ready), NOT at
+    ' Rooibos node-creation time where the logger global isn't set up yet.
+end function
+
+' getHttpAgent — Initialize does `m.top.getHttpAgent().AddHeader(...)`; a Group has no such method. No-op stub.
+function getHttpAgent() as object
+    return {
+        AddHeader: function(_name as string, _value as string)
+        end function
+    }
+end function
+
+' TestSetup — stand up the deps the coordinator's OnNodeReady needs (no AutoBind), then run it so the device
+' observers (state/position/duration) and the SponsorBlock/error controllers are wired exactly as in production.
+function TestSetup() as void
+    Tests.SetUpLoggingGlobals()
+
+    Initialize() ' the real coordinator init body (m.transport, findNode children, timer observers, getHttpAgent)
+
+    ' count ButtonRow nudge pulses (the field is a sticky alwaysNotify boolean, so the count — not the value —
+    ' is what tells the spec whether a given press pulsed). Scoped + unobserve-first: the suite node is shared
+    ' across tests, so a plain ObserveField here would stack one counter observer per TestSetup call.
+    m.top.nudgeCount = 0
+    m.buttonRow.unobserveFieldScoped("nudge")
+    m.buttonRow.observeFieldScoped("nudge", FuncName(OnTestNudge))
+
+    container = createObject("roSGNode", "Node")
+    container.addField("fullscreen", "boolean", false)
+    container.fullscreen = true
+    m.top.container = container
+
+    ' swallows the jobs the coordinator queues (JobSystem.QueueJob writes request) without running them,
+    ' counting the SponsorBlock viewed-segment reports (alwaysNotify: a repeated identical report must count).
+    jobQueue = createObject("roSGNode", "Node")
+    jobQueue.addField("request", "assocarray", true)
+    m.top.sponsorViewedCount = 0
+    jobQueue.observeFieldScoped("request", FuncName(OnTestJobRequest))
+    m.top.jobQueue = jobQueue
+    m.top.notifications = createObject("roSGNode", "Node")
+    m.top.preferences = createObject("roSGNode", "Node")
+    m.top.invidious = createObject("roSGNode", "Node")
+    ' the queue stub carries the fields the finish/close paths touch (VideoQueueUtils.PlayNext reads hasNext;
+    ' ClosePlayer writes closePlayer — the spec asserts it).
+    videoQueue = createObject("roSGNode", "Node")
+    videoQueue.addField("hasNext", "boolean", false)
+    videoQueue.addField("closePlayer", "boolean", false)
+    m.top.videoQueue = videoQueue
+    m.top.loungeService = createObject("roSGNode", "Node")
+    m.top.appController = createObject("roSGNode", "Node")
+    m.top.webServer = createObject("roSGNode", "Node")
+    m.top.innertube = createObject("roSGNode", "Node")
+
+    ' AutoBind aliases bound interface fields onto m.<name>; do it manually here (coordinator + Lounge read m.*).
+    m.container = m.top.container
+    m.jobQueue = m.top.jobQueue
+    m.preferences = m.top.preferences
+    m.invidious = m.top.invidious
+    m.videoQueue = m.top.videoQueue
+    m.loungeService = m.top.loungeService
+    m.notifications = m.top.notifications
+    m.appController = m.top.appController
+    m.webServer = m.top.webServer
+    m.innertube = m.top.innertube
+
+    ' OnNodeReady re-registers the device-field observers; unobserve-first for the same reason as the
+    ' nudge counter above — stacked observers fire a handler once per prior TestSetup on every write,
+    ' and OnPosition's latency learning reads two identical fires as a CONFIRMED min-gap, poisoning
+    ' LiveEdgeMs for any live test that runs after another test in the suite.
+    for each deviceField in ["state", "position", "duration", "close", "thumbnailTiles", "control", "setSeek", "bufferingStatus", "playStartInfo", "streamingSegment"]
+        m.top.unobserveField(deviceField)
+    end for
+
+    ' The mock node is shared across tests and `duration` is not alwaysNotify, so a leftover duration=100
+    ' swallows the next test's identical write and OnDuration never fires. Reset with the observers off.
+    m.top.state = VideoState.None
+    m.top.control = VideoControl.None
+    m.top.position = 0
+    m.top.duration = 0
+    m.top.seek = 0
+    m.top.suppressCaptions = false ' a test that minimized leaves it set; the container below starts fullscreen
+    m.top.autoplayAfterSeek = true
+
+    OnNodeReady()
+
+    ' after OnNodeReady (the loop above drops it per TestSetup, along with the coordinator's control observer).
+    m.top.seekAtPlay = -1
+    m.top.ObserveField("control", FuncName(OnTestControl))
+
+    ' the children survive across tests too: clear what a previous test's transport or live content left.
+    m.transportTimer.control = "none"
+    m.trickPlayBar.isLive = false
+end function
+
+function OnTestNudge() as void
+    m.top.nudgeCount += 1
+end function
+
+' a seek written before control=play is the play's start position; one written after is a seek into the started play.
+function OnTestControl() as void
+    if m.top.control = VideoControl.Play
+        m.top.seekAtPlay = m.top.seek
+    end if
+end function
+
+function OnTestJobRequest(event as object) as void
+    if event.getData().jobName = Jobs.SponsorBlockSegmentViewedJob
+        m.top.sponsorViewedCount += 1
+    end if
+end function
+
+' TestKey — drive a remote key through the REAL OnKeyEvent (scrub/scan/commit/etc).
+function TestKey(key as string, down as boolean) as boolean
+    return OnKeyEvent(key, down)
+end function
+
+' TestSetState — set the faked device state; alwaysNotify fires the REAL OnVideoState observer.
+function TestSetState(newState as string) as void
+    m.top.state = newState
+end function
+
+' TestSetControl — set the faked device control externally (simulates a Lounge/phone command) -> fires the
+' REAL OnControlChange observer.
+function TestSetControl(value as string) as void
+    m.top.control = value
+end function
+
+' TestSetLive — flip the loaded content to a live stream with a known edge: what
+' OnVideoContentJobDone does for real live content (SetContent + DVR window + bar fields), minus the job.
+function TestSetLive(edgeMs as integer) as void
+    m.transport.SetContent(true, 2000, false)
+    m.transport.SetLiveDvrWindow(4 * 3600 * 1000)
+    m.trickPlayBar.isLive = true
+    m.transport.OnLiveEdge(edgeMs)
+    m.transport.OnPosition(edgeMs)
+end function
+
+' TestSeedSponsorBlock — the segments job's result, minus the job. Writing m.top.position afterwards runs the
+' REAL OnPosition, which is what arms the manual notice.
+function TestSeedSponsorBlock(segments as object) as void
+    m.sponsorblock.enabled = true
+    m.sponsorblock.segments = segments
+    m.sponsorblock.timeline = SponsorBlock.BuildTimeline(segments)
+end function
+
+' TestSeekToInitialPosition — the content-load seek (live edge / resume timestamp / percent watched), minus the
+' content job.
+function TestSeekToInitialPosition(content as object) as void
+    SeekToInitialPosition(content)
+end function
+
+' TestErrorRetry — a stream error before the first frame, with a next stream url to retry: runs the REAL
+' OnVideoError and returns the seek the device held when the retry wrote control=play.
+function TestErrorRetry(content as object) as float
+    m.videoPlayedSuccessfully = false ' the seam spec's first-frame setup marked the stream played
+    m.top.content = content
+    m.top.errorInfo = { category: "http", source: "buffer:reader", ignored: false }
+    OnVideoError()
+    return m.top.seekAtPlay
+end function
+
+' TestSetContentLoading — a VideoContentJob in flight (or not), minus the job.
+function TestSetContentLoading(loading as boolean) as void
+    if loading
+        m.videoContentJob = CreateObject("roSGNode", "Node")
+    else
+        m.videoContentJob = invalid
+    end if
+end function
+
+' TestFireLiveBadgeHold — fire the liveBadgeHold timer's handler now (the spec can't wait out the real timer).
+function TestFireLiveBadgeHold() as void
+    OnLiveBadgeHoldFire()
+end function
+
+' TestKillAutoHide — model the one-shot auto-hide timer having FIRED (mid-transport it no-ops without
+' rearming, leaving the timer dead). A fired Timer's control field still reads the last-written "start", so
+' the spec must stop it explicitly — otherwise a rearm assertion could never fail.
+function TestKillAutoHide() as void
+    m.autoHide.control = "stop"
+end function
+
+' TestFinishChromeFadeOut — complete the running 0.3s dismiss fade now (the spec can't wait it out).
+' Stopping the Animation flips its state to "stopped", which drives the REAL OnChromeFadeOutState observer;
+' the direct call after it makes the transition deterministic even if the observer is deferred.
+function TestFinishChromeFadeOut() as void
+    m.chromeFadeOut.control = "stop"
+    OnChromeFadeOutState()
+end function
+
+' TestPlaybackErrorDialog — seed the error fields, drive OnVideoError down the dialog path, return the dialog's
+' message + title.
+function TestPlaybackErrorDialog(errorFields as object) as object
+    content = CreateObject("roSGNode", "ContentNode")
+    content.addField("videoId", "string", false)
+    content.addField("playletStreamUrls", "array", false)
+    content.addField("playletStreamUrlIndex", "integer", false)
+    content.setFields({
+        videoId: errorFields.videoId
+        url: "http://stream"
+        playletStreamUrls: []
+        playletStreamUrlIndex: 0
+    })
+    if errorFields.backend <> invalid
+        content.addField("backend", "string", false)
+        content.backend = errorFields.backend
+    end if
+    m.top.content = content
+
+    m.top.errorMsg = errorFields.errorMsg
+    m.top.errorCode = errorFields.errorCode
+    m.top.errorStr = errorFields.errorStr
+    m.top.errorInfo = errorFields.errorInfo
+
+    OnVideoError()
+
+    dialog = m.errorDialogNode
+    if dialog = invalid
+        return { message: "<no dialog shown>", title: "" }
+    end if
+    message = dialog.message
+    if type(message) = "roArray"
+        message = message.Join(Chr(10)) ' ShowTimedDialogButtons tokenizes the body into a per-line array
+    end if
+    result = { message: message, title: dialog.title }
+
+    ' tear down without firing the close-response (it hits the stub videoQueue).
+    dialog.unobserveFieldScoped("wasClosed")
+    m.top.getScene().dialog = invalid
+    m.errorDialogNode = invalid
+    return result
+end function
+
+' TestContentJobFailed — the VideoContentJob's failure result, minus the job: runs the REAL OnVideoContentJobDone.
+function TestContentJobFailed(errorMessage as string) as void
+    OnVideoContentJobDone({
+        info: { success: false, cancel: false, error: errorMessage }
+        getRoSGNode: function() as dynamic
+            return invalid
+        end function
+        getInfo: function() as object
+            return m.info
+        end function
+    })
+end function
+
+' TestCoordinatorFields — every non-function key on the coordinator's m, for the unmodeled-axis meta-test
+' (the coordinator twin of the brain's reflection test). Call AFTER TestSetup so Initialize/OnNodeReady have
+' populated m. The ONLY filtering here is the two DYNAMICALLY-named runtime families ("__delay_<uuid>" and
+' "__promises__promise-<uuid>"), which cannot be pinned by name; everything else — node infrastructure,
+' Rooibos members, library memos, stable "__" keys like __globalstubs — is returned and pinned EXPLICITLY by
+' the spec's catalog, so an unexpected newcomer surfaces as a conscious classification, never a silent filter.
+function TestCoordinatorFields() as object
+    keys = []
+    for each key in m
+        if type(m[key]) <> "Function" and type(m[key]) <> "roFunction" and Left(key, 8) <> "__delay_" and Left(key, 20) <> "__promises__promise-"
+            keys.Push(key)
+        end if
+    end for
+    return keys
+end function
+
+' TestSnapshot — read the seam state the spec asserts on (brain + the device control the coordinator wrote).
+function TestSnapshot() as object
+    return {
+        transportMode: m.transport.transportMode
+        seekSettling: m.transport.seekSettling
+        brainEdgeMs: m.transport.edgeMs
+        onCloseCalled: m.onCloseCalled = true
+        control: m.top.control
+        autoplay: m.top.autoplayAfterSeek
+        bifVisible: m.bifDisplay.visible
+        chromeShown: (m.chromeMode = ChromeMode.Shown or m.chromeMode = ChromeMode.FadingIn)
+        chromeFadingOut: (m.chromeMode = ChromeMode.FadingOut)
+        autoHideControl: m.autoHide.control
+        suppressCaptions: m.top.suppressCaptions
+        focusTarget: m.focusTarget
+        focusedButton: m.focusedButton
+        nudgeCount: m.top.nudgeCount
+        sponsorNoticeShown: SponsorBlock.GetCurrentNotification(m.notifications) <> invalid
+        forceLiveBadge: m.trickPlayBar.forceLiveBadge
+        liveBadgeShown: m.trickPlayBar.findNode("liveLabel").visible
+        barRemainingText: m.trickPlayBar.findNode("remainingLabel").text
+        replayPending: m.transport.replayPending
+        transportTimerControl: m.transportTimer.control
+        buttonRowVisible: m.buttonRow.visible
+        barPositionMs: m.trickPlayBar.positionMs
+        spinnerMode: m.spinner.mode
+        brain: TestBrainSnapshot()
+    }
+end function
+
+' The brain's output fields in the shape PlayerInvariants.CheckBrain expects.
+function TestBrainSnapshot() as object
+    t = m.transport
+    return {
+        transportMode: t.transportMode
+        glyph: t.glyph
+        scanLevel: t.scanLevel
+        scanDir: t.scanDir
+        scrubHeldDir: t.scrubHeldDir
+        scrubHoldTicks: t.scrubHoldTicks
+        scrubStepMs: t.scrubStepMs
+        storyboardStepMs: t.storyboardStepMs
+        cursorMs: t.cursorMs
+        positionMs: t.positionMs
+        durationMs: t.durationMs
+        edgeMs: t.edgeMs
+        liveOffsetMs: t.liveOffsetMs
+        atLiveEdge: t.atLiveEdge
+        isLive: t.isLive
+        replayPending: t.replayPending
+    }
+end function
+
+' TestWireQueueClose — make the stub videoQueue close the player when ClosePlayer writes closePlayer, mirroring
+' the real VideoQueue.OnClosePlayer (which sets player.close = true). Opt-in: only the finish-during-tick
+' re-entrancy spec needs the full synchronous teardown chain wired up.
+function TestWireQueueClose() as void
+    m.videoQueue.observeFieldScoped("closePlayer", FuncName(OnTestQueueClose))
+end function
+
+' TestResendSummary — send the playback summary again after the close, so a spec can see whether anything reached
+' the Recorder since.
+function TestResendSummary() as void
+    m.playbackTelemetry.SendSummary()
+end function
+
+function OnTestQueueClose() as void
+    if m.videoQueue.closePlayer
+        m.top.close = true
+    end if
+end function

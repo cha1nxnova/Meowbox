@@ -1,0 +1,5 @@
+<component name="VideoContainer" extends="Group">
+    <interface>
+        <field id="fullscreen" type="boolean" value="true" />
+    </interface>
+</component>

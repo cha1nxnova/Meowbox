@@ -1,0 +1,20 @@
+<component name="BootstrapScene" extends="Scene">
+    <interface>
+        <field id="exitChannel" type="bool" alwaysNotify="true" />
+        <field id="launchArgs" type="assocarray" />
+        <field id="inputArgs" type="assocarray" alwaysNotify="true" />
+        <field id="playletLibLoadedUrl" type="assocarray" />
+        <field id="libSceneCreated" type="bool" />
+        <field id="systemLogEvent" type="assocarray" alwaysNotify="true" />
+        <field id="enableSystemLogType" type="string" />
+        <field id="lastExitInfo" type="assocarray" />
+        <function name="CreateInputTransportEventsHandler" />
+    </interface>
+    <script type="text/brightscript" uri="pkg:/source/Dialog.bs" />
+    <script type="text/brightscript" uri="pkg:/source/Manifest.bs" />
+    <script type="text/brightscript" uri="pkg:/source/Registry.bs" />
+    <children>
+        <Group id="MainSceneContainer" />
+        <LoadingIndicator id="LoadingIndicator" />
+    </children>
+</component>

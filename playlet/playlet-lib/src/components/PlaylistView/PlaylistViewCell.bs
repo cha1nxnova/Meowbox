@@ -1,0 +1,75 @@
+import "pkg:/source/utils/MathUtils.bs"
+import "pkg:/source/utils/StringUtils.bs"
+import "pkg:/source/utils/TimeUtils.bs"
+import "pkg:/source/utils/Types.bs"
+
+function Init()
+    m.durationRect = m.top.FindNode("durationRect")
+    m.durationLabel = m.top.FindNode("durationLabel")
+    m.progressRect = m.top.FindNode("progressRect")
+end function
+
+function OnContentSet() as void
+    content = m.top.itemContent
+
+    if content = invalid
+        return
+    end if
+
+    m.top.title = content.title
+    ' NOTE: "_author" not "author". See PlaylistContentNode.xml for explanation.
+    author = content._author
+    if not StringUtils.IsNullOrEmpty(author)
+        videoInfo = content.videoInfo
+        if not StringUtils.IsNullOrEmpty(videoInfo)
+            author += `\n` + videoInfo
+        end if
+    else
+        lines = content.lines
+        if IsArray(lines) and lines.Count() > 0
+            author = lines[0]
+            if lines.Count() > 1
+                author += `\n` + lines[1]
+            end if
+        end if
+    end if
+    m.top.author = author
+
+    m.top.thumbnailUri = content.thumbnail
+
+    m.top.percentDurationWatched = content.percentDurationWatched
+
+    SetDurationText(content.lengthText)
+end function
+
+function SetDurationText(text as string) as void
+    hasText = text <> ""
+    m.top.durationRectVisible = hasText
+    if not hasText
+        return
+    end if
+
+    m.top.duration = text
+
+    label = m.durationLabel
+    rect = m.durationRect
+
+    if label = invalid or rect = invalid
+        return
+    end if
+
+    rectParent = rect.getParent()
+    size = label.localBoundingRect()
+
+    rect.width = size.width + 16
+    rect.translation = [rectParent.width - rect.width, rect.translation[1]]
+end function
+
+function OnPercentDurationWatched() as void
+    if m.progressRect = invalid
+        return
+    end if
+
+    percent = MathUtils.Clamp(m.top.percentDurationWatched, 0, 100) / 100.0
+    m.progressRect.scale = [percent, 1]
+end function

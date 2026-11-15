@@ -1,0 +1,10 @@
+namespace Http
+
+    enum HttpRequestState
+        INIT = 0
+        READING_START_AND_HEADERS = 1
+        READING_BODY = 3
+        DONE = 4
+    end enum
+
+end namespace

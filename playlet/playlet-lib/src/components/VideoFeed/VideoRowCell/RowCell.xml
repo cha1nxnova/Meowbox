@@ -1,0 +1,36 @@
+<component name="RowCell" extends="Group">
+    <interface>
+        <field id="type" type="string" />
+        <field id="itemContent" type="node" onChange="OnContentSet" />
+        <field id="index" type="integer" />
+
+        <field id="videoRowCellVisible" type="boolean" alias="VideoRowCell.visible" />
+        <field id="playlistRowCellVisible" type="boolean" alias="PlaylistRowCell.visible" />
+        <field id="channelRowCellVisible" type="boolean" alias="ChannelRowCell.visible" />
+        <field id="loadingRowCellVisible" type="boolean" alias="LoadingRowCell.visible" />
+
+        <field id="videoRowCellItemContent" type="node" alias="VideoRowCell.itemContent" />
+        <field id="playlistRowCellItemContent" type="node" alias="PlaylistRowCell.itemContent" />
+        <field id="channelRowCellItemContent" type="node" alias="ChannelRowCell.itemContent" />
+        <field id="loadingRowCellItemContent" type="node" alias="LoadingRowCell.itemContent" />
+
+        <field id="loadingRowCellIndex" type="integer" alias="LoadingRowCell.index" />
+
+        <!-- Focus state, set by the RowList on its item components -->
+        <field id="rowListHasFocus" type="boolean" onChange="OnFocusStateChange" />
+        <field id="rowHasFocus" type="boolean" onChange="OnFocusStateChange" />
+        <field id="rowFocusPercent" type="float" onChange="OnFocusStateChange" />
+        <field id="itemHasFocus" type="boolean" onChange="OnItemHasFocusChange" />
+        <field id="focusPercent" type="float" onChange="OnFocusPercentChange" />
+
+        <field id="videoRowCellCardFocused" type="boolean" alias="VideoRowCell.cardFocused" />
+        <field id="playlistRowCellCardFocused" type="boolean" alias="PlaylistRowCell.cardFocused" />
+        <field id="channelRowCellCardFocused" type="boolean" alias="ChannelRowCell.cardFocused" />
+    </interface>
+    <children>
+        <VideoRowCell id="VideoRowCell" />
+        <PlaylistRowCell id="PlaylistRowCell" />
+        <ChannelRowCell id="ChannelRowCell" />
+        <LoadingRowCell id="LoadingRowCell" />
+    </children>
+</component>

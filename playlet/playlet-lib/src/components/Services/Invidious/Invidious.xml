@@ -1,0 +1,13 @@
+<component name="Invidious" extends="Node">
+    <interface>
+        <field id="applicationInfo" type="node" />
+        <field id="preferences" type="node" />
+        <field id="webServer" type="node" />
+        <field id="profilesService" type="node" />
+
+        <field id="apiDefinitions" type="assocarray" />
+
+        <function name="GetInstance" />
+        <function name="GetInvidiousInstance" />
+    </interface>
+</component>

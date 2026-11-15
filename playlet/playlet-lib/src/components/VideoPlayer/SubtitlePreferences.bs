@@ -1,0 +1,104 @@
+import "pkg:/source/utils/Logging.bs"
+import "pkg:/source/utils/StringUtils.bs"
+import "pkg:/source/utils/Types.bs"
+
+' Applies the "Subtitles" preferences (config/preferences.json5) to a Video node.
+'
+'   subtitles.mode            "device" (default): leave everything to the Roku caption setting.
+'                             "on":  turn captions on.
+'                             "off": never render captions in Playlet.
+'   subtitles.language        "device" or an ISO 639-1 code. VideoContentJob (SetCaptions) resolves it to a
+'                             track and stores the track name in content.playletPreferredSubtitleTrack.
+'
+' Roku Video node fields used (https://developer.roku.com/docs/references/scenegraph/media-playback-nodes/video.md):
+'   globalCaptionMode        the caption mode ("Off" / "On" / "Instant replay" / "When mute"). This is the
+'                            device setting: "on" changes it for the whole Roku, not only for Playlet. There is
+'                            no per-node "force on", which is why "off" uses suppressCaptions instead.
+'   suppressCaptions         true hides captions on this node whatever the device setting is.
+'   subtitleTrack            the track to render: a TrackName from availableSubtitleTracks.
+'   availableSubtitleTracks  the tracks the player knows about, once the stream has loaded
+'                            (in-band tracks + the content's SubtitleTracks).
+namespace SubtitlePreferences
+
+    const MODE_DEVICE = "device"
+    const MODE_ON = "on"
+    const MODE_OFF = "off"
+
+    ' Applies the caption mode. Returns true if captions must be suppressed on the node
+    ' (the caller owns suppressCaptions, because the player also uses it while minimized).
+    function ApplyMode(video as object, preferences as object) as boolean
+        if video = invalid or preferences = invalid
+            return false
+        end if
+
+        mode = preferences["subtitles.mode"]
+        if mode = MODE_OFF
+            return true
+        end if
+
+        if mode = MODE_ON and video.hasField("globalCaptionMode")
+            if video.globalCaptionMode <> "On"
+                video.globalCaptionMode = "On"
+            end if
+        end if
+
+        return false
+    end function
+
+    ' Selects the preferred subtitle track chosen by VideoContentJob, if any.
+    ' Call once when the content is ready, and again whenever availableSubtitleTracks changes.
+    function ApplyPreferredTrack(video as object, content as object) as void
+        if video = invalid or content = invalid
+            return
+        end if
+        if not video.hasField("subtitleTrack") or not content.hasField("playletPreferredSubtitleTrack")
+            return
+        end if
+
+        preferredTrack = content.playletPreferredSubtitleTrack
+        if StringUtils.IsNullOrEmpty(preferredTrack)
+            return
+        end if
+
+        trackName = FindAvailableTrackName(video, preferredTrack)
+        if trackName = ""
+            ' Not listed (yet). Side-loaded tracks are identified by their url, so ask for it directly;
+            ' this is applied again once the player publishes its track list.
+            trackName = preferredTrack
+        end if
+
+        if video.subtitleTrack <> trackName
+            LogInfo("Selecting subtitle track:", trackName)
+            video.subtitleTrack = trackName
+        end if
+    end function
+
+    ' Finds the TrackName the player uses for our preferred track. The player may report a side-loaded
+    ' track under its url, or under an id that contains/ends with it, so match loosely.
+    function FindAvailableTrackName(video as object, preferredTrack as string) as string
+        if not video.hasField("availableSubtitleTracks")
+            return ""
+        end if
+
+        tracks = video.availableSubtitleTracks
+        if not IsArray(tracks)
+            return ""
+        end if
+
+        for each track in tracks
+            if not IsAssociativeArray(track)
+                continue for
+            end if
+            trackName = track.TrackName
+            if not IsString(trackName) or trackName = ""
+                continue for
+            end if
+            if trackName = preferredTrack or trackName.InStr(preferredTrack) <> -1
+                return trackName
+            end if
+        end for
+
+        return ""
+    end function
+
+end namespace
