@@ -1,0 +1,39 @@
+function OnContentSet() as void
+    content = m.top.itemContent
+    if content = invalid
+        return
+    end if
+
+    m.top.titleLabelText = content.text
+    m.top.titleLabelFocusedText = content.text
+
+    isProfile = content.isProfile
+    if isProfile
+        m.top.iconPosterVisible = false
+        m.top.profileIconVisible = true
+    else
+        m.top.iconPosterVisible = true
+        m.top.profileIconVisible = false
+        m.top.iconPosterUri = content.icon
+    end if
+
+    OnListHasFocusChange()
+end function
+
+function OnItemHasFocusChange() as void
+    itemHasFocus = m.top.itemHasFocus
+    m.top.titleLabelFocusedVisible = itemHasFocus
+    m.top.titleLabelVisible = not itemHasFocus
+end function
+
+function OnListHasFocusChange()
+    listHasFocus = m.top.listHasFocus
+    if not listHasFocus
+        m.top.titleLabelFocusedVisible = false
+        m.top.titleLabelVisible = false
+        m.top.opacity = 0.8
+    else
+        OnItemHasFocusChange()
+        m.top.opacity = 1
+    end if
+end function

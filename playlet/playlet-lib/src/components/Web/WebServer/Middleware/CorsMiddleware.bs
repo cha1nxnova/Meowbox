@@ -1,0 +1,43 @@
+import "pkg:/components/Web/WebServer/Http/HttpRouter.bs"
+
+namespace Http
+
+    class CorsMiddleware extends HttpRouter
+        private origin
+        private methods
+
+        function new(origin = "*" as string, methods = "POST, PUT, GET, DELETE, OPTIONS" as string)
+            super()
+
+            m.origin = origin
+            m.methods = methods
+        end function
+
+        @all("*")
+        function AddAccessControlHeaders(context as object) as boolean
+            request = context.request
+            response = context.response
+
+            if not StringUtils.IsNullOrEmpty(m.origin)
+                response.headers["Access-Control-Allow-Origin"] = m.origin
+            end if
+
+            if not StringUtils.IsNullOrEmpty(m.methods)
+                response.headers["Access-Control-Allow-Methods"] = m.methods
+            end if
+
+            allowHeaders = request.headers["Access-Control-Request-Headers"]
+            if not StringUtils.IsNullOrEmpty(allowHeaders)
+                response.headers["Access-Control-Allow-Headers"] = allowHeaders
+            end if
+
+            if request.method = "OPTIONS"
+                response.ClearBody()
+                response.http_code = 200
+                return true
+            end if
+            return false
+        end function
+    end class
+
+end namespace

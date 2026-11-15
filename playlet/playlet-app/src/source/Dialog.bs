@@ -1,0 +1,24 @@
+function DialogShowError(message as object, bulletText as object, bottomMessage as object)
+    ' Note: dialog can be null since StandardMessageDialog is only available on 10.0 and later
+    msgDialog = CreateObject("roSGNode", "StandardMessageDialog")
+    msgDialog.message = message
+    msgDialog.bulletText = bulletText
+    msgDialog.bottomMessage = bottomMessage
+    msgDialog.title = "Error loading Playlet"
+    msgDialog.buttons = ["Exit"]
+
+    ' bs:disable-next-line NO_OBSERVE_STRING_CALLBACK
+    msgDialog.observeField("buttonSelected", "DialogOnButtonSelected")
+    ' bs:disable-next-line NO_OBSERVE_STRING_CALLBACK
+    msgDialog.observeField("wasClosed", "DialogOnClosed")
+
+    m.top.getScene().dialog = msgDialog
+end function
+
+function DialogOnButtonSelected()
+    m.top.getScene().dialog.close = true
+end function
+
+function DialogOnClosed()
+    m.top.getScene().exitChannel = true
+end function

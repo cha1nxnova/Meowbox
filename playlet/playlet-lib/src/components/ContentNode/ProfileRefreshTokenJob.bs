@@ -1,0 +1,32 @@
+import "pkg:/components/Services/Innertube/InnertubeService.bs"
+import "pkg:/source/utils/ErrorUtils.bs"
+
+@job("ProfileRefreshTokenJob")
+function ExecuteJob() as void
+    input = JobGetInput()
+    profileNode = input.profile
+    accessTokenObject = input.accessTokenObject
+    profilesService = input.profilesService
+    try
+        cancellation = JobGetCancellation()
+        if InnertubeService.AuthRefreshAccessToken(accessTokenObject, cancellation)
+            profileNode.update({
+                expiresIn: accessTokenObject.expiresIn
+                expiresTimestamp: accessTokenObject.expiresTimestamp
+                accessToken: accessTokenObject.accessToken
+            })
+            profilesService@.SaveUserProfilesToRegistry()
+        else
+            JobError("Refresh response contained no access token")
+        end if
+    catch error
+        ' AuthRefreshAccessToken flags a permanently-dead refresh token on the shared object before throwing.
+        if ValidBool(accessTokenObject.terminalRefreshError)
+            profileNode@.MarkNeedsReauth()
+        end if
+        JobError("Failed to refresh access token: " + ErrorUtils.Format(error))
+    end try
+
+    ' Signal completion on every outcome so a blocked waiter wakes.
+    profileNode.refreshCompleted = true
+end function

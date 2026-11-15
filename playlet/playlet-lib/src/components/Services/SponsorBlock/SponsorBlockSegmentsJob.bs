@@ -1,0 +1,148 @@
+import "pkg:/components/Services/SponsorBlock/SponsorBlockConfig.bs"
+import "pkg:/components/Services/SponsorBlock/SponsorBlockService.bs"
+import "pkg:/components/Services/SponsorBlock/SponsorBlockTimeline.bs"
+import "pkg:/components/VideoPlayer/SponsorBlockSegmentAction.bs"
+import "pkg:/source/utils/Types.bs"
+
+@job("SponsorBlockSegmentsJob")
+function ExecuteJob() as void
+    input = JobGetInput()
+
+    videoId = input.videoId
+    lengthSeconds = input.lengthSeconds
+    showNotifications = input.showNotifications
+    categories = input.categories
+
+    config = new SponsorBlock.SponsorBlockConfig()
+    service = new SponsorBlock.SponsorBlockService(config)
+    cancellation = JobGetCancellation()
+    skipSegments = service.GetSkipSegmentsForVideo(videoId, cancellation)
+
+    skipSegments = ProcessSkipSegments(skipSegments, showNotifications, categories, config)
+
+    barPath = invalid
+    timeline = invalid
+    if skipSegments <> invalid
+        barDir = "tmp:/sponsorblock"
+        fs = CreateObject("roFileSystem")
+        fs.Delete(barDir)
+        fs.CreateDirectory(barDir)
+        ' path contains video id to avoid texture cache reuse
+        barPath = `${barDir}/${videoId}.png`
+        service.GenerateProgressBarBackground(skipSegments, SponsorBlock.BuildTimeline(skipSegments), lengthSeconds, barPath)
+
+        ' Usually segment.start and segment.end are equal for poi_highlight
+        ' We pad the duration for poi_highlight segments so that the chapter label
+        ' can be visible when seeking in trickplay.
+        ' Padding poi_highlight is done after generating the progress bar, so that the
+        ' highlight is not too long in the bar.
+        skipSegments = PadHightlightSegment(skipSegments, lengthSeconds)
+        timeline = SponsorBlock.BuildTimeline(skipSegments)
+    end if
+
+    JobSuccessData({
+        videoId: videoId
+        skipSegments: skipSegments
+        timeline: timeline
+        barPath: barPath
+    })
+end function
+
+function ProcessSkipSegments(skipSegments as object, showNotifications as boolean, categories as object, config as SponsorBlock.SponsorBlockConfig) as object
+    if skipSegments = invalid
+        return invalid
+    end if
+
+    processedSegments = []
+    for each segment in skipSegments
+        ' When a submission reaches the score of -2 or lower, it gets removed and will not appear anymore for users
+        ' https://wiki.sponsor.ajay.app/w/FAQ#How_does_voting_work_and_what_do_certain_amounts_of_votes_mean?
+        if ValidInt(segment.votes) < -1
+            continue for
+        end if
+
+        option = GetOptionForSegment(segment, categories)
+        if option = SponsorBlock.SegmentAction.Disable
+            continue for
+        end if
+
+        segment.option = option
+
+        segment.showNotification = showNotifications and ShouldShowNotification(segment, categories)
+        if segment.showNotification
+            if option = SponsorBlock.SegmentAction.AutoSkip
+                segment.actionText = Tr(Locale.SponsorBlock.Skipped)
+            else if option = SponsorBlock.SegmentAction.ManualSkip
+                segment.actionText = Tr(Locale.SponsorBlock.PressOkToSkip)
+            else
+                segment.actionText = ""
+            end if
+        end if
+
+        segmentRange = segment["segment"]
+        segmentStart = segmentRange[0]
+        segmentEnd = segmentRange[1]
+        segment.Delete("segment")
+        segment.start = segmentStart
+        segment.end = segmentEnd
+
+        segment.title = Tr(ValidString(config.SegmentTitle(segment.category)))
+        segment.shortTitle = Tr(ValidString(config.SegmentShortTitle(segment.category)))
+
+        processedSegments.push(segment)
+    end for
+
+    return processedSegments
+end function
+
+function GetOptionForSegment(segment as object, categories as object) as string
+    category = categories[segment.category]
+    if not IsAssociativeArray(category)
+        return SponsorBlock.SegmentAction.Disable
+    end if
+
+    option = category.option
+    if StringUtils.IsNullOrEmpty(option)
+        option = SponsorBlock.SegmentAction.Disable
+    end if
+
+    return option
+end function
+
+function ShouldShowNotification(segment as object, categories as object) as boolean
+    option = GetOptionForSegment(segment, categories)
+    return option = SponsorBlock.SegmentAction.AutoSkip or option = SponsorBlock.SegmentAction.ManualSkip
+end function
+
+function PadHightlightSegment(skipSegments as object, lengthSeconds as integer) as object
+    if skipSegments = invalid
+        return invalid
+    end if
+
+    for each segment in skipSegments
+        if not segment.category = "poi_highlight"
+            continue for
+        end if
+
+        segmentPaddedDuration = 5
+
+        if lengthSeconds > 0
+            if lengthSeconds < 120
+                segmentPaddedDuration = 1
+            else if lengthSeconds < 300
+                segmentPaddedDuration = 2
+            else if lengthSeconds < 900
+                segmentPaddedDuration = 5
+            else
+                segmentPaddedDuration = 10
+            end if
+        end if
+
+        segmentDuration = Abs(segment.end - segment.start)
+        padding = Abs(segmentPaddedDuration - segmentDuration) / 2
+        segment.start = segment.start - padding
+        segment.end = segment.end + padding
+    end for
+
+    return skipSegments
+end function

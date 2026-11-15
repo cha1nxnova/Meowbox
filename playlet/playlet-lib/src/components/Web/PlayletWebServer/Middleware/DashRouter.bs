@@ -1,0 +1,428 @@
+import "pkg:/components/Services/Dash/DashManifest.bs"
+import "pkg:/components/Services/Dash/LiveHeadChecks.bs"
+import "pkg:/components/Services/Dash/LiveLoadCounts.bs"
+import "pkg:/components/Services/Dash/LiveTimeline.types.bs"
+import "pkg:/components/Services/Innertube/LiveStreamInfo.bs"
+import "pkg:/components/Services/Invidious/InvidiousService.bs"
+import "pkg:/components/Telemetry/VideoLoadHandoff.bs"
+import "pkg:/components/Web/WebServer/Http/HttpRouter.bs"
+import "pkg:/source/services/HttpClient.bs"
+import "pkg:/source/utils/MathUtils.bs"
+import "pkg:/source/utils/StringUtils.bs"
+import "pkg:/source/utils/Types.bs"
+
+' Manifest requests closer together than this (Roku re-fetching after an error) share one live head check.
+const LIVE_HEAD_MIN_INTERVAL_MS = 500
+' Head time leaping this far past the listed timeline within one head check is a stall.
+const LIVE_STALL_JUMP_MS = 10000
+
+namespace Http
+
+    class DashRouter extends HttpRouter
+
+        function new(server as object)
+            super()
+
+            m.videoQueueNode = server.sceneNodes.videoQueue
+            m.invidiousNode = server.sceneNodes.invidious
+            m.preferencesNode = server.sceneNodes.preferences
+            m.invidiousService = new Invidious.InvidiousService(m.invidiousNode)
+            ' No need to pass the invidious instance here, we will refresh it for
+            ' each request to make sure we are using the latest one
+            m.dashManifest = new DashManifest("")
+
+            ' Live manifests are re-fetched every `minimumUpdatePeriod`, and reading
+            ' metadata off the player's content is a cross-thread rendezvous that
+            ' deep-copies the whole (~39 KB) metadata AA. The metadata is immutable for a
+            ' video load, so it is cached per load, not per video: replaying a video (or
+            ' switching backends) pushes fresh metadata with re-signed urls for the same
+            ' video id.
+            m.cachedVideoLoadId = invalid
+            m.cachedMetadata = invalid
+            m.liveHeadUrl = ""
+            m.liveHeadTimer = invalid ' since the last head check; invalid = never checked
+            m.liveHeadChecks = invalid
+            m.liveHeadSeqnum = 0
+            m.liveLoadHeadSeqnum = 0
+            m.liveLoadHeadTimeMs = invalid
+            m.liveBaseSeqnum = 0
+            m.liveBaseTimeMs = invalid
+            m.liveBaseEndMs = 0
+            m.liveWindowMs = 0
+            m.liveDurationRuns = [] ' LiveDurationRun[]
+            m.liveLeadMs = 0
+            m.liveDriftMs = 0
+            m.liveLastCheckJumped = false
+            m.liveTimelineCounts = invalid
+            m.reportedLiveCorrection = false
+            m.liveManifestTemplate = ""
+            m.liveManifestTemplateKey = invalid
+            m.reportedLiveHeadFailure = false
+        end function
+
+        ' Returns the metadata of video load `videoLoadId`, or invalid when the player holds
+        ' another load. A new load also resets the live state.
+        function GetMetadata(videoLoadId as string) as dynamic
+            if m.cachedVideoLoadId = videoLoadId
+                return m.cachedMetadata
+            end if
+
+            content = ObjectUtils.DigUnsafe(m.videoQueueNode, ["player", "content"])
+            if content = invalid or ValidString(content.videoLoadId) <> videoLoadId
+                return invalid
+            end if
+            metadata = content.metadata
+            m.cachedMetadata = metadata
+            m.cachedVideoLoadId = videoLoadId
+            m.ResetLiveState(metadata)
+            return metadata
+        end function
+
+        @get("/api/dash")
+        function GenerateDashManifest(context as object) as boolean
+            request = context.request
+            response = context.response
+
+            url = request.query.url
+            if not StringUtils.IsNullOrEmpty(url)
+                return m.GenerateDashManifestAppendStoryboards(context)
+            end if
+
+            videoLoadId = ValidString(request.query.videoLoadId)
+            local = request.query.local
+            quality = request.query.quality
+
+            if videoLoadId = ""
+                response.Default(400, "Missing video load id")
+                WriteAsciiFile("cachefs:/last_generated_dash.xml", "400 Missing video load id")
+                return true
+            end if
+
+            metadata = m.GetMetadata(videoLoadId)
+            if metadata = invalid
+                response.Default(400, "videoQueue.player.content holds no metadata for the requested video load id")
+                WriteAsciiFile("cachefs:/last_generated_dash.xml", "400 videoQueue.player.content holds no metadata for the requested video load id")
+                return true
+            end if
+
+            m.dashManifest.invidiousInstance = m.invidiousService.GetInstance()
+            m.dashManifest.disableAutoDubbed = ValidBool(m.preferencesNode["playback.disable_auto_dubbed"])
+            isLocal = ValidString(local) = "true"
+
+            if ValidBool(metadata.liveNow)
+                xmlContent = m.GetLiveManifest(metadata, videoLoadId, ValidString(quality), isLocal)
+            else
+                xmlContent = m.dashManifest.FromVideoMetadata(metadata, m.CreateQualityFilter(quality), isLocal)
+                m.ReportManifestErrors(xmlContent, videoLoadId)
+                WriteAsciiFile("cachefs:/last_generated_dash.xml", xmlContent)
+            end if
+
+            response.http_code = 200
+            response.SetBodyDataString(xmlContent)
+            response.ContentType("application/dash+xml")
+            return true
+        end function
+
+        function ReportManifestErrors(xmlContent as string, videoLoadId as string) as void
+            if xmlContent.InStr("[ERROR]") = -1
+                return
+            end if
+            LogErrorNoTelemetry("Dash manifest generated with errors")
+            lastPlayerResponse = ValidString(ReadAsciiFile("cachefs:/last_player_response.json"))
+            LogTelemetryEvent({
+                level: "error"
+                message: `Dash manifest generated with errors\nvideo_load_id: ${videoLoadId}`
+                fingerprint: ["Dash manifest generated with errors"]
+                attachments: [{
+                    filename: "dash.xml"
+                    content_type: "text/plain"
+                    data: xmlContent
+                }, {
+                    filename: "last_player_response.json"
+                    content_type: "application/json"
+                    data: lastPlayerResponse
+                }]
+            })
+        end function
+
+        function CreateQualityFilter(quality as dynamic) as object
+            qualityFilter = {}
+            if not IsString(quality)
+                return qualityFilter
+            end if
+
+            includeList = quality.split(",")
+            for each quality in includeList
+                if quality = "auto"
+                    continue for
+                end if
+                pIndex = quality.InStr("p")
+                if pIndex <> -1
+                    quality = quality.Mid(0, pIndex)
+                end if
+                qualityFilter[quality] = true
+            end for
+
+            return qualityFilter
+        end function
+
+        function GenerateDashManifestAppendStoryboards(context as object) as boolean
+            request = context.request
+            response = context.response
+
+            url = request.query.url
+
+            storyboards = ObjectUtils.DigUnsafe(m.videoQueueNode, ["player", "content", "metadata", "storyboards"])
+            if not IsArray(storyboards) or storyboards.count() = 0
+                response.Redirect(url)
+                return true
+            end if
+
+            dashResponse = HttpClient.Get(url).Await()
+
+            if not dashResponse.IsSuccess()
+                LogError("Failed to fetch DASH manifest from URL", dashResponse.ErrorMessage())
+                response.Redirect(url)
+                return true
+            end if
+
+            dashContent = dashResponse.Text()
+            storyboardIndex = dashContent.InStr("</Period>")
+            if storyboardIndex = -1
+                response.Redirect(url)
+                return true
+            end if
+
+            xml = new XmlObject()
+            manifestObj = new DashManifest("")
+            manifestObj.GenerateImageAdaptationSets(xml, storyboards, 100)
+            storyboardXml = xml.ToXmlString(false)
+
+            newDashContent = dashContent.Left(storyboardIndex) + storyboardXml + dashContent.Mid(storyboardIndex)
+            response.http_code = 200
+            response.SetBodyDataString(newDashContent)
+            response.ContentType("application/dash+xml")
+            return true
+        end function
+
+        ' ------------------------------------------------------------------------
+        ' The live manifest lists the segments that exist, so its timeline ends at
+        ' the stream's live head, re-read on every manifest request (RefreshLiveHead).
+        ' The player fetches the segments (`&sq=N` fragments) straight from
+        ' googlevideo, init included (see DashManifest.GenerateSegmentInformation).
+        ' ------------------------------------------------------------------------
+
+        ' Between live manifest requests only the live head and the clock change: the
+        ' manifest is built once per video load and output options, then filled in per request.
+        function GetLiveManifest(metadata as object, videoLoadId as string, quality as string, isLocal as boolean) as string
+            templateKey = `${quality}|${isLocal}|${m.dashManifest.invidiousInstance}|${m.dashManifest.disableAutoDubbed}`
+            isNewTemplate = m.liveManifestTemplateKey <> templateKey
+            if isNewTemplate
+                m.liveManifestTemplate = m.dashManifest.FromVideoMetadata(metadata, m.CreateQualityFilter(quality), isLocal)
+                m.liveManifestTemplateKey = templateKey
+            end if
+
+            m.RefreshLiveHead()
+            xmlContent = m.dashManifest.FillLiveManifest(m.liveManifestTemplate, m.liveHeadSeqnum, m.liveDurationRuns, m.liveWindowMs)
+            if isNewTemplate
+                m.ReportManifestErrors(xmlContent, videoLoadId)
+            end if
+            WriteAsciiFile("cachefs:/last_generated_dash.xml", xmlContent)
+            return xmlContent
+        end function
+
+        ' Raise the live head to the newest one answered. Until a check answers with a newer head, the
+        ' timeline keeps its end and the player holds at it.
+        function RefreshLiveHead() as void
+            if StringUtils.IsNullOrEmpty(m.liveHeadUrl)
+                return
+            end if
+            if m.liveHeadTimer = invalid
+                m.liveHeadTimer = CreateObject("roTimespan")
+            else if m.liveHeadTimer.TotalMilliseconds() < LIVE_HEAD_MIN_INTERVAL_MS
+                return
+            end if
+            m.liveHeadTimer.Mark()
+
+            newest = invalid
+            for each head in m.liveHeadChecks.Refresh()
+                if head.seqnum < 0
+                    m.ReportLiveHeadFailure(head.response)
+                else if newest = invalid or head.seqnum > newest.seqnum
+                    newest = head
+                end if
+            end for
+
+            ' Listed segments can't be withdrawn: the head only moves forward.
+            if newest <> invalid and newest.seqnum > m.liveHeadSeqnum
+                m.AlignLiveTimeline(newest)
+                m.liveHeadSeqnum = newest.seqnum
+            end if
+            VideoLoadHandoff.Write(LIVE_LOAD_COUNTS_PATH, ValidString(m.cachedVideoLoadId), { "live_head": m.liveHeadChecks.counts, "live_timeline": m.liveTimelineCounts })
+        end function
+
+        ' Segments are listed at the duration at load, the stream's lifetime average: off
+        ' by a young stream's short first segment and by any change of cadence. Roku plays
+        ' at its clock edge, so a list behind the stream skips segments for the rest of the
+        ' load (measured), and one ahead holds the player further from live. The base is a
+        ' head whose place on the timeline is known (the load head, then the last stall):
+        ' head time since it says where the head ends. Off by more than half a segment
+        ' (within the cushion, at least a segment), segments not yet listed take the cadence
+        ' since the base, or after a stall keep theirs and move the base. Listed segments
+        ' keep their place, so a list ahead stays ahead by liveLeadMs.
+        function AlignLiveTimeline(head as LiveHeadReading) as void
+            if head.timeMs = invalid or m.liveBaseTimeMs = invalid
+                return
+            end if
+            ' The cadence since the base.
+            sinceBaseDurationMs = Cint((head.timeMs - m.liveBaseTimeMs) / (head.seqnum - m.liveBaseSeqnum))
+            if sinceBaseDurationMs <= 0
+                LogWarnNoTelemetry("Live head time went back:", head.timeMs, "ms at", head.seqnum, "after", m.liveBaseTimeMs, "ms at", m.liveBaseSeqnum)
+                return
+            end if
+            durationRuns = m.liveDurationRuns
+            headEndMs = m.liveBaseEndMs + Cint(head.timeMs - m.liveBaseTimeMs)
+            driftMs = m.dashManifest.LiveSegmentStartMs(durationRuns, head.seqnum + 1) - headEndMs - m.liveLeadMs
+            stepMs = driftMs - m.liveDriftMs
+            m.liveDriftMs = driftMs
+            counts = m.liveTimelineCounts
+            counts["timed_checks"] += 1
+            counts["drift_ms_min"] = MathUtils.Min(counts["drift_ms_min"], driftMs)
+            counts["drift_ms_max"] = MathUtils.Max(counts["drift_ms_max"], driftMs)
+            counts["step_ms_min"] = MathUtils.Min(counts["step_ms_min"], stepMs)
+            counts["step_ms_max"] = MathUtils.Max(counts["step_ms_max"], stepMs)
+            lastCheckJumped = m.liveLastCheckJumped
+            m.liveLastCheckJumped = false
+            listedDurationMs = durationRuns[durationRuns.Count() - 1].durationMs
+            if Abs(driftMs) * 2 <= listedDurationMs
+                return
+            end if
+
+            ' A cadence error builds up across checks; a stall leaps forward within one. A
+            ' large cadence error can leap too (a young stream between sparse checks): the
+            ' next check measures it.
+            isStall = stepMs < -LIVE_STALL_JUMP_MS and not lastCheckJumped
+            durationMs = sinceBaseDurationMs
+            if isStall
+                durationMs = listedDurationMs
+            end if
+
+            fromSeqnum = m.dashManifest.LiveLastListedSeqnum(durationRuns, m.liveHeadSeqnum) + 1
+            alignedStartMs = headEndMs - (head.seqnum + 1 - fromSeqnum) * durationMs
+            startMs = MathUtils.Max(m.dashManifest.LiveSegmentStartMs(durationRuns, fromSeqnum), alignedStartMs)
+            m.liveLeadMs = startMs - alignedStartMs
+            m.liveDriftMs = 0
+            if isStall
+                m.liveBaseSeqnum = head.seqnum
+                m.liveBaseTimeMs = head.timeMs
+                m.liveBaseEndMs = headEndMs
+                m.liveLastCheckJumped = true
+            end if
+            LogInfo("Live timeline", driftMs, "ms off the head, stall:", isStall, "; segments from", fromSeqnum, "take", durationMs, "ms from", startMs, "ms, lead", m.liveLeadMs, "ms")
+
+            firstListed = m.dashManifest.LiveFirstListedSeqnum(durationRuns, m.dashManifest.LiveLastListedSeqnum(durationRuns, m.liveHeadSeqnum), m.liveWindowMs)
+            while durationRuns.Count() > 1 and durationRuns[1].fromSeqnum <= firstListed
+                durationRuns.Shift()
+            end while
+            durationRuns.Push({ fromSeqnum: fromSeqnum, startMs: startMs, durationMs: durationMs })
+            counts["corrections"] += 1
+            if isStall
+                counts["stall_corrections"] += 1
+            end if
+            counts["duration_runs_max"] = MathUtils.Max(counts["duration_runs_max"], durationRuns.Count())
+
+            m.ReportLiveCorrection(head, durationMs, driftMs, stepMs, isStall)
+        end function
+
+        ' Telemetry once per video load.
+        function ReportLiveCorrection(head as LiveHeadReading, durationMs as integer, driftMs as integer, stepMs as integer, isStall as boolean) as void
+            if m.reportedLiveCorrection
+                return
+            end if
+            m.reportedLiveCorrection = true
+
+            LogTelemetryEvent({
+                level: "info"
+                message: FormatJson({
+                    "video_load_id": ValidString(m.cachedVideoLoadId)
+                    "video_id": ValidString(ObjectUtils.Dig(m.cachedMetadata, ["videoId"]))
+                    "target_duration_ms": ValidInt(ObjectUtils.Dig(m.cachedMetadata, ["adaptiveFormats", 0, "targetDurationSec"])) * 1000
+                    "load_head_seqnum": m.liveLoadHeadSeqnum
+                    "load_duration_ms": ValidInt(ObjectUtils.Dig(m.cachedMetadata, ["liveSegmentDurationMs"]))
+                    "duration_ms": durationMs
+                    "drift_ms": driftMs
+                    "step_ms": stepMs
+                    "stall": isStall
+                    "segments_since_load": head.seqnum - m.liveLoadHeadSeqnum
+                    "ms_since_load": Cint(head.timeMs - m.liveLoadHeadTimeMs)
+                })
+                fingerprint: ["live timeline correction"]
+            })
+        end function
+
+        ' Telemetry once per video load.
+        function ReportLiveHeadFailure(response as HttpClient.Response) as void
+            statusText = Str(response.StatusCode()).Trim()
+            LogWarnNoTelemetry("Live head check returned no X-Head-Seqnum (HTTP", statusText, ")")
+            if m.reportedLiveHeadFailure
+                return
+            end if
+            m.reportedLiveHeadFailure = true
+
+            LogTelemetryEvent({
+                level: "error"
+                message: `Live head check failed (status ${statusText})`
+                fingerprint: ["live head check failure", statusText]
+                attachments: [{
+                    filename: "live-head-failure.txt"
+                    content_type: "text/plain"
+                    data: [
+                        `videoId: ${ValidString(ObjectUtils.Dig(m.cachedMetadata, ["videoId"]))}`
+                        `video_load_id: ${ValidString(m.cachedVideoLoadId)}`
+                        `head: ${m.liveHeadSeqnum}`
+                        `status: ${statusText}`
+                        `error: ${response.ErrorMessage()}`
+                        `url: ${m.liveHeadUrl}`
+                    ].Join(`\n`)
+                }]
+            })
+        end function
+
+        function ResetLiveState(metadata as object) as void
+            m.liveHeadUrl = ValidString(metadata.liveHeadUrl)
+            if m.liveHeadChecks <> invalid
+                m.liveHeadChecks.Cancel()
+            end if
+            m.liveHeadChecks = new LiveHeadChecks(m.liveHeadUrl)
+            m.liveHeadTimer = invalid
+            m.liveHeadSeqnum = ValidInt(metadata.liveHeadSeqnum)
+            m.liveLoadHeadSeqnum = m.liveHeadSeqnum
+            m.liveLoadHeadTimeMs = metadata.liveHeadTimeMs
+            segmentDurationMs = ValidInt(metadata.liveSegmentDurationMs)
+            m.liveDurationRuns = [{ fromSeqnum: ValidInt(metadata.liveFirstSeqnum), startMs: ValidInt(metadata.liveTimelineOffsetMs), durationMs: segmentDurationMs }]
+            m.liveBaseSeqnum = m.liveHeadSeqnum
+            m.liveBaseTimeMs = m.liveLoadHeadTimeMs
+            m.liveBaseEndMs = m.dashManifest.LiveSegmentStartMs(m.liveDurationRuns, m.liveHeadSeqnum + 1)
+            m.liveWindowMs = ValidInt(metadata.liveWindowSegments) * segmentDurationMs
+            m.liveLeadMs = 0
+            m.liveDriftMs = 0
+            m.liveLastCheckJumped = false
+            m.liveTimelineCounts = {
+                "timed_checks": 0
+                "corrections": 0
+                "stall_corrections": 0
+                "drift_ms_min": 0
+                "drift_ms_max": 0
+                "step_ms_min": 0
+                "step_ms_max": 0
+                "duration_runs_max": m.liveDurationRuns.Count()
+            }
+            m.reportedLiveCorrection = false
+            m.liveManifestTemplate = ""
+            m.liveManifestTemplateKey = invalid
+            m.reportedLiveHeadFailure = false
+        end function
+
+    end class
+
+end namespace

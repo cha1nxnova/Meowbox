@@ -1,0 +1,1210 @@
+' Device-seam conformance: drives the REAL coordinator (via VideoPlayerDevMock — a Group whose device fields are
+' inert and spec-driven) through scripted device-state sequences the real Roku Video won't produce on command.
+' This is the harness that would have caught the reported wedge: the existing INV-D* are blind to it (during the
+' wedge state="buffering", so "transport => state<>playing" was SATISFIED). The NEW property is P-seam.
+import "pkg:/components/VideoPlayerDev/PlayerCoordinatorLogic.bs"
+import "pkg:/components/VideoPlayerDev/TransportController.bs"
+import "pkg:/components/VideoPlayerDev/VideoNode.bs"
+import "pkg:/source/tests/VideoPlayerDev/PlayerInvariants.bs"
+import "pkg:/source/utils/ArrayUtils.bs"
+import "pkg:/source/utils/RemoteKeys.bs"
+
+namespace Tests
+
+    @SGNode("VideoPlayerDevMock")
+    @suite
+    class VideoPlayerDevSeamTests extends Rooibos.BaseTestSuite
+
+        protected override function beforeEach()
+            m.top.callFunc("TestSetup")
+            ' first frame: one state->playing opens the brain's ready-gate (transport input accepted).
+            m.top.callFunc("TestSetState", VideoState.Playing)
+        end function
+
+        function Snap() as object
+            return m.top.callFunc("TestSnapshot")
+        end function
+
+        @describe("device seam")
+
+        @it("mock stands up the real coordinator (Init + OnNodeReady ran against the faked device)")
+        function _()
+            snap = m.Snap()
+            m.assertEqual(snap.transportMode, TransportController.Mode.Idle)
+            m.assertFalse(snap.seekSettling)
+        end function
+
+        ' P-SEAM: the coordinator must NOT pause the device while a play-through seek it issued is still settling.
+        ' This is the wedge's root: the old code slammed control=pause on the in-flight seek -> buffering<->paused
+        ' forever. It fails on the old code at the "rescrub while settling" step; passes on the new (deferred).
+        @it("commit -> immediate re-scrub does NOT pause the still-settling seek; freezes cleanly only once it reaches playing")
+        function _()
+            ' enter scrub (normal freeze: no seek in flight yet).
+            m.top.callFunc("TestKey", RemoteKeys.Left, true)
+            m.top.callFunc("TestKey", RemoteKeys.Left, false)
+            m.top.callFunc("TestSetState", VideoState.Paused) ' the scrub froze the device
+            mid = m.Snap()
+            m.assertEqual(mid.transportMode, TransportController.Mode.Scrub)
+            m.assertEqual(mid.control, VideoControl.Pause) ' a normal scrub DOES freeze (no settling seek)
+
+            ' commit -> the brain emits resume+seek and marks seekSettling (a play-through seek is now in flight).
+            m.top.callFunc("TestKey", RemoteKeys.Ok, true)
+            afterCommit = m.Snap()
+            m.assertTrue(afterCommit.seekSettling, "commit must mark a play-through seek settling")
+            m.assertEqual(afterCommit.transportMode, TransportController.Mode.Idle)
+
+            ' the device is still resolving the seek...
+            m.top.callFunc("TestSetState", VideoState.Buffering)
+
+            ' ...and the user IMMEDIATELY re-scrubs. THE PROPERTY: the coordinator must DEFER the freeze, NOT pause.
+            m.top.callFunc("TestKey", RemoteKeys.Left, true)
+            settling = m.Snap()
+            m.assertEqual(settling.transportMode, TransportController.Mode.Scrub)
+            m.assertTrue(settling.seekSettling, "the seek is still in flight")
+            m.assertNotEqual(settling.control, VideoControl.Pause, "P-SEAM VIOLATION: paused the device mid-seek (the wedge) — the freeze was not deferred")
+
+            ' the seek finally lands -> the device reaches playing -> now the guard freezes cleanly.
+            m.top.callFunc("TestSetState", VideoState.Playing)
+            settled = m.Snap()
+            m.assertFalse(settled.seekSettling, "reaching playing clears the settling flag")
+            m.assertEqual(settled.control, VideoControl.Pause, "after the seek settles, the transport freezes the playing video")
+        end function
+
+        ' P-TOTAL at the seam: a transport must hold INV-D1 across EVERY device state, including the ones the real
+        ' device rarely produces. Only a PLAYING device under a transport gets re-paused; nothing else is touched.
+        @it("under a transport, only a playing device is re-frozen; every other device state is a safe no-op")
+        function _()
+            ' get into a frozen scrub.
+            m.top.callFunc("TestKey", RemoteKeys.Left, true)
+            m.top.callFunc("TestKey", RemoteKeys.Left, false)
+            states = [VideoState.Buffering, VideoState.Paused, VideoState.Playing, VideoState.None, VideoState.Stopping, VideoState.Stopped]
+            for each s in states
+                m.top.callFunc("TestSetState", s)
+                snap = m.Snap()
+                m.assertEqual(snap.transportMode, TransportController.Mode.Scrub, "still scrubbing through device state " + s)
+                if s = VideoState.Playing
+                    m.assertEqual(snap.control, VideoControl.Pause, "a playing device under a transport is re-frozen (INV-D1)")
+                end if
+            end for
+        end function
+
+        ' The one live case where the re-freeze must NOT happen: the sliding DVR tail overtook the frozen
+        ' playhead, and the device force-resumes such a pause on every manifest refresh (verified on device) —
+        ' re-pausing loops 1/s forever. The coordinator resolves forward instead: a commit from a cursor
+        ' floored a margin above the tail.
+        @it("a live playhead the sliding tail overtook resolves forward (commit), not a re-pause loop")
+        function _()
+            ' 12h stream at the edge, 4h window -> floor = 8h. Park the playhead 5s above the floor (a deep
+            ' rewind), then freeze: the frozen position sits inside the tail margin the device cannot hold.
+            m.top.callFunc("TestSetLive", 43200000)
+            m.top.position = 28805.0 ' fires the REAL OnPosition -> brain playhead 28805000ms
+            m.top.callFunc("TestKey", RemoteKeys.Left, true) ' freeze; the cursor clamps at the floor
+            m.top.callFunc("TestKey", RemoteKeys.Left, false)
+            mid = m.Snap()
+            m.assertEqual(mid.transportMode, TransportController.Mode.LiveDvr)
+            m.assertEqual(mid.control, VideoControl.Pause)
+
+            ' the device force-resumes the doomed pause (what the real player does each manifest refresh).
+            m.top.callFunc("TestSetState", VideoState.Playing)
+            snap = m.Snap()
+            m.assertEqual(snap.transportMode, TransportController.Mode.Idle, "the transport resolved instead of fighting")
+            m.assertEqual(snap.control, VideoControl.Resume, "resumed forward, not re-paused")
+            m.assertEqual(Int(m.top.seek * 1000), 28860000, "the resume parks a full margin above the trigger (28800s + 60s)")
+        end function
+
+        @it("a sentinel-valued duration report cannot anchor the live-edge fallback clock")
+        function _()
+            m.top.callFunc("TestSetLive", 300000)
+            ' the 999999s live seek echoing back through the single-precision duration field.
+            m.top.duration = 999998.976
+            m.assertEqual(m.Snap().brainEdgeMs, 300000, "the sentinel echo must not move the edge")
+            ' a real duration report anchors the fallback and re-feeds the edge.
+            m.top.duration = 400.0
+            m.assertEqual(m.Snap().brainEdgeMs, 400000)
+        end function
+
+        ' An external resume (the linked phone via Lounge) under an active transport must TAKE OVER: VPD never
+        ' resumes under a transport itself, so a resume here is the phone's. It cancels the scrub and plays.
+        @it("an external Lounge resume under a transport takes over: cancels the scrub and lets it play")
+        function _()
+            ' enter scrub -> the brain freezes the device (control=pause).
+            m.top.callFunc("TestKey", RemoteKeys.Left, true)
+            m.top.callFunc("TestKey", RemoteKeys.Left, false)
+            m.top.callFunc("TestSetState", VideoState.Paused)
+            mid = m.Snap()
+            m.assertEqual(mid.transportMode, TransportController.Mode.Scrub)
+            m.assertEqual(mid.control, VideoControl.Pause)
+
+            ' the phone resumes: Lounge sets control=resume directly on the player node.
+            m.top.callFunc("TestSetControl", VideoControl.Resume)
+            after = m.Snap()
+            m.assertEqual(after.transportMode, TransportController.Mode.Idle, "the external resume cancels the transport")
+            m.assertEqual(after.control, VideoControl.Resume, "the video plays (the phone action wins)")
+            m.assertTrue(after.autoplay, "autoplay restored so a settling seek won't re-freeze the takeover")
+        end function
+
+        ' --- external seek (setSeek) ---
+
+        ' Each arm is asserted: a state that silently failed to arm makes its row vacuous.
+        function ArmSeekState(state as string) as void
+            m.top.callFunc("TestSetup")
+            if state = "first load"
+                m.top.callFunc("TestSetState", VideoState.Buffering)
+                m.assertEqual(m.Snap().spinnerMode, SpinMode.Loading, "armed: " + state)
+                return
+            end if
+            m.top.callFunc("TestSetState", VideoState.Playing)
+            if Left(state, 4) = "live"
+                m.top.callFunc("TestSetLive", 43200000) ' 12h edge, 4h window: floor 8h
+            else
+                m.top.duration = 600.0
+                m.top.position = 300.0
+            end if
+            if state = "idle paused"
+                m.top.callFunc("TestKey", RemoteKeys.Play, true)
+                m.top.callFunc("TestSetState", VideoState.Paused)
+            else if state = "idle buffering"
+                m.top.callFunc("TestSetState", VideoState.Buffering)
+            else if state = "repause pending"
+                m.top.callFunc("TestKey", RemoteKeys.Play, true)
+                m.top.callFunc("TestSetState", VideoState.Paused)
+                m.top.callFunc("TestKey", RemoteKeys.Replay, true)
+                m.top.callFunc("TestSetState", VideoState.Buffering)
+            else if state = "replay in flight"
+                m.top.callFunc("TestKey", RemoteKeys.Replay, true)
+                m.assertTrue(m.Snap().replayPending, "armed: " + state)
+            else if state = "chrome/bar"
+                m.top.callFunc("TestKey", RemoteKeys.Up, true)
+                m.assertTrue(m.Snap().chromeShown, "armed: " + state)
+            else if state = "chrome fading"
+                m.top.callFunc("TestKey", RemoteKeys.Up, true)
+                m.top.callFunc("TestKey", RemoteKeys.Back, true)
+                m.assertTrue(m.Snap().chromeFadingOut, "armed: " + state)
+            else if state = "minimized"
+                m.top.container.fullscreen = false
+                m.assertTrue(m.Snap().suppressCaptions, "armed: " + state)
+            else if state = "scrub" or state = "live dvr"
+                m.top.callFunc("TestKey", RemoteKeys.Left, true)
+                m.top.callFunc("TestKey", RemoteKeys.Left, false)
+                m.top.callFunc("TestSetState", VideoState.Paused)
+            else if state = "scrub held"
+                m.top.callFunc("TestKey", RemoteKeys.Left, true)
+                m.top.callFunc("TestSetState", VideoState.Paused)
+            else if state = "scan"
+                m.top.callFunc("TestKey", RemoteKeys.FastForward, true)
+                m.top.callFunc("TestSetState", VideoState.Paused)
+            else if state = "live scan"
+                m.top.callFunc("TestKey", RemoteKeys.Rewind, true)
+                m.top.callFunc("TestKey", RemoteKeys.Rewind, false)
+                m.top.callFunc("TestSetState", VideoState.Paused)
+            else if state = "deferred freeze"
+                ' commit, then an immediate re-scrub while the commit's seek is still settling: no freeze sent.
+                m.top.callFunc("TestKey", RemoteKeys.Left, true)
+                m.top.callFunc("TestKey", RemoteKeys.Left, false)
+                m.top.callFunc("TestSetState", VideoState.Paused)
+                m.top.callFunc("TestKey", RemoteKeys.Ok, true)
+                m.top.callFunc("TestSetState", VideoState.Buffering)
+                m.top.callFunc("TestKey", RemoteKeys.Left, true)
+                m.assertTrue(m.Snap().seekSettling, "armed: " + state)
+            end if
+            snap = m.Snap()
+            mode = snap.transportMode
+            m.assertEqual(snap.brain.isLive, Left(state, 4) = "live", "armed: " + state)
+            if state = "scrub" or state = "scrub held" or state = "deferred freeze"
+                m.assertEqual(mode, TransportController.Mode.Scrub, "armed: " + state)
+            else if state = "scan"
+                m.assertEqual(mode, TransportController.Mode.Scan, "armed: " + state)
+            else if state = "live dvr"
+                m.assertEqual(mode, TransportController.Mode.LiveDvr, "armed: " + state)
+                m.assertEqual(snap.brain.scanLevel, 0, "armed: " + state)
+            else if state = "live scan"
+                m.assertEqual(mode, TransportController.Mode.LiveDvr, "armed: " + state)
+                m.assertTrue(snap.brain.scanLevel >= 1, "armed: " + state)
+            else
+                m.assertEqual(mode, TransportController.Mode.Idle, "armed: " + state)
+            end if
+        end function
+
+        ' Every state a seek from outside the player (setSeek) can arrive in. It lands idle at the target with the
+        ' brain consistent; it keeps the play state (a paused video is re-paused on landing), and out of a
+        ' transport it resumes, the chrome cleared.
+        @it("setSeek in every reachable player state lands idle at the target, keeping the play state")
+        function _()
+            transports = ["scrub", "scrub held", "scan", "deferred freeze", "live dvr", "live scan"]
+            paused = ["idle paused", "repause pending"]
+            states = ["idle playing", "idle buffering", "replay in flight", "chrome/bar", "chrome fading", "minimized", "first load", "live idle"]
+            states.Append(paused)
+            states.Append(transports)
+            for each state in states
+                m.ArmSeekState(state)
+                wasTransport = ArrayUtils.IndexOfString(transports, state) <> -1
+                targetS = 30.5
+                if Left(state, 4) = "live"
+                    targetS = 40000.0 ' inside the live window
+                end if
+                before = m.Snap()
+                m.top.callFunc("TestSetControl", VideoControl.None) ' so a control write below is the seek's
+                m.top.seek = -1
+
+                m.top.setSeek = targetS
+                snap = m.Snap()
+                where = " — " + state
+                m.assertEqual(snap.transportMode, TransportController.Mode.Idle, "idle" + where)
+                m.assertFalse(snap.bifVisible, "no bif" + where)
+                m.assertEqual(Int(m.top.seek * 1000), Int(targetS * 1000), "seeked to the target" + where)
+                m.assertTrue(snap.autoplay, "autoplay restored" + where)
+                m.assertFalse(snap.replayPending, "no replay chain" + where)
+                m.assertEqual(snap.transportTimerControl, "stop", "transport timer stopped" + where)
+                brainCheck = PlayerInvariants.CheckBrain(snap.brain)
+                m.assertTrue(brainCheck.ok, brainCheck.failed + where)
+                if wasTransport
+                    m.assertEqual(snap.control, VideoControl.Resume, "the transport resumes from the target" + where)
+                    m.assertFalse(snap.chromeShown, "the chrome cleared" + where)
+                else
+                    m.assertEqual(snap.control, VideoControl.None, "no control write: the play state is kept" + where)
+                    m.assertEqual(snap.spinnerMode, before.spinnerMode, "spinner untouched" + where)
+                    m.assertEqual(snap.chromeShown, before.chromeShown, "chrome untouched" + where)
+                    m.assertEqual(snap.chromeFadingOut, before.chromeFadingOut, "chrome fade untouched" + where)
+                end if
+                if state = "chrome/bar"
+                    m.assertEqual(snap.barPositionMs, Int(targetS * 1000), "the visible bar shows the target before it lands")
+                end if
+
+                ' the device lands and (on any seek) plays.
+                m.top.callFunc("TestSetState", VideoState.Playing)
+                landed = m.Snap()
+                m.assertEqual(landed.transportMode, TransportController.Mode.Idle, "still idle on landing" + where)
+                if ArrayUtils.IndexOfString(paused, state) <> -1
+                    m.assertEqual(landed.control, VideoControl.Pause, "re-paused on landing" + where)
+                else if wasTransport
+                    m.assertEqual(landed.control, VideoControl.Resume, "not re-frozen on landing" + where)
+                else
+                    m.assertEqual(landed.control, VideoControl.None, "untouched on landing" + where)
+                end if
+            end for
+        end function
+
+        @it("setSeek under a held scrub: the later key-up is a no-op at idle")
+        function _()
+            m.ArmSeekState("scrub held")
+            m.top.setSeek = 30.5
+            control = m.Snap().control
+            m.top.callFunc("TestKey", RemoteKeys.Left, false)
+            snap = m.Snap()
+            m.assertEqual(snap.transportMode, TransportController.Mode.Idle)
+            m.assertEqual(snap.control, control)
+        end function
+
+        @it("setSeek ends an InstantReplay chain: the next replay goes back from the setSeek target")
+        function _()
+            m.ArmSeekState("replay in flight")
+            m.top.setSeek = 100.0
+            m.top.callFunc("TestKey", RemoteKeys.Replay, true)
+            m.assertEqual(Int(m.top.seek * 1000), 80000)
+        end function
+
+        @it("setSeek seeks every time it is set, the same target included")
+        function _()
+            m.top.setSeek = 42.0
+            m.assertEqual(Int(m.top.seek * 1000), 42000)
+            m.top.seek = -1
+            m.top.setSeek = 42.0
+            m.assertEqual(Int(m.top.seek * 1000), 42000)
+        end function
+
+        @it("setSeek while the content loads becomes the content-load seek, over the resume timestamp")
+        function _()
+            m.top.callFunc("TestSetContentLoading", true)
+            m.top.seek = -1
+            m.top.setSeek = 30.5
+            m.assertEqual(m.top.seek, -1.0, "no seek while there is no content to seek")
+            m.top.callFunc("TestSetContentLoading", false)
+            content = CreateObject("roSGNode", "ContentNode")
+            content.AddFields({ timestamp: 42 })
+            m.top.callFunc("TestSeekToInitialPosition", content)
+            m.assertEqual(Int(m.top.seek * 1000), 30500)
+            ' consumed: a later content-load seek (an error retry) goes back to the content's own start.
+            m.top.callFunc("TestSeekToInitialPosition", content)
+            m.assertEqual(Int(m.top.seek * 1000), 42000)
+        end function
+
+        ' --- content-load seek ---
+
+        @it("the content-load seek goes to the live edge on live content")
+        function _()
+            content = CreateObject("roSGNode", "ContentNode")
+            content.Live = true
+            m.top.callFunc("TestSeekToInitialPosition", content)
+            m.assertEqual(m.top.seek, 999999.0)
+        end function
+
+        @it("the content-load seek goes to the resume timestamp")
+        function _()
+            content = CreateObject("roSGNode", "ContentNode")
+            content.AddFields({ timestamp: 42 })
+            m.top.callFunc("TestSeekToInitialPosition", content)
+            m.assertEqual(Int(m.top.seek * 1000), 42000)
+        end function
+
+        @it("the content-load seek goes to the percent watched of the video's length")
+        function _()
+            content = CreateObject("roSGNode", "ContentNode")
+            content.AddFields({ percentDurationWatched: 25.0, metadata: { lengthSeconds: 600 } })
+            m.top.callFunc("TestSeekToInitialPosition", content)
+            m.assertEqual(Int(m.top.seek * 1000), 150000)
+        end function
+
+        @it("the content-load seek skips the percent watched when the video's length is unknown")
+        function _()
+            for each metadata in [{}, { lengthSeconds: 0 }]
+                m.top.seek = -1
+                content = CreateObject("roSGNode", "ContentNode")
+                content.AddFields({ percentDurationWatched: 25.0, metadata: metadata })
+                m.top.callFunc("TestSeekToInitialPosition", content)
+                m.top.duration = 600.0
+                m.assertEqual(m.top.seek, -1.0, FormatJson(metadata))
+            end for
+        end function
+
+        @it("the content-load seek skips the percent watched on a video shorter than 30 seconds")
+        function _()
+            m.top.seek = -1
+            content = CreateObject("roSGNode", "ContentNode")
+            content.AddFields({ percentDurationWatched: 50.0, metadata: { lengthSeconds: 29 } })
+            m.top.callFunc("TestSeekToInitialPosition", content)
+            m.assertEqual(m.top.seek, -1.0)
+        end function
+
+        @it("an error retry seeks to the percent watched before it plays")
+        function _()
+            content = CreateObject("roSGNode", "ContentNode")
+            content.AddFields({
+                videoId: "vid1"
+                playletStreamUrls: ["http://a", "http://b"]
+                playletStreamUrlIndex: 0
+                percentDurationWatched: 25.0
+                metadata: { lengthSeconds: 600 }
+            })
+            content.url = "http://a"
+            m.assertEqual(m.top.callFunc("TestErrorRetry", content), 150.0)
+            m.assertEqual(content.url, "http://b", "retried the next stream url")
+        end function
+
+        @it("the error dialog displays every captured error field, not just the category")
+        function _()
+            ' Real Roku Video error captured on device (an http stream failure, 502 manifest).
+            errStr = "reader pick stream error:HTTP error:Transfer error: HTTP response code said error response code:(502):502:extra:content_id:24:err_clip_idx:0:etype:buffer:program_id:"
+            snap = m.top.callFunc("TestPlaybackErrorDialog", {
+                videoId: "dQw4w9WgXcQ"
+                errorMsg: "There was an error in the HTTP response.  This could mean that malformed HTTP headers or an HTTP error code was returned."
+                errorCode: -1
+                errorStr: errStr
+                ' the stream list is exhausted (no next url) -> dialog, not retry.
+                errorInfo: { category: "http", source: "buffer:reader", clipid: 24, ignored: false, dbgmsg: errStr }
+            })
+
+            body = snap.message
+            m.assertTrue(body.Instr("errorMsg: There was an error in the HTTP response") >= 0, "dialog dropped errorMsg")
+            m.assertTrue(body.Instr("errorCode: -1") >= 0, "dialog dropped errorCode")
+            m.assertTrue(body.Instr("errorStr: reader pick stream error") >= 0, "dialog dropped errorStr")
+            m.assertTrue(body.Instr("category: http") >= 0, "dialog dropped errorInfo.category")
+            m.assertTrue(body.Instr("source: buffer:reader") >= 0, "dialog dropped errorInfo.source")
+            m.assertTrue(body.Instr("clipid: 24") >= 0, "dialog dropped errorInfo.clipid")
+            m.assertTrue(body.Instr("ignored: false") >= 0, "dialog dropped errorInfo.ignored")
+            m.assertTrue(body.Instr("dbgmsg: reader pick stream error") >= 0, "dialog dropped errorInfo.dbgmsg")
+            m.assertTrue(snap.title.Instr("dQw4w9WgXcQ") >= 0, "dialog title dropped the videoId")
+        end function
+
+        @it("the reported playback error carries the serving backend and the live flag")
+        function _()
+            m.top.callFunc("TestPlaybackErrorDialog", {
+                videoId: "dQw4w9WgXcQ"
+                errorMsg: "no valid bitrates"
+                errorCode: -5
+                errorStr: "buffer:loop:demux:Errors seen on all bitrates:last_err:503"
+                errorInfo: { category: "mediaerror", source: "buffer:loop:demux", ignored: false }
+                backend: "built-in"
+            })
+
+            reported = m.global.telemetry.LogEvent
+            m.assertTrue(reported.message.Instr("backend: built-in") > 0, "got: " + reported.message)
+            m.assertTrue(reported.message.Instr("is_live: false") > 0, "got: " + reported.message)
+            m.assertTrue(reported.message.Instr("pot_attached: false") > 0, "got: " + reported.message)
+            m.assertArrayContains(reported.fingerprint, "built-in")
+        end function
+
+        @it("a playback error on a content node with no backend reports it as unknown")
+        function _()
+            m.top.callFunc("TestPlaybackErrorDialog", {
+                videoId: "dQw4w9WgXcQ"
+                errorMsg: "no valid bitrates"
+                errorCode: -5
+                errorStr: "buffer:loop:demux:Errors seen on all bitrates:last_err:403"
+                errorInfo: { category: "mediaerror", source: "buffer:loop:demux", ignored: false }
+            })
+
+            reported = m.global.telemetry.LogEvent
+            m.assertTrue(reported.message.Instr("backend: unknown") > 0, "got: " + reported.message)
+        end function
+
+        ' Up/Down reveal the chrome when it is hidden in idle (they otherwise do nothing).
+        @it("Up and Down each reveal the chrome when it is hidden in idle")
+        function _()
+            m.assertFalse(m.Snap().chromeShown) ' starts hidden after setup
+            m.top.callFunc("TestKey", RemoteKeys.Up, true)
+            m.assertTrue(m.Snap().chromeShown, "Up revealed the chrome")
+
+            ' back to fully hidden: the reveal only fires from Hidden, not mid fade-out.
+            m.top.callFunc("TestKey", RemoteKeys.Back, true)
+            m.top.callFunc("TestFinishChromeFadeOut")
+            m.assertFalse(m.Snap().chromeShown)
+            m.top.callFunc("TestKey", RemoteKeys.Down, true)
+            m.assertTrue(m.Snap().chromeShown, "Down revealed the chrome")
+        end function
+
+        ' =========================================================================================
+        ' Back ladder — a transport active > the chrome visible in any form > nothing left to dismiss.
+        ' =========================================================================================
+
+        ' Rung 1: a transport active -> Back cancels it and KEEPS WATCHING (never exits). VOD stays exactly
+        ' where the freeze put it: PAUSED (no resume intent — the settled cancel/commit asymmetry). Also
+        ' re-arms auto-hide: OnAutoHideFire no-ops without rearming itself (repeat=false) while a transport is
+        ' active, so a scrub that outlasted the 5s timer leaves it dead — TestKillAutoHide models that fired
+        ' state first, otherwise the "start" read here would pass even with the rearm deleted (a fired Timer
+        ' still READS control="start").
+        @it("Back while a VOD transport is active cancels it (rung 1): keeps watching, stays paused, chrome stays up, auto-hide is rearmed")
+        function _()
+            m.top.callFunc("TestKey", RemoteKeys.Left, true) ' transport-key reveal + freeze the scrub
+            m.top.callFunc("TestKey", RemoteKeys.Left, false)
+            mid = m.Snap()
+            m.assertEqual(mid.transportMode, TransportController.Mode.Scrub)
+            m.assertTrue(mid.chromeShown)
+            m.assertEqual(mid.control, VideoControl.Pause, "the scrub froze the device")
+            m.top.callFunc("TestKillAutoHide") ' the 5s auto-hide fired mid-scrub: timer dead
+
+            m.top.callFunc("TestKey", RemoteKeys.Back, true)
+            after = m.Snap()
+            m.assertEqual(after.transportMode, TransportController.Mode.Idle, "Back cancelled the transport")
+            m.assertFalse(m.top.videoQueue.closePlayer, "Back must NOT exit while a transport was active -- it only cancels")
+            m.assertEqual(after.control, VideoControl.Pause, "a VOD cancel emits NO intent: the device stays where the freeze put it (paused)")
+            m.assertTrue(after.chromeShown, "the HUD stays up; only the transport is cancelled")
+            m.assertEqual(after.autoHideControl, "start", "auto-hide is rearmed -- else the chrome would be stuck shown (the timer died mid-transport)")
+        end function
+
+        ' Rung 1 on LIVE: cancel also RESUMES at the frozen playhead, without a seek. Idle-paused live is a
+        ' dead end (OK only toggles the HUD on live, and the paused playhead drifts toward the DVR floor
+        ' until the device force-resumes it anyway), so the cancel emits the resume itself.
+        @it("Back while a live transport is active (rung 1): cancels AND resumes at the frozen playhead, no seek")
+        function _()
+            m.top.callFunc("TestSetLive", 43200000) ' 12h stream at the edge, 4h window
+            seekBefore = m.top.seek
+            m.top.callFunc("TestKey", RemoteKeys.Left, true) ' rewind: LiveDvr + freeze
+            m.top.callFunc("TestKey", RemoteKeys.Left, false)
+            mid = m.Snap()
+            m.assertEqual(mid.transportMode, TransportController.Mode.LiveDvr)
+            m.assertEqual(mid.control, VideoControl.Pause, "the live transport froze the device")
+
+            m.top.callFunc("TestKey", RemoteKeys.Back, true)
+            after = m.Snap()
+            m.assertEqual(after.transportMode, TransportController.Mode.Idle, "Back cancelled the transport")
+            m.assertFalse(m.top.videoQueue.closePlayer)
+            m.assertEqual(after.control, VideoControl.Resume, "a LIVE cancel resumes -- idle-paused live has no OK-resume and cannot hold anyway")
+            m.assertEqual(m.top.seek, seekBefore, "the resume carries NO seek: playback continues from the frozen playhead, still behind the edge")
+        end function
+
+        ' Rung 2: idle, chrome shown -> Back dismisses it with the SAME animated fade auto-hide uses
+        ' (HideChrome), not the instant HideChromeNow, and does not exit.
+        @it("Back while idle with the chrome up dismisses it via the animated fade (rung 2): does not exit")
+        function _()
+            m.top.callFunc("TestKey", RemoteKeys.Up, true) ' idle reveal, no transport
+            mid = m.Snap()
+            m.assertEqual(mid.transportMode, TransportController.Mode.Idle)
+            m.assertTrue(mid.chromeShown)
+
+            m.top.callFunc("TestKey", RemoteKeys.Back, true)
+            after = m.Snap()
+            m.assertFalse(m.top.videoQueue.closePlayer, "Back must NOT exit while the chrome was up -- it only dismisses the HUD")
+            m.assertTrue(after.chromeFadingOut, "Back used the animated HideChrome fade (matches auto-hide), not the instant HideChromeNow")
+        end function
+
+        ' Rung 3: idle, chrome mid fade-out (the user can still SEE it) -> Back is CONSUMED but does nothing:
+        ' the dismissal is already underway, so the fade just keeps running. Only once it completes (modeled
+        ' via TestFinishChromeFadeOut — test time can't wait out the 0.3s) does Back close.
+        @it("Back while the chrome is fading out no-ops (rung 3): the fade continues, no exit; Back closes only once fully hidden")
+        function _()
+            m.top.callFunc("TestKey", RemoteKeys.Up, true) ' reveal...
+            m.top.callFunc("TestKey", RemoteKeys.Back, true) ' ...dismiss: now fading out
+            m.assertTrue(m.Snap().chromeFadingOut)
+
+            m.top.callFunc("TestKey", RemoteKeys.Back, true)
+            after = m.Snap()
+            m.assertFalse(m.top.videoQueue.closePlayer, "a Back while the chrome is still visible must NOT exit")
+            m.assertTrue(after.chromeFadingOut, "the fade keeps running -- Back neither restarts, completes, nor cancels it")
+
+            ' the fade completes -> fully hidden -> NOW Back closes.
+            m.top.callFunc("TestFinishChromeFadeOut")
+            m.assertFalse(m.Snap().chromeFadingOut)
+            m.top.callFunc("TestKey", RemoteKeys.Back, true)
+            m.assertTrue(m.top.videoQueue.closePlayer, "once fully hidden, Back closes")
+        end function
+
+        ' Rung 4: idle, chrome fully hidden -> nothing left to dismiss -> close (today's original behavior).
+        @it("Back while idle with the chrome already hidden closes the player (rung 4, unchanged)")
+        function _()
+            m.assertFalse(m.Snap().chromeShown, "starts hidden after setup")
+            m.top.callFunc("TestKey", RemoteKeys.Back, true)
+            m.assertTrue(m.top.videoQueue.closePlayer, "nothing left to dismiss -> Back closes")
+        end function
+
+        ' The full ladder driven in one sequence: cancel transport -> dismiss chrome -> no-op while fading ->
+        ' close once hidden. Proves the rungs compose correctly across successive presses, not just in isolation.
+        @it("the full Back ladder in sequence: cancel transport -> dismiss chrome -> no-op while fading -> close once hidden")
+        function _()
+            ' step 1: transport active -> cancel, keep watching, chrome still up.
+            m.top.callFunc("TestKey", RemoteKeys.Left, true)
+            m.top.callFunc("TestKey", RemoteKeys.Left, false)
+            m.assertEqual(m.Snap().transportMode, TransportController.Mode.Scrub)
+            m.top.callFunc("TestKey", RemoteKeys.Back, true)
+            step1 = m.Snap()
+            m.assertEqual(step1.transportMode, TransportController.Mode.Idle)
+            m.assertFalse(m.top.videoQueue.closePlayer)
+            m.assertTrue(step1.chromeShown, "rung 1 leaves the chrome up")
+
+            ' step 2: idle, chrome still up from rung 1 -> Back dismisses it (animated).
+            m.top.callFunc("TestKey", RemoteKeys.Back, true)
+            step2 = m.Snap()
+            m.assertFalse(m.top.videoQueue.closePlayer)
+            m.assertTrue(step2.chromeFadingOut, "rung 2 dismisses via the animated fade")
+
+            ' step 3: still fading out (the user can see it) -> Back is consumed, the fade keeps running.
+            m.top.callFunc("TestKey", RemoteKeys.Back, true)
+            step3 = m.Snap()
+            m.assertFalse(m.top.videoQueue.closePlayer, "rung 3 never exits")
+            m.assertTrue(step3.chromeFadingOut, "rung 3 lets the fade finish on its own")
+
+            ' step 4: the fade completes -> chrome fully hidden -> nothing left to dismiss -> close.
+            m.top.callFunc("TestFinishChromeFadeOut")
+            m.top.callFunc("TestKey", RemoteKeys.Back, true)
+            m.assertTrue(m.top.videoQueue.closePlayer, "rung 4: Back closes")
+        end function
+
+        ' =========================================================================================
+        ' Key router — the branches that decide WHICH handler runs.
+        ' =========================================================================================
+
+        ' The segment shape SponsorBlockSegmentsJob returns.
+        function ManualSegment(startS as float, endS as float) as object
+            return [{ start: startS, end: endS, option: "manual_skip", title: "Sponsor", shortTitle: "Sponsor", actionText: "Press OK to skip", showNotification: true, UUID: "seg-manual", category: "sponsor" }]
+        end function
+
+        ' Minimize is the discriminator: activating it would have hidden the chrome.
+        @it("an armed SponsorBlock notice outranks the buttons tier: OK skips instead of activating the button")
+        function _()
+            m.top.duration = 100
+            m.top.callFunc("TestSeedSponsorBlock", m.ManualSegment(10.0, 40.0))
+            m.top.position = 12.0 ' the REAL OnPosition arms the manual notice
+            m.assertTrue(m.Snap().sponsorNoticeShown, "the notice is up")
+
+            m.top.callFunc("TestKey", RemoteKeys.Up, true) ' reveal -> bar tier
+            m.top.callFunc("TestKey", RemoteKeys.Up, true) ' bar -> buttons tier
+            m.top.callFunc("TestKey", RemoteKeys.Right, true) ' highlight minimize
+            m.assertEqual(m.Snap().focusedButton, 1)
+
+            m.top.callFunc("TestKey", RemoteKeys.Ok, true)
+            after = m.Snap()
+            m.assertEqual(Int(m.top.seek * 1000), 40000, "OK skipped to the segment end, not into the focused button")
+            m.assertFalse(after.sponsorNoticeShown, "the skip took the notice down")
+            m.assertTrue(after.chromeShown, "minimize never ran -- it would have hidden the chrome")
+        end function
+
+        @it("an armed SponsorBlock notice outranks the Back ladder: Back dismisses the notice, not the player")
+        function _()
+            m.top.duration = 100
+            m.top.callFunc("TestSeedSponsorBlock", m.ManualSegment(10.0, 40.0))
+            m.top.position = 12.0
+            m.assertTrue(m.Snap().sponsorNoticeShown)
+            m.assertFalse(m.Snap().chromeShown, "chrome hidden: an unrouted Back here would CLOSE the player")
+            seekBefore = m.top.seek
+
+            m.top.callFunc("TestKey", RemoteKeys.Back, true)
+            after = m.Snap()
+            m.assertFalse(after.sponsorNoticeShown, "Back took the notice down")
+            m.assertFalse(m.top.videoQueue.closePlayer, "Back acted on the notice, NOT on the player")
+            m.assertEqual(m.top.seek, seekBefore, "dismissing is not skipping")
+
+            ' one-shot: with the notice gone the next Back is the ordinary ladder again (rung 4 -> close).
+            m.top.callFunc("TestKey", RemoteKeys.Back, true)
+            m.assertTrue(m.top.videoQueue.closePlayer, "the notice consumed one Back, not every Back")
+        end function
+
+        @it("an armed notice on a segment at the video end finishes playback instead of seeking")
+        function _()
+            m.top.duration = 100
+            m.top.callFunc("TestSeedSponsorBlock", m.ManualSegment(90.0, 99.5)) ' ends within 2s of duration
+            m.top.position = 92.0
+            m.assertTrue(m.Snap().sponsorNoticeShown)
+            seekBefore = m.top.seek
+
+            m.top.callFunc("TestKey", RemoteKeys.Ok, true)
+            m.assertEqual(m.top.seek, seekBefore, "no seek was issued: the skip resolved to finish")
+            m.assertTrue(m.top.videoQueue.closePlayer, "no next video -> the finish closed the player")
+        end function
+
+        ' =========================================================================================
+        ' SponsorBlock skip — the device lands a seek on the sync frame BEFORE its target when it can't seek
+        ' accurately (measured 3.3-6.7s short); the position ticks then echo the target before the landing.
+        ' =========================================================================================
+
+        function AutoSegment(startS as float, endS as float) as object
+            return [{ start: startS, end: endS, option: "auto_skip", title: "Sponsor", shortTitle: "Sponsor", actionText: "Skipped", showNotification: false, UUID: "seg-auto", category: "sponsor" }]
+        end function
+
+        ' -1 = the coordinator wrote no seek since the spec armed the probe.
+        function ArmSeekProbe() as void
+            m.top.seek = -1
+        end function
+
+        function AssertSeekedTo(targetS as float, message as string) as void
+            m.assertTrue(Abs(m.top.seek - targetS) < 0.01, message + " (seek=" + m.top.seek.ToStr() + ")")
+        end function
+
+        @it("an auto-skip seeks once: the target echo and a landing short of it inside the segment don't re-seek")
+        function _()
+            m.top.duration = 300
+            m.top.callFunc("TestSeedSponsorBlock", m.AutoSegment(60.0, 75.3))
+            m.top.position = 60.0
+            m.AssertSeekedTo(75.3, "entering the segment skips to its end")
+
+            m.ArmSeekProbe()
+            for each positionS in [75.3, 72.0, 73.0, 74.0, 75.0, 76.0]
+                m.top.position = positionS
+            end for
+            m.assertEqual(m.top.seek, -1.0, "the skip loop: a landing inside the segment re-armed it")
+            m.assertEqual(m.top.sponsorViewedCount, 1)
+        end function
+
+        @it("a landing before a short segment's start doesn't re-seek when playback re-enters it")
+        function _()
+            m.top.duration = 300
+            m.top.callFunc("TestSeedSponsorBlock", m.AutoSegment(131.5, 137.7))
+            m.top.position = 132.0
+            m.AssertSeekedTo(137.7, "entering the segment skips to its end")
+
+            m.ArmSeekProbe()
+            for each positionS in [137.7, 131.0, 132.0, 133.0, 137.0, 138.0]
+                m.top.position = positionS
+            end for
+            m.assertEqual(m.top.seek, -1.0, "the skip loop: re-entering the segment from the landing re-armed it")
+        end function
+
+        @it("a user seek back into a skipped segment skips it again, and reports it once")
+        function _()
+            m.top.duration = 300
+            m.top.callFunc("TestSeedSponsorBlock", m.AutoSegment(60.0, 100.0))
+            m.top.position = 60.0
+            m.top.position = 100.0
+            m.top.position = 95.0
+
+            m.top.callFunc("TestKey", RemoteKeys.Replay, true) ' InstantReplay: 95s - 20s
+            m.AssertSeekedTo(75.0, "the replay seek")
+            m.top.position = 75.0
+            m.AssertSeekedTo(100.0, "the user's seek woke the segment: it skips again")
+            m.assertEqual(m.top.sponsorViewedCount, 1, "a segment is reported once per viewing")
+        end function
+
+        @it("a setSeek back into a skipped segment skips it again")
+        function _()
+            m.top.duration = 300
+            m.top.callFunc("TestSeedSponsorBlock", m.AutoSegment(60.0, 100.0))
+            m.top.position = 60.0
+            m.top.position = 100.0
+            m.top.position = 95.0
+
+            m.top.setSeek = 70.0
+            m.AssertSeekedTo(70.0, "the external seek")
+            m.top.position = 70.0
+            m.AssertSeekedTo(100.0, "the external seek woke the segment: it skips again")
+        end function
+
+        @it("an OK skip landing short inside the segment doesn't re-arm the notice")
+        function _()
+            m.top.duration = 100
+            m.top.callFunc("TestSeedSponsorBlock", m.ManualSegment(10.0, 40.0))
+            m.top.position = 12.0
+            m.top.callFunc("TestKey", RemoteKeys.Ok, true)
+            m.AssertSeekedTo(40.0, "OK skips to the segment end")
+
+            m.top.position = 40.0
+            m.top.position = 34.0
+            m.top.position = 35.0
+            m.assertFalse(m.Snap().sponsorNoticeShown, "the landing re-armed the notice")
+        end function
+
+        @it("the manual notice comes down once OK can no longer skip")
+        function _()
+            m.top.duration = 100
+            m.top.callFunc("TestSeedSponsorBlock", m.ManualSegment(10.0, 40.0))
+            m.top.position = 12.0
+            m.assertTrue(m.Snap().sponsorNoticeShown)
+            m.top.position = 38.5 ' within 2s of the end: a skip is no longer worth a rebuffer
+            m.assertFalse(m.Snap().sponsorNoticeShown)
+
+            seekBefore = m.top.seek
+            m.top.callFunc("TestKey", RemoteKeys.Ok, true)
+            m.assertEqual(m.top.seek, seekBefore, "OK no longer skips")
+        end function
+
+        @it("the non-transport keys act on the key-DOWN edge only")
+        function _()
+            ' Back goes first: only from the start state does its DOWN edge close the player.
+            m.assertFalse(m.top.callFunc("TestKey", RemoteKeys.Back, false), "the Back key-up is not consumed")
+            m.assertFalse(m.top.videoQueue.closePlayer, "the Back key-up must not close the player")
+
+            m.top.callFunc("TestKey", RemoteKeys.Ok, true) ' reveal
+            m.top.callFunc("TestKey", RemoteKeys.Ok, true) ' pause
+            m.top.callFunc("TestSetState", VideoState.Paused)
+            m.assertEqual(m.Snap().control, VideoControl.Pause)
+
+            m.assertFalse(m.top.callFunc("TestKey", RemoteKeys.Ok, false), "the OK key-up is not consumed")
+            m.assertFalse(m.top.callFunc("TestKey", RemoteKeys.Play, false), "the Play key-up is not consumed")
+            m.assertFalse(m.top.callFunc("TestKey", RemoteKeys.PlayOnly, false), "the PlayOnly key-up is not consumed")
+            m.assertFalse(m.top.callFunc("TestKey", RemoteKeys.Pause, false), "the Pause key-up is not consumed")
+            m.assertEqual(m.Snap().control, VideoControl.Pause, "no key-up toggled the pause back to playing")
+        end function
+
+        @it("Play commits an active transport, like OK")
+        function _()
+            m.top.callFunc("TestKey", RemoteKeys.Left, true)
+            m.top.callFunc("TestKey", RemoteKeys.Left, false)
+            m.assertEqual(m.Snap().transportMode, TransportController.Mode.Scrub)
+
+            m.top.callFunc("TestKey", RemoteKeys.Play, true)
+            after = m.Snap()
+            m.assertEqual(after.transportMode, TransportController.Mode.Idle, "Play committed the scrub")
+            m.assertTrue(after.seekSettling, "the commit emitted a play-through seek, not a play/pause toggle")
+        end function
+
+        @it("PlayOnly toggles play/pause, like Play")
+        function _()
+            m.top.callFunc("TestKey", RemoteKeys.PlayOnly, true)
+            m.assertEqual(m.Snap().control, VideoControl.Pause, "PlayOnly paused the playing video")
+            m.top.callFunc("TestSetState", VideoState.Paused)
+            m.top.callFunc("TestKey", RemoteKeys.PlayOnly, true)
+            m.assertEqual(m.Snap().control, VideoControl.Resume, "PlayOnly resumed the paused video")
+        end function
+
+        @it("the transport keys fall through the buttons tier to the transport")
+        function _()
+            m.top.callFunc("TestKey", RemoteKeys.Up, true) ' reveal -> bar tier
+            m.top.callFunc("TestKey", RemoteKeys.Up, true) ' bar -> buttons tier
+            m.assertEqual(m.Snap().focusTarget, PlayerCoordinatorLogic.FocusTarget.Buttons)
+
+            m.top.callFunc("TestKey", RemoteKeys.Rewind, true)
+            m.top.callFunc("TestKey", RemoteKeys.Rewind, false)
+            after = m.Snap()
+            m.assertEqual(after.transportMode, TransportController.Mode.Scan, "Rev started the scan from the buttons tier")
+            m.assertEqual(after.focusTarget, PlayerCoordinatorLogic.FocusTarget.Bar, "a transport key moves focus to the bar")
+            m.assertEqual(after.nudgeCount, 0, "the row did not treat it as one of its own keys")
+        end function
+
+        ' The point of the bar-default: Left/Right seek and OK pauses with no navigation at all, straight off a
+        ' fresh reveal. Pinned as its own test rather than left as a side effect of the tier round-trip tests.
+        @it("a fresh idle reveal defaults focus to the bar: Left/Right seek and OK pauses with no navigation")
+        function _()
+            m.top.callFunc("TestKey", RemoteKeys.Ok, true) ' reveal (VOD, playing, chrome hidden -> shown)
+            snap = m.Snap()
+            m.assertTrue(snap.chromeShown)
+            m.assertEqual(snap.focusTarget, PlayerCoordinatorLogic.FocusTarget.Bar, "the bar is focused immediately, no Down needed")
+
+            ' Left seeks right away — the buttons tier is not intercepting it.
+            m.top.callFunc("TestKey", RemoteKeys.Left, true)
+            m.assertEqual(m.Snap().transportMode, TransportController.Mode.Scrub, "Left scrubs immediately from the default bar focus")
+            m.top.callFunc("TestKey", RemoteKeys.Left, false)
+            m.top.callFunc("TestKey", RemoteKeys.Ok, true) ' commit -> idle (a commit also hides the chrome)
+            m.assertEqual(m.Snap().transportMode, TransportController.Mode.Idle)
+
+            ' OK pauses directly from the bar tier too — pausing was never gated on the Buttons tier. Re-reveal
+            ' first (the commit above hid the chrome), landing back on the bar by default, then OK pauses.
+            m.top.callFunc("TestKey", RemoteKeys.Ok, true) ' fresh reveal -> bar tier again
+            revealed = m.Snap()
+            m.assertTrue(revealed.chromeShown)
+            m.assertEqual(revealed.focusTarget, PlayerCoordinatorLogic.FocusTarget.Bar)
+            m.top.callFunc("TestKey", RemoteKeys.Ok, true) ' now pauses
+            m.assertEqual(m.Snap().control, VideoControl.Pause, "OK pauses directly from the bar tier")
+        end function
+
+        ' The "● LIVE" reveal hold: an idle live reveal flashes the badge briefly (forceLiveBadge) before the
+        ' label swaps to the time-behind-edge — but any live transport must show the TIME immediately (the user
+        ' seeks by it), so a transport-key reveal never starts the hold and a scrub mid-hold releases it.
+        @it("an idle live reveal holds ● LIVE until the hold timer fires")
+        function _()
+            m.top.callFunc("TestSetLive", 43200000) ' 12h stream at the edge
+            m.top.callFunc("TestKey", RemoteKeys.Ok, true) ' idle live reveal (chrome toggle, no pause)
+            snap = m.Snap()
+            m.assertTrue(snap.chromeShown)
+            m.assertTrue(snap.forceLiveBadge, "the reveal forces the badge for the hold window")
+            m.top.callFunc("TestFireLiveBadgeHold")
+            m.assertFalse(m.Snap().forceLiveBadge, "the hold releases -> the offset label may show")
+        end function
+
+        @it("a live scrub from HIDDEN reveals with the time immediately (no ● LIVE hold)")
+        function _()
+            m.top.callFunc("TestSetLive", 43200000)
+            m.top.callFunc("TestKey", RemoteKeys.Left, true) ' rewind from hidden -> transport-key reveal
+            m.top.callFunc("TestKey", RemoteKeys.Left, false)
+            snap = m.Snap()
+            m.assertEqual(snap.transportMode, TransportController.Mode.LiveDvr, "Left entered the live rewind")
+            m.assertTrue(snap.chromeShown)
+            m.assertFalse(snap.forceLiveBadge, "no hold on a transport reveal — the offset must be readable at once")
+        end function
+
+        @it("a live SCAN from hidden (Rev) shows the time immediately — atLiveEdge alone must not keep the badge")
+        function _()
+            ' a scan's cursor hasn't moved on the press (it moves on the first timer tick), so atLiveEdge is
+            ' still true at entry — the bar must suppress the badge for the active transport, not wait a tick.
+            m.top.callFunc("TestSetLive", 43200000)
+            m.top.callFunc("TestKey", RemoteKeys.Rewind, true)
+            m.top.callFunc("TestKey", RemoteKeys.Rewind, false)
+            snap = m.Snap()
+            m.assertEqual(snap.transportMode, TransportController.Mode.LiveDvr, "Rev entered the live scan")
+            m.assertTrue(snap.chromeShown)
+            m.assertFalse(snap.liveBadgeShown, "the ● LIVE badge is gone on the very first press")
+            m.assertEqual(snap.barRemainingText, "0:00", "the offset is readable immediately (counts up from 0:00)")
+        end function
+
+        @it("a live scrub started DURING the reveal hold releases the badge immediately")
+        function _()
+            m.top.callFunc("TestSetLive", 43200000)
+            m.top.callFunc("TestKey", RemoteKeys.Ok, true) ' reveal -> hold running, bar tier by default
+            m.assertTrue(m.Snap().forceLiveBadge)
+            m.top.callFunc("TestKey", RemoteKeys.Left, true) ' scrub back while the hold is still running
+            m.top.callFunc("TestKey", RemoteKeys.Left, false)
+            snap = m.Snap()
+            m.assertEqual(snap.transportMode, TransportController.Mode.LiveDvr)
+            m.assertFalse(snap.forceLiveBadge, "the transport releases the hold — time shows, not ● LIVE")
+        end function
+
+        ' The button tier remembers its highlighted button across a buttons->bar->buttons round-trip; only a
+        ' fresh reveal (the row was hidden) resets the highlight to play/pause. A fresh reveal lands on the bar
+        ' tier by default, so reaching the buttons takes an explicit Up first.
+        @it("the button tier keeps its focused button across a bar round-trip; a fresh reveal resets it")
+        function _()
+            m.top.callFunc("TestKey", RemoteKeys.Up, true) ' reveal -> bar tier (default)
+            m.top.callFunc("TestKey", RemoteKeys.Up, true) ' bar -> buttons tier, play/pause focused
+            snap = m.Snap()
+            m.assertTrue(snap.chromeShown)
+            m.assertEqual(snap.focusedButton, 0)
+            ' highlight minimize, drop to the bar, come back up: still minimize.
+            m.top.callFunc("TestKey", RemoteKeys.Right, true)
+            m.assertEqual(m.Snap().focusedButton, 1)
+            m.top.callFunc("TestKey", RemoteKeys.Down, true)
+            m.top.callFunc("TestKey", RemoteKeys.Up, true)
+            m.assertEqual(m.Snap().focusedButton, 1, "the highlight survives the round-trip")
+            ' hide the chrome (scrub from the bar tier, then commit) -> the NEXT reveal starts at play/pause.
+            m.top.callFunc("TestKey", RemoteKeys.Down, true)
+            m.top.callFunc("TestKey", RemoteKeys.Left, true)
+            m.top.callFunc("TestKey", RemoteKeys.Left, false)
+            m.top.callFunc("TestKey", RemoteKeys.Ok, true) ' commit -> chrome hides
+            m.assertFalse(m.Snap().chromeShown)
+            m.top.callFunc("TestKey", RemoteKeys.Up, true) ' fresh reveal -> bar tier
+            m.top.callFunc("TestKey", RemoteKeys.Up, true) ' bar -> buttons tier
+            m.assertEqual(m.Snap().focusedButton, 0, "a fresh reveal resets the highlight")
+        end function
+
+        ' Up at the top tier (the buttons) has nowhere to go; the press must still visibly land — it pulses
+        ' (nudges) the focused button instead of being swallowed.
+        @it("Up at the buttons tier nudges the focused button instead of moving focus")
+        function _()
+            m.top.callFunc("TestKey", RemoteKeys.Up, true) ' reveal -> bar tier (default)
+            m.top.callFunc("TestKey", RemoteKeys.Up, true) ' bar -> buttons tier
+            before = m.Snap()
+            m.assertEqual(before.focusTarget, PlayerCoordinatorLogic.FocusTarget.Buttons)
+            m.assertEqual(before.nudgeCount, 0, "moving focus does not nudge")
+            m.top.callFunc("TestKey", RemoteKeys.Up, true) ' nowhere to go up
+            after = m.Snap()
+            m.assertEqual(after.nudgeCount, 1, "the no-op Up pulsed the focused button")
+            m.assertEqual(after.focusTarget, PlayerCoordinatorLogic.FocusTarget.Buttons, "focus stays on the buttons")
+            m.assertEqual(after.focusedButton, before.focusedButton, "the highlight is untouched")
+        end function
+
+        ' A press that GOES somewhere must not nudge: Left/Right inside the row, Up/Down between the tiers.
+        @it("a press that moves focus does not nudge")
+        function _()
+            m.top.callFunc("TestKey", RemoteKeys.Up, true) ' reveal -> bar tier (default)
+            m.top.callFunc("TestKey", RemoteKeys.Up, true) ' bar -> buttons tier, play/pause
+            m.top.callFunc("TestKey", RemoteKeys.Right, true) ' play/pause -> minimize
+            m.top.callFunc("TestKey", RemoteKeys.Down, true) ' buttons -> bar
+            m.top.callFunc("TestKey", RemoteKeys.Up, true) ' bar -> buttons
+            m.top.callFunc("TestKey", RemoteKeys.Left, true) ' minimize -> play/pause
+            m.assertEqual(m.Snap().nudgeCount, 0, "every press moved focus; none may pulse")
+        end function
+
+        ' Left/Right clamped at the row's ends pulse the focused button (the original nudge path, at the seam).
+        @it("Left/Right clamped at the row ends nudge the focused button")
+        function _()
+            m.top.callFunc("TestKey", RemoteKeys.Up, true) ' reveal -> bar tier (default)
+            m.top.callFunc("TestKey", RemoteKeys.Up, true) ' bar -> buttons tier, play/pause (leftmost)
+            m.top.callFunc("TestKey", RemoteKeys.Left, true) ' clamped at the left end
+            m.assertEqual(m.Snap().nudgeCount, 1)
+            m.top.callFunc("TestKey", RemoteKeys.Right, true) ' -> minimize (rightmost)
+            m.top.callFunc("TestKey", RemoteKeys.Right, true) ' clamped at the right end
+            snap = m.Snap()
+            m.assertEqual(snap.nudgeCount, 2)
+            m.assertEqual(snap.focusedButton, 1, "the clamp held the highlight at the end")
+        end function
+
+        ' Down at the bar tier (the bottom, and the default on reveal) is a no-op: consumed, no nudge.
+        @it("Down at the bar tier is consumed without a nudge")
+        function _()
+            m.top.callFunc("TestKey", RemoteKeys.Up, true) ' reveal -> bar tier (default)
+            m.top.callFunc("TestKey", RemoteKeys.Down, true) ' nowhere to go down
+            snap = m.Snap()
+            m.assertEqual(snap.focusTarget, PlayerCoordinatorLogic.FocusTarget.Bar, "focus stays on the bar")
+            m.assertEqual(snap.nudgeCount, 0)
+        end function
+
+        ' A keep-playing seek issued while PAUSED must preserve the pause: the device auto-resumes on any seek
+        ' (autoplayAfterSeek only governs rebuffer-resume per the Video docs), so the coordinator re-pauses on
+        ' the playing edge the auto-resume produces.
+        @it("a keep-playing seek issued while paused re-pauses when the device auto-resumes")
+        function _()
+            ' pause from idle.
+            m.top.callFunc("TestKey", RemoteKeys.Play, true)
+            m.top.callFunc("TestSetState", VideoState.Paused)
+            m.assertEqual(m.Snap().control, VideoControl.Pause)
+            ' InstantReplay from paused idle = a keep-playing seek (no control, just a seek).
+            m.top.callFunc("TestKey", RemoteKeys.Replay, true)
+            ' scrub the control to a neutral value so the assertion below can only pass via the re-pause.
+            m.top.callFunc("TestSetControl", VideoControl.None)
+            ' the seek lands and the device auto-resumes...
+            m.top.callFunc("TestSetState", VideoState.Playing)
+            ' ...and the coordinator restores the pause.
+            m.assertEqual(m.Snap().control, VideoControl.Pause, "the paused state survives the keep-playing seek")
+        end function
+
+        ' Committing a scrub at the very end finishes playback (PlayNext/close) instead of seeking into the
+        ' last instants and fighting the device's EOF auto-resume (the residual re-pause loop).
+        @it("a commit at the end of content finishes playback instead of seeking")
+        function _()
+            m.top.duration = 100
+            m.top.position = 95
+            ' two Right presses: snap 95s -> 94s grid, then 96s -> 98s = duration - epsilon -> at the end.
+            m.top.callFunc("TestKey", RemoteKeys.Right, true)
+            m.top.callFunc("TestKey", RemoteKeys.Right, false)
+            m.top.callFunc("TestKey", RemoteKeys.Right, true)
+            m.top.callFunc("TestKey", RemoteKeys.Right, false)
+            m.assertEqual(m.Snap().transportMode, TransportController.Mode.Scrub)
+            m.top.callFunc("TestKey", RemoteKeys.Ok, true) ' commit at the end -> finish
+            after = m.Snap()
+            m.assertEqual(after.transportMode, TransportController.Mode.Idle)
+            m.assertTrue(m.top.videoQueue.closePlayer, "no next video -> the finish closed the player")
+        end function
+
+        ' Play always means play/pause: it must NOT activate whatever button happens to be highlighted.
+        @it("Play toggles play/pause even while a non-play button is highlighted")
+        function _()
+            m.top.callFunc("TestKey", RemoteKeys.Up, true) ' reveal -> bar tier (default)
+            m.top.callFunc("TestKey", RemoteKeys.Up, true) ' bar -> buttons tier
+            m.top.callFunc("TestKey", RemoteKeys.Right, true) ' highlight minimize
+            m.assertEqual(m.Snap().focusedButton, 1)
+            m.top.callFunc("TestKey", RemoteKeys.Play, true) ' must pause, not minimize
+            snap = m.Snap()
+            m.assertEqual(snap.control, VideoControl.Pause, "Play paused the (playing) video")
+            m.assertEqual(snap.focusedButton, 1, "the highlight is untouched")
+        end function
+
+        ' Each arm is asserted: a state that silently failed to arm makes every row that follows vacuous.
+        function ArmRouterState(state as string) as void
+            m.top.callFunc("TestSetup")
+            m.top.callFunc("TestSetState", VideoState.Playing) ' opens the brain's ready-gate, as beforeEach does
+            if state = "idle hidden"
+                m.assertFalse(m.Snap().chromeShown, "armed: " + state)
+            else if state = "chrome/bar"
+                m.top.callFunc("TestKey", RemoteKeys.Up, true)
+                snap = m.Snap()
+                m.assertTrue(snap.chromeShown, "armed: " + state)
+                m.assertEqual(snap.focusTarget, PlayerCoordinatorLogic.FocusTarget.Bar, "armed: " + state)
+            else if state = "chrome/buttons"
+                m.top.callFunc("TestKey", RemoteKeys.Up, true)
+                m.top.callFunc("TestKey", RemoteKeys.Up, true)
+                snap = m.Snap()
+                m.assertTrue(snap.chromeShown, "armed: " + state)
+                m.assertEqual(snap.focusTarget, PlayerCoordinatorLogic.FocusTarget.Buttons, "armed: " + state)
+            else if state = "transport"
+                m.top.callFunc("TestKey", RemoteKeys.Left, true)
+                m.top.callFunc("TestKey", RemoteKeys.Left, false)
+                m.assertEqual(m.Snap().transportMode, TransportController.Mode.Scrub, "armed: " + state)
+            end if
+        end function
+
+        ' BrighterScript enums are compile-time constants with no runtime form, so a new RemoteKeys member
+        ' cannot fail this until someone lists it below — these lists are the decision record, not reflection.
+        @it("every remote key's disposition is pinned in every router state")
+        function _()
+            ownedEverywhere = [RemoteKeys.Left, RemoteKeys.Right, RemoteKeys.Rewind, RemoteKeys.FastForward, RemoteKeys.Replay, RemoteKeys.Ok, RemoteKeys.Back, RemoteKeys.Play, RemoteKeys.PlayOnly]
+            ' AppController's, not the player's.
+            passedEverywhere = [RemoteKeys.Options, RemoteKeys.Pause, RemoteKeys.OkLongPress, RemoteKeys.OptionsLongPress]
+            ' the tier keys are owned only while there is a tier to move through or a chrome to reveal.
+            tierKeys = [RemoteKeys.Up, RemoteKeys.Down]
+
+            for each state in ["idle hidden", "chrome/bar", "chrome/buttons", "transport"]
+                for each key in ownedEverywhere
+                    m.ArmRouterState(state)
+                    m.assertTrue(m.top.callFunc("TestKey", key, true), "'" + key + "' must be consumed in state " + state)
+                end for
+                for each key in passedEverywhere
+                    m.ArmRouterState(state)
+                    m.assertFalse(m.top.callFunc("TestKey", key, true), "'" + key + "' must pass to the parent in state " + state)
+                end for
+                for each key in tierKeys
+                    m.ArmRouterState(state)
+                    consumed = m.top.callFunc("TestKey", key, true)
+                    if state = "transport"
+                        m.assertFalse(consumed, "'" + key + "' has nothing to do under a transport -- it passes to the parent")
+                    else
+                        m.assertTrue(consumed, "'" + key + "' moves focus or reveals the chrome in state " + state)
+                    end if
+                end for
+            end for
+        end function
+
+        ' The coordinator twin of the brain's unmodeled-axis meta-test: every m.* field on the coordinator must
+        ' be consciously classified here. A NEW coordinator field fails this until someone decides what it is —
+        ' a state axis needs transition coverage, a flag needs its consuming path tested.
+        @it("every coordinator m.* field is consciously classified (no unmodeled coordinator axis)")
+        function _()
+            classified = {}
+            ' bound deps (AutoBind interface aliases) + the test stub's own copies.
+            for each name in ["container", "jobQueue", "preferences", "invidious", "videoQueue", "loungeService", "notifications", "appController", "webServer", "innertube"]
+                classified[name] = "dep"
+            end for
+            ' controllers (plain .bs class instances).
+            for each name in ["transport", "sponsorblock", "playbackTelemetry"]
+                classified[name] = "controller"
+            end for
+            ' cached child nodes / timers / animations / reusable helpers (structure, not state).
+            for each name in ["chrome", "titleLabel", "secondaryTitleLabel", "clock", "bifDisplay", "trickPlayBar", "spinner", "largePause", "buttonRow", "fullScreenHint", "autoHide", "transportTimer", "liveBadgeHold", "liveEdgeClock", "fullScreenHintTimer", "chromeFadeIn", "chromeFadeOut", "minimize", "nowDateTime"]
+                classified[name] = "node"
+            end for
+            ' in-flight job handles.
+            for each name in ["videoContentJob", "sponsorBlockSegmentsJob", "markVideoWatchedJob"]
+                classified[name] = "job"
+            end for
+            ' STATE AXES — discrete coordinator state; each needs its transitions covered by a seam test.
+            for each name in ["chromeMode", "focusTarget", "focusedButton", "armedTimerId"]
+                classified[name] = "axis"
+            end for
+            ' flags / scratch — one-shot latches and counters with a single consuming path.
+            for each name in ["onCloseCalled", "ignoreNextFinished", "videoPlayedSuccessfully", "firstFrameSeen", "showFullScreenHint", "repauseAfterSeek", "loadingSetSeekMs", "watchTimeMarker", "reportWatchTime", "errorDialogNode", "lastCommitSeq", "lastFinishSeq", "liveAstSeconds", "liveFallbackEdgeMs", "liveFallbackAtSeconds", "liveBadgeHoldActive"]
+                classified[name] = "flag"
+            end for
+            ' NOT coordinator state — node-scope + test-environment entries, pinned EXPLICITLY (no hidden
+            ' filtering) so an unexpected newcomer (a Rooibos upgrade, a new library memo) fails this test and
+            ' demands a conscious classification. Presence is optional: these depend on the environment and on
+            ' which tests ran before this one (e.g. DialogUtils' memo appears only after the error-dialog test).
+            for each name in ["top", "global", "testrunner", "testsuite", "scene", "_devicedisplaywidth", "__globalstubs", "__promises__deviceinfo"]
+                classified[name] = "infra"
+            end for
+
+            keys = m.top.callFunc("TestCoordinatorFields")
+            m.assertTrue(keys.Count() >= 30, "reflection found only " + keys.Count().ToStr() + " fields — the walk may be vacuous")
+            unknown = []
+            for each key in keys
+                if not classified.DoesExist(key)
+                    unknown.Push(key)
+                end if
+            end for
+            m.assertTrue(unknown.Count() = 0, "UNMODELED coordinator field(s) " + FormatJson(unknown) + " — classify them in this meta-test (axis fields need transition coverage)")
+            ' reverse: no classified COORDINATOR field has rotted away (infra entries are optional-presence).
+            seen = {}
+            for each key in keys
+                seen[key] = true
+            end for
+            for each name in classified
+                if classified[name] <> "infra"
+                    m.assertTrue(seen.DoesExist(name), "stale classified field '" + name + "' is no longer on the coordinator")
+                end if
+            end for
+        end function
+
+        ' PiP captions (regression: subtitles stopped after shrink->grow). With enableUI=false the OS leaves
+        ' captions blank after a PiP restore; minimize must suppress and restore must release — the
+        ' suppress->release refresh re-engages OS caption rendering.
+        @it("PiP minimize suppresses captions; restore releases them")
+        function _()
+            container = m.top.container
+            m.assertFalse(m.Snap().suppressCaptions, "captions shown while fullscreen")
+            container.fullscreen = false
+            m.assertTrue(m.Snap().suppressCaptions, "captions suppressed while minimized")
+            container.fullscreen = true
+            m.assertFalse(m.Snap().suppressCaptions, "captions released on restore")
+        end function
+
+        ' The PiP-toggle-after-close crash (captured on device): OnClose drops m.sponsorblock, so a leaked
+        ' container observer makes the next fullscreen flip crash OnFullScreenChange (&hf3 on SetVisible). The
+        ' fix is unobserve-on-close + the onCloseCalled guard; a regression CRASHES this test. Kept LAST in the
+        ' suite: OnClose detaches the node from its parent.
+        @it("a closed player ignores container fullscreen flips (the PiP-toggle-after-close crash)")
+        function _()
+            container = m.top.container
+            ' sanity: pre-close the observer is live — a minimize hides all player UI.
+            m.top.callFunc("TestKey", RemoteKeys.Up, true) ' reveal the chrome
+            m.assertTrue(m.Snap().chromeShown)
+            container.fullscreen = false
+            m.assertFalse(m.Snap().chromeShown, "minimize hides the chrome now")
+            container.fullscreen = true
+            ' close the player (what the queue does when replacing the video), then throw every signal a dead
+            ' player might still receive at it: fullscreen flips (the * key), device edges from the async stop,
+            ' a stray control/seek/setSeek write, late thumbnails and buffering/start info, a second close. OnClose unobserves them all.
+            m.top.close = true
+            container.fullscreen = false
+            container.fullscreen = true
+            m.top.callFunc("TestSetState", VideoState.Buffering)
+            m.top.callFunc("TestSetState", VideoState.Playing)
+            m.top.callFunc("TestSetState", VideoState.Stopped)
+            m.top.callFunc("TestSetControl", VideoControl.Resume)
+            m.top.position = 12.0
+            m.top.duration = 99.0
+            m.top.seek = 5.0
+            m.top.setSeek = 7.0
+            m.assertEqual(m.top.seek, 5.0, "the closed player ignored the setSeek")
+            m.top.thumbnailTiles = { x: [{ htiles: 1 }] }
+            m.top.bufferingStatus = { isUnderrun: true, percentage: 0, prebufferDone: false, actualStart: 0 }
+            m.top.playStartInfo = { start_type: "cseek", total_dur: 0.1 }
+            m.top.close = true
+            m.assertTrue(true, "no crash: the closed player ignored all post-close traffic")
+        end function
+
+        ' Crash #1 (store: the dominant OnPosition crash, &hf3 ERR_RO3 "interface not a member"): a finish
+        ' triggered from WITHIN a position tick re-enters teardown synchronously — EnforceTransportFreeze ->
+        ' FinishEof -> OnPlaybackFinished -> ClosePlayer -> the queue sets player.close -> OnClose drops
+        ' m.sponsorblock — then OnPosition continues to `m.sponsorblock.OnPosition()` and derefs the dropped
+        ' controller. (`m.sponsorblock` is a field, so the invalid deref is &hf3, not &hec.) The OLD code crashes
+        ' here; the onCloseCalled re-check after EnforceTransportFreeze bails. Kept at the END with the other
+        ' closing test: OnClose detaches the node.
+        @it("a finish during a position tick must not deref the dropped sponsorblock (the OnPosition ERR_RO3 crash)")
+        function _()
+            m.top.callFunc("TestWireQueueClose") ' the stub queue now closes the player on closePlayer, as the real one does
+            m.top.duration = 100
+            m.top.position = 90
+            ' scrub the cursor to the end (atEof) while the actual position is NOT yet at the end.
+            for i = 0 to 8
+                m.top.callFunc("TestKey", RemoteKeys.Right, true)
+                m.top.callFunc("TestKey", RemoteKeys.Right, false)
+            end for
+            m.assertEqual(m.Snap().transportMode, TransportController.Mode.Scrub)
+            ' the device is PLAYING under the active transport (the INV-D1 anomaly EnforceTransportFreeze guards).
+            ' Position is not yet at EOF, so this is a normal re-freeze — NOT a finish.
+            m.top.callFunc("TestSetState", VideoState.Playing)
+            m.assertFalse(m.Snap().onCloseCalled, "not finished yet — the position is not at EOF")
+            ' NOW a position tick lands at the end -> OnPosition -> EnforceTransportFreeze -> FinishEof ->
+            ' OnPlaybackFinished -> ClosePlayer -> (re-entrant) OnClose drops m.sponsorblock -> OnPosition then
+            ' derefs the dropped controller. The old code faults here (&hf3); the fix bails first.
+            m.top.position = 99
+            ' reaching here means OnPosition survived the re-entrant teardown.
+            m.assertTrue(m.Snap().onCloseCalled, "the finish closed the player from within the position tick")
+        end function
+
+    end class
+
+end namespace

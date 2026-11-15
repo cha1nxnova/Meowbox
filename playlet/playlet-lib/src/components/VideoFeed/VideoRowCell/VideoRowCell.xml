@@ -1,0 +1,67 @@
+<component name="VideoRowCell" extends="Group">
+    <interface>
+        <field id="itemContent" type="node" onChange="OnContentSet" />
+        <field id="type" type="string" value="video" />
+        <field id="title" type="string" alias="titleLabel.text" />
+        <field id="author" type="string" alias="authorLabel.text" />
+        <field id="viewCountDate" type="string" alias="viewCountDateLabel.text" />
+        <field id="durationRectVisible" type="boolean" alias="durationRect.visible" />
+        <field id="duration" type="string" alias="durationLabel.text" />
+        <field id="thumbnailUri" type="string" alias="thumbnail.uri" />
+        <field id="percentDurationWatched" type="float" onChange="OnPercentDurationWatched" />
+    </interface>
+    <children>
+        <Font id="smallestSystemFont" uri="font:SystemFontFile" size="18" />
+        <Font id="smallestBoldSystemFont" uri="font:MediumSystemFontFile" size="18" />
+
+        <LayoutGroup
+            itemSpacings="[24,5,5]">
+            <Poster
+                id="thumbnail"
+                loadDisplayMode="scaleToZoom"
+                width="350"
+                height="196"
+                failedBitmapUri="pkg:/images/thumbnail-missing.jpg">
+                <Rectangle
+                    id="durationRect"
+                    width="60"
+                    height="26"
+                    color="0x000000"
+                    opacity="0.8"
+                    translation="[290, 162]">
+                    <Label
+                        height="26"
+                        id="durationLabel"
+                        horizAlign="center"
+                        vertAlign="center"
+                        font="font:SmallestSystemFont"
+                        translation="[8, 0]" />
+                </Rectangle>
+                <Rectangle
+                    id="progressRect"
+                    width="350"
+                    height="5"
+                    color="#FF0000"
+                    translation="[0, 192]"
+                    scale="[0, 1]">
+                </Rectangle>
+            </Poster>
+            <Label
+                id="titleLabel"
+                width="350"
+                font="font:SmallestBoldSystemFont"
+                maxLines="2"
+                wrap="true" />
+            <Label
+                id="authorLabel"
+                width="350"
+                height="25"
+                font="font:SmallestSystemFont" />
+            <Label
+                id="viewCountDateLabel"
+                width="350"
+                height="25"
+                font="font:SmallestSystemFont" />
+        </LayoutGroup>
+    </children>
+</component>

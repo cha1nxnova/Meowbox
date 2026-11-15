@@ -1,0 +1,55 @@
+import "pkg:/source/utils/StringUtils.bs"
+import "pkg:/source/utils/Types.bs"
+
+namespace Http
+
+    class Utils
+        function MimeType(uri = "" as string) as string
+            map = m.MimeTypes
+            if map = invalid
+                json = ReadAsciiFile("libpkg:/config/mime-types.json5")
+                if StringUtils.IsNullOrEmpty(json)
+                    return "application/octet-stream"
+                end if
+                map = StringUtils.ParseJsonSafe(json)
+                if not IsAssociativeArray(map)
+                    return "application/octet-stream"
+                end if
+                m.MimeTypes = map
+            end if
+            ext = m.GetExtension(uri)
+            if map.doesexist(ext)
+                return map[ext]
+            else
+                return map.default
+            end if
+        end function
+
+        function GetExtension(filename as string) as string
+            parts = filename.tokenize(".")
+            if parts.count() > 0
+                return parts.GetTail()
+            else
+                return ""
+            end if
+        end function
+
+        function HttpTitle(code = 0 as integer) as string
+            map = m.httpCodesMap
+            if map = invalid
+                json = ReadAsciiFile("libpkg:/config/http-codes.json5")
+                if StringUtils.IsNullOrEmpty(json)
+                    return ""
+                end if
+                map = StringUtils.ParseJsonSafe(json)
+                if not IsAssociativeArray(map)
+                    return ""
+                end if
+                m.httpCodesMap = map
+            end if
+            return ValidString(map[`${code}`])
+        end function
+
+    end class
+
+end namespace

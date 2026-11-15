@@ -1,0 +1,94 @@
+import "pkg:/components/Dialog/DialogUtils.bs"
+import "pkg:/components/Web/WebServer/Http/HttpRouter.bs"
+import "pkg:/source/utils/RegistryUtils.bs"
+
+const REGISTRY_EXPORT_VERSION = 1
+
+namespace Http
+
+    class RegistryRouter extends HttpRouter
+
+        function new()
+            super()
+        end function
+
+        @post("/api/registry/export/code")
+        function ShowExportRegistryCode(context as object) as boolean
+            response = context.response
+
+            ' TODO:P2 localization
+            dialog = DialogUtils.ShowOnScreenCodeDialog(DialogUtils.OnScreenCodePurpose.ExportRegistry, "Export registry")
+            if dialog = invalid
+                response.Default(429, "Too Many Requests")
+                return true
+            end if
+
+            response.Default(204, "OK")
+            return true
+        end function
+
+        @post("/api/registry/export")
+        function ExportRegistry(context as object) as boolean
+            request = context.request
+            response = context.response
+
+            if not DialogUtils.ConsumeOnScreenCode(DialogUtils.OnScreenCodePurpose.ExportRegistry, request.query.code)
+                response.Default(400, "Invalid code")
+                return true
+            end if
+
+            registryValues = RegistryUtils.ReadAll()
+            registryValues["__version"] = REGISTRY_EXPORT_VERSION
+
+            response.Json(registryValues)
+            response.headers["Content-Disposition"] = "attachment; filename=playlet-registry.json"
+            return true
+        end function
+
+        #if DEBUG
+            @get("/debug/registry")
+            function GetRegistryDebug(context as object) as boolean
+                response = context.response
+
+                registryValues = RegistryUtils.ReadAll()
+                registryValues["__version"] = REGISTRY_EXPORT_VERSION
+
+                response.Json(registryValues)
+                return true
+            end function
+
+            @post("/debug/registry")
+            function SetRegistryDebug(context as object) as boolean
+                request = context.request
+                response = context.response
+
+                payload = request.BodyJson()
+                if payload = invalid
+                    response.Default(400, "Invalid JSON")
+                    return true
+                end if
+
+                if not payload.DoesExist("__version") or payload["__version"] <> REGISTRY_EXPORT_VERSION
+                    response.Default(400, "Invalid version")
+                    return true
+                end if
+                payload.Delete("__version")
+
+                RegistryUtils.WriteAll(payload)
+                response.Default(204, "OK")
+                return true
+            end function
+
+            @delete("/debug/registry")
+            function ClearRegistryDebug(context as object) as boolean
+                response = context.response
+
+                RegistryUtils.DeleteAll()
+                response.Default(204, "OK")
+                return true
+            end function
+        #end if
+
+    end class
+
+end namespace

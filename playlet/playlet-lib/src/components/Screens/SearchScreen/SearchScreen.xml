@@ -1,0 +1,59 @@
+<component name="SearchScreen" extends="Group" includes="AutoBind,Focus">
+    <interface>
+        <field id="navBar" type="node" bind="/NavBar" />
+        <field id="invidious" type="node" bind="/Invidious" />
+        <field id="appController" type="node" bind="/AppController" />
+        <field id="preferences" type="node" bind="/Preferences" />
+        <field id="jobQueue" type="node" bind="/JobQueue" />
+        <field id="filters" type="assocarray" />
+        <field id="searchSuggestions" type="assocarray" onChange="OnSearchSuggestions" />
+    </interface>
+    <children>
+        <Group id="container">
+            <ButtonEx
+                id="filtersButton"
+                translation="[155,64]"
+                iconUri="pkg:/images/icons/filters.png"
+                anchor="[0,0.5]"
+                padding="[30,30]"
+                text="Filters" />
+
+            <SearchKeyboard
+                id="keyboard"
+                translation="[630,102]" />
+
+            <ButtonGroup
+                id="suggestions"
+                focusable="false"
+                minWidth="400"
+                maxWidth="480"
+                buttonHeight="50"
+                translation="[125,100]" />
+            <VideoRowList
+                itemComponentName="RowCell"
+                id="rowList"
+                focusable="false"
+                translation="[0,620]"
+                numRows="1"
+                rowitemSize="[[350,196]]"
+                rowItemSpacing="[[25,0]]"
+                itemSize="[1280,326]"
+                itemSpacing="[0,65]"
+                rowLabelOffset="[[90,20]]"
+                focusXOffset="[90]"
+                showRowLabel="[true]"
+                rowFocusAnimationStyle="floatingfocus"
+                variableWidthItems="true"
+                focusBitmapUri="pkg:/images/focus-glow-padding-30.$$RES$$.9.png" />
+            <Animation
+                id="scrollAnimation"
+                duration="0.3">
+                <Vector2DFieldInterpolator
+                    id="scrollAnimationInterpolator"
+                    key="[ 0.0, 0.5, 1.0 ]"
+                    keyValue="[ [0.0,0.0], [0.0,-160.0], [0.0,-320.0]]"
+                    fieldToInterp="container.translation" />
+            </Animation>
+        </Group>
+    </children>
+</component>

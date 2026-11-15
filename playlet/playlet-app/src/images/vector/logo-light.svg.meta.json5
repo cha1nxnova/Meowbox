@@ -1,0 +1,26 @@
+{
+  inputHash: 'a53fa87bb5266adf84b58a347e807a9f',
+  outputs: [
+    {
+      outputFilePath: 'images/channel-poster_fhd.png',
+      outputHash: '19feebe8de4e6598f5efa85aef59cd27',
+      width: 540,
+      height: 405,
+      background: '#EBEBEB',
+    },
+    {
+      outputFilePath: 'images/channel-poster_hd.png',
+      outputHash: '3d3794a0a0455c48470b892818fd9c77',
+      width: 290,
+      height: 218,
+      background: '#EBEBEB',
+    },
+    {
+      outputFilePath: 'images/channel-poster_sd.png',
+      outputHash: '96dd31a31b53c2eb8df31cc6554f00c4',
+      width: 246,
+      height: 140,
+      background: '#EBEBEB',
+    },
+  ],
+}

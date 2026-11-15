@@ -1,0 +1,45 @@
+<component name="InvidiousInstanceTesting" extends="Group" includes="AutoBind,Focus">
+    <interface>
+        <field id="instance" type="string" />
+        <field id="run" type="boolean" alwaysNotify="true" onChange="RunTestsJob" />
+        <field id="appController" type="node" bind="/AppController" />
+        <field id="jobQueue" type="node" bind="/JobQueue" />
+    </interface>
+    <children>
+        <Rectangle
+            width="1280"
+            height="720"
+            color="#000000"
+            opacity="0.5">
+        </Rectangle>
+        <Rectangle
+            width="1160"
+            height="600"
+            translation="[60,60]"
+            color="#242424">
+            <Label
+                id="titleLabel"
+                width="1160"
+                horizAlign="center"
+                text=""
+                translation="[0,20]" />
+
+            <MarkupGrid
+                id="testList"
+                itemSize="[1060,40]"
+                itemSpacing="[0,20]"
+                numColumns="1"
+                numRows="7"
+                vertFocusAnimationStyle="floatingFocus"
+                translation="[50,80]"
+                itemComponentName="InvidiousInstanceTestingItem" />
+            <ButtonEx
+                id="closeButton"
+                text="Close"
+                iconVisible="false"
+                anchor="[0.5,0.5]"
+                padding="[30,30]"
+                translation="[580,545]" />
+        </Rectangle>
+    </children>
+</component>

@@ -1,0 +1,69 @@
+import "pkg:/source/utils/Logging.bs"
+import "pkg:/source/utils/TimeUtils.bs"
+import "pkg:/source/utils/Types.bs"
+
+function Init()
+    m.durationRect = m.top.FindNode("durationRect")
+    m.durationLabel = m.top.FindNode("durationLabel")
+end function
+
+function OnContentSet() as void
+    content = m.top.itemContent
+    if content = invalid
+        return
+    end if
+
+    m.top.title = content.title
+    m.top.thumbnailUri = content.thumbnail
+
+    SetDurationText(content.lengthText)
+    SetHighlight()
+end function
+
+function OnIndexSet() as void
+    SetHighlight()
+end function
+
+function SetDurationText(text as string) as void
+    hasText = text <> ""
+    m.top.durationRectVisible = hasText
+    if not hasText
+        return
+    end if
+
+    m.top.duration = text
+
+    label = m.durationLabel
+    rect = m.durationRect
+
+    if label = invalid or rect = invalid
+        return
+    end if
+
+    rectParent = rect.getParent()
+    size = label.localBoundingRect()
+
+    rect.width = size.width + 16
+    rect.translation = [rectParent.width - rect.width, rect.translation[1]]
+end function
+
+function SetHighlight() as void
+    content = m.top.itemContent
+    if content = invalid
+        return
+    end if
+
+    contentIndex = content.queueIndex
+    index = m.top.index
+
+    highlighted = contentIndex = index
+
+    if highlighted
+        ' bs:disable-next-line LINT3023
+        m.top.thumbnailBlendColor = "#FFFFFFFF"
+    else
+        m.top.thumbnailBlendColor = "#606060FF"
+    end if
+
+    m.top.highlightVisible = highlighted
+end function

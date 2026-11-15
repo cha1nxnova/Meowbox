@@ -1,0 +1,47 @@
+' Note: we use aliases and not references to sub cells that we initialize on Init() because
+'       of a rare bug / race condition where the cells are not initialized
+function OnContentSet() as void
+    content = m.top.itemContent
+
+    visibleProperties = {
+        "video": "videoRowCellVisible"
+        "playlist": "playlistRowCellVisible"
+        "channel": "channelRowCellVisible"
+        "loading": "loadingRowCellVisible"
+    }
+
+    contentProperties = {
+        "video": "videoRowCellItemContent"
+        "playlist": "playlistRowCellItemContent"
+        "channel": "channelRowCellItemContent"
+        "loading": "loadingRowCellItemContent"
+    }
+
+    if content = invalid
+        for each key in visibleProperties
+            m.top[visibleProperties[key]] = false
+        end for
+        m.top.loadingRowCellVisible = true
+        return
+    end if
+
+    m.top.type = content.type
+
+    visibleSet = false
+    for each key in visibleProperties
+        shouldBeVisible = content.type = key
+        m.top[visibleProperties[key]] = shouldBeVisible
+        if shouldBeVisible
+            m.top[contentProperties[key]] = content
+            visibleSet = true
+        end if
+    end for
+
+    if not visibleSet
+        m.top.loadingRowCellVisible = true
+    end if
+
+    if m.top.loadingRowCellVisible
+        m.top.loadingRowCellIndex = m.top.index
+    end if
+end function

@@ -1,0 +1,28 @@
+<component name="InvidiousInstanceTestingItem" extends="Group">
+    <interface>
+        <field id="itemContent" type="node" onChange="OnContentSet" />
+        <field id="state" type="string" onChange="OnStateChange" />
+        <field id="gridHasFocus" type="boolean" />
+        <field id="itemHasFocus" type="boolean" onChange="OnItemHasFocusChange" />
+        <field id="focusPercent" type="float" onChange="OnFocusPercentChange" />
+    </interface>
+    <children>
+        <BusySpinner
+            id="busySpinner"
+            spinInterval="2"
+            translation="[5,0]" />
+        <Label
+            id="nameLabel"
+            width="660"
+            translation="[60,10]" />
+        <Label
+            id="detailsLabel"
+            visible="false"
+            horizAlign="right"
+            width="400"
+            text="Press 'OK' for details"
+            translation="[660,12]">
+            <Font role="font" uri="font:SystemFontFile" size="20" />
+        </Label>
+    </children>
+</component>

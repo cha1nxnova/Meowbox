@@ -1,0 +1,26 @@
+import "pkg:/source/utils/MessagePortUtils.bs"
+import "pkg:/source/utils/Types.bs"
+
+function Init()
+    m.jobQueueTask = CreateObject("roSGNode", "JobQueueTask")
+    m.top.observeField("shutdown", FuncName(OnShutdown))
+    m.top.observeField("request", FuncName(OnRequest))
+    m.jobQueueTask.control = "run"
+end function
+
+function OnShutdown() as void
+    m.top.unobserveField("shutdown")
+    m.top.unobserveField("request")
+    m.jobQueueTask.shutdown = true
+    m.jobQueueTask = invalid
+end function
+
+function OnRequest(event as object) as void
+    request = event.getData()
+    if not IsAssociativeArray(request)
+        LogError("JobQueue: Invalid request data", request)
+        return
+    end if
+
+    m.jobQueueTask.request = request
+end function

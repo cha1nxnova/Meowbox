@@ -1,0 +1,36 @@
+import "pkg:/components/Services/LoungeService/LoungeConstants.bs"
+import "pkg:/components/Services/LoungeService/LoungeMessages.bs"
+import "pkg:/source/utils/StringUtils.bs"
+
+namespace Lounge
+
+    function SendNowPlayingLoading(videoId as dynamic, playbackSpeed as float) as void
+        if StringUtils.IsNullOrEmpty(m.loungeService.loungeToken)
+            return
+        end if
+
+        overrides = {}
+        overrides[FIELD_STATE] = PlayerState.BUFFERING
+        loungeStateMsg = LoungeMessages.OnStateChange(m.top, overrides)
+        if not StringUtils.IsNullOrEmpty(videoId)
+            overrides[FIELD_VIDEO_ID] = videoId
+        end if
+        nowPlayingMsg = LoungeMessages.NowPlaying(m.top, overrides)
+        ' Reset the displayed speed to 1.0 on load. The content's live status (which decides VSP support)
+        ' isn't known yet here, so report only the speed, as the real receiver does for non-change updates.
+        playbackSpeedMsg = LoungeMessages.OnPlaybackSpeedChanged(playbackSpeed)
+        m.loungeService.outgoingMessages = [nowPlayingMsg, loungeStateMsg, playbackSpeedMsg]
+    end function
+
+    function SendOnStateChange() as void
+        ' A closed player's late report would land after what replaced it: the queue's empty nowPlaying, or
+        ' the next player's loading frames.
+        if m.onCloseCalled = true or StringUtils.IsNullOrEmpty(m.loungeService.loungeToken)
+            return
+        end if
+
+        loungeStateMsg = LoungeMessages.OnStateChange(m.top)
+        m.loungeService.outgoingMessages = [loungeStateMsg]
+    end function
+
+end namespace

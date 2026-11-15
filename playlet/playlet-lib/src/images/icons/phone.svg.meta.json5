@@ -1,0 +1,11 @@
+{
+  inputHash: '40ab0e97ce41fa425d8942a2fedd5370',
+  outputs: [
+    {
+      outputFilePath: 'images/icons/phone.png',
+      outputHash: '249d36dc5f4ab467a83c4e2e72d37016',
+      width: 48,
+      height: 48,
+    },
+  ],
+}

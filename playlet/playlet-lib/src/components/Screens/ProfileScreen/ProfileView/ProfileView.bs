@@ -1,0 +1,237 @@
+import "pkg:/components/ContentNode/ProfileContentAuthTokenUtils.types.bs"
+import "pkg:/components/Navigation/Navigation.bs"
+import "pkg:/components/Screens/ProfileScreen/LoginUtils.bs"
+import "pkg:/source/utils/DisposableObserve.bs"
+import "pkg:/source/utils/FocusManagement.bs"
+import "pkg:/source/utils/Locale.bs"
+import "pkg:/source/utils/Logging.bs"
+import "pkg:/source/utils/RemoteKeys.bs"
+import "pkg:/source/utils/StringUtils.bs"
+import "pkg:/source/utils/Types.bs"
+
+function Init()
+    m.loginButton = m.top.findNode("loginButton")
+    m.activateButton = m.top.findNode("activateButton")
+    m.logoutButton = m.top.findNode("logoutButton")
+    m.closeButton = m.top.findNode("closeButton")
+    m.reauthLabel = m.top.findNode("ReauthLabel")
+
+    m.loginButton.disabled = true
+    m.needsReauth = false
+
+    DisposableObserveField(m.loginButton, "buttonSelected", FuncName(Login))
+    DisposableObserveField(m.activateButton, "buttonSelected", FuncName(Activate))
+    DisposableObserveField(m.logoutButton, "buttonSelected", FuncName(Logout))
+    DisposableObserveField(m.closeButton, "buttonSelected", FuncName(Close))
+end function
+
+function OnNodeReady()
+    SetNavigation(m.loginButton, RemoteKeys.Down, m.activateButton)
+    SetNavigation(m.activateButton, RemoteKeys.Up, m.loginButton)
+    SetNavigation(m.activateButton, RemoteKeys.Down, m.logoutButton)
+    SetNavigation(m.logoutButton, RemoteKeys.Down, m.closeButton)
+    SetNavigation(m.closeButton, RemoteKeys.Up, m.logoutButton)
+    SetNavigation(m.logoutButton, RemoteKeys.Up, m.activateButton)
+    SetNavigation(m.loginButton, RemoteKeys.Down, m.logoutButton)
+    SetNavigation(m.logoutButton, RemoteKeys.Up, m.loginButton)
+
+    DisposableObserveFieldScoped(m.profilesService, "currentProfile", FuncName(OnCunrrentProfileChanged))
+    DisposableObserveFieldScoped(m.profilesService, "onProfileLogout", FuncName(OnProfileLogout))
+end function
+
+function OnContentSet() as void
+    content = m.top.content
+    if content = invalid
+        m.needsReauth = false
+        m.reauthLabel.visible = false
+        m.loginButton.visible = false
+        m.loginButton.disabled = true
+        return
+    end if
+
+    username = content.username
+    m.top.username = username
+
+    thumbnail = content.thumbnail
+    if not StringUtils.IsNullOrEmpty(thumbnail)
+        m.top.circlePosterInnerUri = thumbnail
+        ' bs:disable-next-line LINT3023
+        m.top.circlePosterInnerBlendColor = "#FFFFFFFF"
+        m.top.letter = ""
+    else
+        m.top.circlePosterInnerUri = "pkg:/images/white-circle.png"
+        m.top.circlePosterInnerBlendColor = content.color
+
+        if not StringUtils.IsNullOrEmpty(username)
+            letter = username.Left(1)
+            if letter = "@" and Len(username) > 1
+                letter = username.Mid(1, 1)
+            end if
+            m.top.letter = UCase(letter)
+        else
+            m.top.letter = ""
+        end if
+    end if
+
+    m.top.crownVisible = content.isSelected
+
+    backendType = content.type
+    if backendType = "invidious"
+        m.top.serverUrl = content.serverUrl
+        m.top.backendTypePosterUri = "pkg:/images/invidious-logo.png"
+    else if backendType = "youtube"
+        m.top.serverUrl = "YouTube"
+        m.top.backendTypePosterUri = "pkg:/images/youtube-logo.png"
+    else
+        m.top.serverUrl = ""
+        m.top.backendTypePosterUri = ""
+    end if
+
+    UpdateReauthState(content.authState)
+
+    UpdateActivateButton(content.isSelected)
+end function
+
+function OnFocusChange() as void
+    if m.top.focus
+        FocusTopButton()
+    end if
+end function
+
+function FocusTopButton() as void
+    if m.loginButton.focusable
+        NodeSetFocus(m.loginButton, true)
+    else if m.activateButton.focusable
+        NodeSetFocus(m.activateButton, true)
+    else
+        NodeSetFocus(m.logoutButton, true)
+    end if
+end function
+
+function OnKeyEvent(key as string, press as boolean) as boolean
+    if NavigationKeyHandler(key, press).handled
+        return true
+    end if
+
+    if key = RemoteKeys.Options or key = RemoteKeys.Play or key = RemoteKeys.Pause or key = RemoteKeys.PlayOnly
+        ' A pass-through to the app controller, so it can toggle picture-in-picture and pause/play
+        return false
+    end if
+
+    if key = RemoteKeys.Back and press
+        Close()
+        return true
+    end if
+
+    return true
+end function
+
+function Login() as void
+    content = m.top.content
+    if content = invalid
+        return
+    end if
+
+    backendType = content.type
+    if backendType = "invidious"
+        LoginUtils.ShowInvidiousLoginDialog(content.id)
+    else if backendType = "youtube"
+        LoginUtils.ShowYouTubeLoginDialog()
+    else
+        LogError("Unknown backend type:", backendType)
+    end if
+end function
+
+function Activate() as void
+    content = m.top.content
+    if content = invalid
+        return
+    end if
+
+    profile = m.profilesService.content.getChild(0).findNode(content.id)
+    if profile = invalid
+        return
+    end if
+
+    m.top.content = invalid
+    m.profilesService@.SetCurrentProfile(profile)
+    Close()
+end function
+
+function Logout() as void
+    content = m.top.content
+    if content = invalid
+        return
+    end if
+
+    m.top.content = invalid
+    m.profilesService@.LogoutWithProfile(content)
+    Close()
+end function
+
+function Close()
+    m.top.appController@.PopScreen()
+    m.top.dispose = true
+end function
+
+function OnDispose()
+    DisposeObservers()
+    m.top.content = invalid
+end function
+
+function UpdateReauthState(authState as string) as void
+    needsReauth = authState = ProfileContentAuthTokenUtils.ProfileAuthState.NeedsReauth
+    if needsReauth = m.needsReauth
+        return
+    end if
+    m.needsReauth = needsReauth
+
+    if needsReauth
+        m.reauthLabel.text = [
+            Tr(Locale.Dialogs.ProfileNeedsReauthMessageLine1)
+            Tr(Locale.Dialogs.ProfileNeedsReauthMessageLine2)
+        ].Join(Chr(10))
+        m.loginButton.text = Tr(Locale.Buttons.Login)
+    end if
+    m.reauthLabel.visible = needsReauth
+    m.loginButton.visible = needsReauth
+    m.loginButton.disabled = not needsReauth
+
+    if m.top.isInFocusChain()
+        FocusTopButton()
+    end if
+end function
+
+function OnCunrrentProfileChanged() as void
+    content = m.top.content
+    if content = invalid
+        return
+    end if
+    m.top.crownVisible = content.isSelected
+    UpdateActivateButton(content.isSelected)
+end function
+
+function OnProfileLogout() as void
+    content = m.top.content
+    if content = invalid
+        return
+    end if
+
+    profile = m.profilesService.content.getChild(0).findNode(content.id)
+    if profile = invalid
+        Close()
+    end if
+end function
+
+function UpdateActivateButton(isSelected as boolean) as void
+    if isSelected
+        if m.activateButton.hasFocus()
+            NodeSetFocus(m.logoutButton, true)
+        end if
+        m.activateButton.text = Tr(Locale.Buttons.InUse)
+        m.activateButton.disabled = true
+    else
+        m.activateButton.text = Tr(Locale.Buttons.Activate)
+        m.activateButton.disabled = false
+    end if
+end function

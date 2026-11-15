@@ -1,0 +1,26 @@
+import "pkg:/components/ContentNode/ProfileContentAuthTokenUtils.types.bs"
+import "pkg:/components/Services/Invidious/InvidiousService.bs"
+import "pkg:/source/utils/StringUtils.bs"
+
+@job("ProfilesVerifyTokensJob")
+function ExecuteJob() as void
+    input = JobGetInput()
+
+    invidiousNode = input.invidious
+    profileContentNodes = input.profileNodes
+
+    service = new Invidious.InvidiousService(invidiousNode)
+
+    for each profileNode in profileContentNodes
+        if profileNode.type <> "invidious"
+            continue for
+        end if
+        if profileNode.authState = ProfileContentAuthTokenUtils.ProfileAuthState.NeedsReauth
+            continue for
+        end if
+        if not service.VerifyTokenScope(profileNode.accessToken)
+            ' The stored token can't make authenticated calls anymore (e.g. scopes changed in an update).
+            profileNode@.MarkNeedsReauth()
+        end if
+    end for
+end function

@@ -1,0 +1,55 @@
+<component name="QualitySelector" extends="Group" includes="AutoBind,Focus">
+    <interface>
+        <field id="value" type="string" onChange="OnValueChange" />
+        <field id="save" type="boolean" alwaysNotify="true" />
+        <field id="appController" type="node" bind="/AppController" />
+    </interface>
+    <children>
+        <Rectangle
+            width="1280"
+            height="720"
+            color="#000000"
+            opacity="0.5">
+        </Rectangle>
+        <Rectangle
+            width="780"
+            height="640"
+            translation="[250,40]"
+            color="#242424">
+            <CheckList
+                id="checkList"
+                vertFocusAnimationStyle="floatingFocus"
+                translation="[220,70]">
+
+                <ContentNode role="content">
+                    <ContentNode id="auto" title="Auto" />
+                    <!-- bs:disable-next-line LOCALE_MISSING_TRANSLATIONS -->
+                    <ContentNode id="1080p" title="1080p" />
+                    <!-- bs:disable-next-line LOCALE_MISSING_TRANSLATIONS -->
+                    <ContentNode id="720p" title="720p" />
+                    <!-- bs:disable-next-line LOCALE_MISSING_TRANSLATIONS -->
+                    <ContentNode id="480p" title="480p" />
+                    <!-- bs:disable-next-line LOCALE_MISSING_TRANSLATIONS -->
+                    <ContentNode id="360p" title="360p" />
+                    <!-- bs:disable-next-line LOCALE_MISSING_TRANSLATIONS -->
+                    <ContentNode id="240p" title="240p" />
+                    <!-- bs:disable-next-line LOCALE_MISSING_TRANSLATIONS -->
+                    <ContentNode id="144p" title="144p" />
+                </ContentNode>
+            </CheckList>
+
+            <ButtonEx
+                id="saveButton"
+                iconVisible="false"
+                text="Save"
+                padding="[30,30]"
+                translation="[340,555]" />
+            <ButtonEx
+                id="closeButton"
+                iconVisible="false"
+                text="Close"
+                padding="[30,30]"
+                translation="[496,555]" />
+        </Rectangle>
+    </children>
+</component>

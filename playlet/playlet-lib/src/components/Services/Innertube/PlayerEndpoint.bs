@@ -1,0 +1,803 @@
+import "pkg:/components/Services/Innertube/Context.bs"
+import "pkg:/components/Services/Innertube/LiveStreamInfo.bs"
+import "pkg:/components/Services/Innertube/NodesParser.bs"
+import "pkg:/components/Services/Innertube/OTFSegmentInfo.bs"
+import "pkg:/components/Services/Innertube/PostLiveDvrInfo.bs"
+import "pkg:/components/Services/Innertube/PoTokens.bs"
+import "pkg:/source/services/HttpClient.bs"
+import "pkg:/source/utils/ObjectUtils.bs"
+import "pkg:/source/utils/Types.bs"
+import "pkg:/source/utils/UrlUtils.bs"
+
+namespace Innertube
+
+    function CreatePlayerRequest(client as Innertube.ClientType, options = invalid as object) as HttpClient.Request
+        videoId = OptionUtils.Get(options, "videoId")
+        visitorData = OptionUtils.Get(options, "visitorData")
+        accessToken = OptionUtils.Get(options, "accessToken")
+        livingRoomPoTokenId = OptionUtils.Get(options, "livingRoomPoTokenId")
+        cpn = InnertubeService.CreateClientPlaybackNonce()
+
+        isTv = (client = Innertube.ClientType.Tv or client = Innertube.ClientType.TvDowngraded)
+        useAccessToken = isTv and not StringUtils.IsNullOrEmpty(accessToken)
+
+        deviceInfo = CreateObject("roDeviceInfo")
+
+        context = Innertube.CreateContext(client, deviceInfo, options)
+
+        if client = Innertube.ClientType.Tv or client = Innertube.ClientType.TvDowngraded
+            referer = "https://www.youtube.com/tv#/watch?v=" + videoId
+        else
+            referer = "https://www.youtube.com/watch?v=" + videoId
+        end if
+
+        payload = {
+            "videoId": videoId
+            "context": context
+            "cpn": cpn
+            "playbackContext": {
+                "contentPlaybackContext": {
+                    "vis": 0
+                    "splay": false
+                    "referer": referer
+                    "currentUrl": "/watch?v=" + videoId
+                    "autonavState": "STATE_ON"
+                    "autoCaptionsDefaultOn": false
+                    "html5Preference": "HTML5_PREF_WANTS"
+                    "lactMilliseconds": "-1"
+                }
+            }
+            "attestationRequest": {
+                "omitBotguardData": true
+            }
+            "racyCheckOk": true
+            "contentCheckOk": true
+        }
+
+        signatureTimestamp = OptionUtils.Get(options, "signatureTimestamp")
+        if signatureTimestamp <> invalid
+            payload["playbackContext"]["contentPlaybackContext"]["signatureTimestamp"] = signatureTimestamp
+        end if
+
+        if isTv
+            payload["playbackContext"]["contentPlaybackContext"]["isLivingRoomDeeplink"] = true
+        end if
+
+        request = HttpClient.Post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false&alt=json").JsonBody(payload)
+        request.Headers(Innertube.CreateHeaders(client))
+
+        if not StringUtils.IsNullOrEmpty(visitorData) and not useAccessToken
+            request.Header("x-goog-visitor-id", visitorData)
+        end if
+
+        if not StringUtils.IsNullOrEmpty(livingRoomPoTokenId)
+            request.poTokenIdentity = livingRoomPoTokenId
+        end if
+
+        if not StringUtils.IsNullOrEmpty(request.poTokenIdentity)
+            ' NOTE: local potoken (browser-minted) is currently not in use.
+            ' GetValidPoTokenForIdentity should return "", and the backend would mint the potoken.
+            request.poToken = Innertube.PoTokens.GetValidPoTokenForIdentity(request.poTokenIdentity)
+        end if
+
+        request.signatureTimestamp = signatureTimestamp
+        request.cpn = cpn
+
+        return request
+    end function
+
+    function ParseInnertubePlayerResponse(playerRequest as HttpClient.Request, playerResponse as HttpClient.Response, client as Innertube.ClientType, cancellation as object) as object
+        WriteAsciiFile("cachefs:/last_player_response.json", playerResponse.Text())
+        parsedResponse = {}
+        payload = playerResponse.Json()
+
+        error = ParsePlayerResponseForError(payload, playerRequest)
+        if error <> ""
+            parsedResponse["error"] = error
+            if PlayerResponseRequiresPageReload(payload)
+                parsedResponse["errorCode"] = "RELOAD_PAGE"
+            end if
+            return parsedResponse
+        end if
+
+        videoDetails = payload["videoDetails"]
+        if not IsAssociativeArray(videoDetails)
+            parsedResponse["error"] = "Invalid videoDetails"
+            return parsedResponse
+        end if
+
+        streamingData = payload["streamingData"]
+        if not IsAssociativeArray(streamingData)
+            parsedResponse["error"] = "Invalid streamingData"
+            return parsedResponse
+        end if
+
+        lengthSeconds = videoDetails["lengthSeconds"].ToInt()
+        isLive = ValidBool(videoDetails["isLive"])
+        isPostLiveDvr = ValidBool(videoDetails["isPostLiveDvr"])
+
+        adaptiveFormats = ValidArray(ObjectUtils.Dig(payload, ["streamingData", "adaptiveFormats"]))
+        formats = ValidArray(ObjectUtils.Dig(payload, ["streamingData", "formats"]))
+
+        error = DecipherUrls(formats, adaptiveFormats, playerRequest.signatureTimestamp, cancellation, client, playerRequest.poTokenIdentity, playerRequest.poToken)
+        if error <> invalid
+            parsedResponse["error"] = error.error
+            if error.DoesExist("errorCode")
+                parsedResponse["errorCode"] = error.errorCode
+            end if
+            return parsedResponse
+        end if
+
+        parsedResponse["potAttached"] = HasPotParam(adaptiveFormats) or HasPotParam(formats)
+        ' browser = we forwarded a token; server = server minted; none = no pot attached.
+        if not parsedResponse["potAttached"]
+            parsedResponse["potSource"] = "none"
+        else if StringUtils.IsNullOrEmpty(playerRequest.poToken)
+            parsedResponse["potSource"] = "server"
+        else
+            parsedResponse["potSource"] = "browser"
+        end if
+        LogInfo("poToken attached to deciphered urls:", parsedResponse["potAttached"], "source:", parsedResponse["potSource"])
+
+        hasLiveStreamingData = FormatsHaveLiveStreamingData(adaptiveFormats) or FormatsHaveLiveStreamingData(formats)
+        isOTF = FormatsHasTypeOTF(adaptiveFormats)
+        hasDrm = (not StringUtils.IsNullOrEmpty(streamingData.drmParams)) or IsArray(streamingData.licenseInfos)
+
+        adaptiveFormats = TransformFormats(adaptiveFormats)
+        formats = TransformFormats(formats)
+
+        parsedResponse["type"] = "video"
+        parsedResponse["parser"] = "playlet"
+        parsedResponse["videoId"] = videoDetails["videoId"]
+        parsedResponse["videoThumbnails"] = videoDetails["thumbnail"]["thumbnails"]
+        parsedResponse["storyboards"] = ParseStoryboards(payload, lengthSeconds)
+        parsedResponse["author"] = videoDetails["author"]
+        parsedResponse["authorId"] = videoDetails["channelId"]
+        parsedResponse["lengthSeconds"] = lengthSeconds
+        parsedResponse["liveNow"] = isLive
+        parsedResponse["isPostLiveDvr"] = isPostLiveDvr
+        parsedResponse["hasLiveStreamingData"] = hasLiveStreamingData
+        parsedResponse["hlsUrl"] = streamingData["hlsManifestUrl"]
+        parsedResponse["dashUrl"] = streamingData["dashManifestUrl"]
+        parsedResponse["adaptiveFormats"] = adaptiveFormats
+        parsedResponse["formatStreams"] = formats
+        parsedResponse["captions"] = ParseCaptions(payload)
+
+        if not StringUtils.IsNullOrEmpty(videoDetails["title"])
+            parsedResponse["title"] = videoDetails["title"]
+        end if
+
+        if not StringUtils.IsNullOrEmpty(videoDetails["author"])
+            parsedResponse["author"] = videoDetails["author"]
+        end if
+
+        if videoDetails.DoesExist("viewCount")
+            parsedResponse["viewCount"] = videoDetails["viewCount"].ToInt()
+        end if
+
+        if hasDrm
+            parsedResponse["drmParams"] = streamingData["drmParams"]
+            parsedResponse["licenseInfos"] = streamingData["licenseInfos"]
+            parsedResponse["drmSessionId"] = Innertube.GenerateDrmSessionId()
+        end if
+
+        if not StringUtils.IsNullOrEmpty(playerRequest.cpn)
+            parsedResponse["cpn"] = playerRequest.cpn
+        end if
+
+        parsedResponse["isLoggedIn"] = ParseIsLoggedIn(payload)
+        parsedResponse["playbackTrackingUrls"] = ParsePlaybackTrackingUrls(payload, parsedResponse.isLoggedIn)
+
+        if isPostLiveDvr
+            LogDebug("Fetching Post-Live DVR info")
+            GetPostLiveDvrInfo(parsedResponse, adaptiveFormats, playerRequest.cpn, cancellation)
+        end if
+
+        if isOTF
+            LogDebug("Fetching OTF segment info")
+            OTFGetSegmentInfo(adaptiveFormats, client, cancellation)
+        end if
+
+        if isLive
+            LogDebug("Fetching live stream info")
+            GetLiveStreamInfo(parsedResponse, adaptiveFormats, ValidInt(videoDetails["liveChunkReadahead"]), playerRequest.cpn, cancellation)
+        end if
+
+        return parsedResponse
+    end function
+
+    function ParsePlayerResponseForError(payload as object, playerRequest as HttpClient.Request) as string
+        if not IsAssociativeArray(payload)
+            return "Invalid payload"
+        end if
+
+        playabilityStatus = payload["playabilityStatus"]
+        if not IsAssociativeArray(playabilityStatus)
+            return "Invalid playability status"
+        end if
+
+        status = ValidString(playabilityStatus["status"])
+        if status = "OK"
+            return ""
+        end if
+
+        errorLines = []
+        if not StringUtils.IsNullOrEmpty(playabilityStatus["reason"])
+            errorLines.Push(playabilityStatus["reason"])
+        end if
+
+        if not StringUtils.IsNullOrEmpty(playabilityStatus["reasonTitle"])
+            errorLines.Push(playabilityStatus["reasonTitle"])
+        end if
+
+        subreason = ParseText(ObjectUtils.Dig(playabilityStatus, ["errorScreen", "playerErrorMessageRenderer", "subreason"]))
+        if subreason <> ""
+            errorLines.Push(subreason)
+        end if
+
+        playerErrorCommand = ObjectUtils.Dig(playabilityStatus, ["errorScreen", "playerErrorCommandRenderer"])
+        if IsAssociativeArray(playerErrorCommand)
+            errorLines.Append(ParsePlayerErrorCommandRenderer(playerErrorCommand))
+        end if
+
+        if errorLines.Count() = 0
+            Warning(`Unparsed playability status: ${status}`, playabilityStatus, { request: playerRequest })
+            errorLines.Push("Video not available (Unknown)")
+        end if
+
+        if status = "LOGIN_REQUIRED"
+            ' TODO:P2 localize
+            errorLines.Push("Hint: Log in to the YouTube app on your phone, then cast the video to Playlet.")
+
+            hasAccessToken = ValidString(playerRequest.GetHeaders()["Authorization"]).Len() > "Bearer ".Len()
+            hasCtt = ValidString(playerRequest.GetTextBody()).InStr("credentialTransferTokens") <> -1
+
+            if hasAccessToken or hasCtt
+                LogTelemetryEvent({
+                    level: "error"
+                    message: `LOGIN_REQUIRED: hasAccessToken=${hasAccessToken} hasCtt=${hasCtt}\nPlayabilityStatus: ${FormatJson(playabilityStatus)}`
+                    fingerprint: ["LOGIN_REQUIRED hasAccessToken hasCtt"]
+                })
+            end if
+        end if
+
+        return errorLines.Join(`\n`)
+    end function
+
+    function ParsePlayerErrorCommandRenderer(renderer as object) as object
+        lines = []
+        errorMessage = ParseText(renderer["errorMessage"])
+        if errorMessage <> ""
+            lines.Push(errorMessage)
+        end if
+        lines.Append(ParseOpenPopupAction(ObjectUtils.Dig(renderer, ["command", "openPopupAction"])))
+        return lines
+    end function
+
+    function ParseOpenPopupAction(openPopupAction as object) as object
+        lines = []
+        panel = ObjectUtils.Dig(openPopupAction, ["popup", "overlaySectionRenderer", "overlay", "overlayTwoPanelRenderer", "actionPanel", "overlayPanelRenderer"])
+        if not IsAssociativeArray(panel)
+            return lines
+        end if
+
+        header = ObjectUtils.Dig(panel, ["header", "overlayPanelHeaderRenderer"])
+        title = ParseText(ObjectUtils.Dig(header, ["title"]))
+        if title <> ""
+            lines.Push(title)
+        end if
+        subtitle = ParseText(ObjectUtils.Dig(header, ["subtitle"]))
+        if subtitle <> ""
+            lines.Push(subtitle)
+        end if
+
+        items = ObjectUtils.Dig(panel, ["content", "overlayPanelItemListRenderer", "items"])
+        if not IsArray(items)
+            return lines
+        end if
+        for each item in items
+            url = ParseText(ObjectUtils.Dig(item, ["secondScreenActionRenderer", "url"]))
+            if url <> ""
+                lines.Push(url)
+            end if
+            lines.Append(ParseOpenPopupAction(ObjectUtils.Dig(item, ["compactLinkRenderer", "serviceEndpoint", "openPopupAction"])))
+        end for
+        return lines
+    end function
+
+    function PlayerResponseRequiresPageReload(payload as object) as boolean
+        signal = ObjectUtils.Dig(payload, ["playabilityStatus", "errorScreen", "playerErrorMessageRenderer", "proceedButton", "buttonRenderer", "command", "signalAction", "signal"])
+        return IsString(signal) and signal = "RELOAD_PAGE"
+    end function
+
+    function ParseStoryboards(payload as object, lengthSeconds as integer) as object
+        storyboard = ObjectUtils.Dig(payload, ["storyboards", "playerLiveStoryboardSpecRenderer", "spec"])
+        if IsString(storyboard)
+            storyboard = storyboard.Split("#")
+            if storyboard.Count() <> 5
+                return []
+            end if
+            return [{
+                "templateUrl": storyboard[0]
+                "width": storyboard[1].ToInt()
+                "height": storyboard[2].ToInt()
+                "count": -1
+                "interval": 5000
+                "storyboardHeight": storyboard[3].ToInt()
+                "storyboardWidth": storyboard[4].ToInt()
+            }]
+        end if
+
+        storyboards = ObjectUtils.Dig(payload, ["storyboards", "playerStoryboardSpecRenderer", "spec"])
+        if not IsString(storyboards)
+            return []
+        end if
+
+        storyboardsData = storyboards.Split("|")
+        if storyboardsData.Count() < 2
+            return []
+        end if
+
+        baseUrl = storyboardsData.Shift()
+        storyboards = []
+
+        index = 0
+        for each sb in storyboardsData
+            sbData = sb.Split("#")
+            if sbData.Count() <> 8
+                index += 1
+                continue for
+            end if
+
+            width = sbData[0].ToInt()
+            height = sbData[1].ToInt()
+            _count = sbData[2].ToInt()
+            columns = sbData[3].ToInt()
+            rows = sbData[4].ToInt()
+            interval = sbData[5].ToInt()
+            name = sbData[6]
+            sigh = sbData[7]
+
+            url = baseUrl
+            url = url.Replace("$L", `${index}`)
+            url = url.Replace("$N", name)
+
+            queryComponents = UrlUtils.ParseQueryComponents(url)
+            queryComponents["sigh"] = sigh.DecodeUriComponent()
+            url = UrlUtils.SetQueryParams(url, queryComponents)
+
+            thumbnailsPerImage = columns * rows
+            imagesCount = _count \ thumbnailsPerImage
+            if _count mod thumbnailsPerImage > 0
+                imagesCount += 1
+            end if
+
+            if interval = 0 and _count > 0
+                interval = Cint(Cdbl(lengthSeconds) * 1000.0 / Cdbl(_count))
+            end if
+
+            storyboards.Push({
+                "templateUrl": url
+                "width": width
+                "height": height
+                "count": _count
+                "interval": interval
+                "storyboardWidth": columns
+                "storyboardHeight": rows
+                "storyboardCount": imagesCount
+            })
+            index += 1
+        end for
+
+        return storyboards
+    end function
+
+    function ParseCaptions(payload as object) as object
+        tracks = ObjectUtils.Dig(payload, ["captions", "playerCaptionsTracklistRenderer", "captionTracks"])
+        if not IsArray(tracks)
+            return []
+        end if
+
+        captions = []
+        autoCaptions = []
+        for each track in tracks
+            if not IsAssociativeArray(track)
+                continue for
+            end if
+
+            baseUrl = track["baseUrl"]
+            if not IsString(baseUrl)
+                continue for
+            end if
+
+            queryComponents = UrlUtils.ParseQueryComponents(baseUrl)
+            ' Can be vtt, ttml or srt
+            ' vtt has "align:start position:0%" on auto-generated captions
+            ' srt has large spacing between lines on auto-generated captions
+            ' ttml has default styling, with smaller font than the default size
+            ' CEA-608 broadcast channels (CC1-CC4) encode their paint-on reveal as
+            ' per-segment timed spans; Roku's ttml renderer stacks each span on its own
+            ' line (vertical text). vtt expresses the same timing inline, so it wraps.
+            captionName = queryComponents["name"]
+            if captionName = "CC1" or captionName = "CC2" or captionName = "CC3" or captionName = "CC4"
+                queryComponents["fmt"] = "vtt"
+            else
+                queryComponents["fmt"] = "ttml"
+            end if
+            baseUrl = UrlUtils.SetQueryParams(baseUrl, queryComponents)
+
+            languageCode = track["languageCode"]
+            if not IsString(languageCode)
+                continue for
+            end if
+
+            label = ParseText(track["name"])
+
+            thisCaption = {
+                "label": label
+                "language_code": languageCode
+                "url": baseUrl
+            }
+
+            if track["kind"] = "asr"
+                autoCaptions.Push(thisCaption)
+                continue for
+            end if
+
+            captions.Push(thisCaption)
+        end for
+
+        ' Put automatically generated captions at the end so human-generated ones take priority
+        captions.Append(autoCaptions)
+        return captions
+    end function
+
+    function TransformFormats(formats as object) as object
+        result = []
+        for i = 0 to formats.Count() - 1
+            result.Push(TransformFormat(formats[i]))
+        end for
+
+        return result
+    end function
+
+    function TransformFormat(fmt as object) as object
+        itag = `${fmt["itag"]}`
+        result = {
+            "bitrate": `${fmt["bitrate"]}`
+            "url": fmt["url"]
+            "itag": itag
+            "type": fmt["mimeType"]
+        }
+
+        if fmt["approxDurationMs"] <> invalid
+            result["approxDurationMs"] = fmt["approxDurationMs"]
+        end if
+
+        if IsAssociativeArray(fmt["initRange"])
+            result["init"] = `${fmt["initRange"]["start"]}-${fmt["initRange"]["end"]}`
+        end if
+        if IsAssociativeArray(fmt["indexRange"])
+            result["index"] = `${fmt["indexRange"]["start"]}-${fmt["indexRange"]["end"]}`
+        end if
+
+        if fmt["audioQuality"] <> invalid
+            result["audioQuality"] = ToString(fmt["audioQuality"])
+        end if
+        if fmt["audioSampleRate"] <> invalid
+            result["audioSampleRate"] = ToString(fmt["audioSampleRate"])
+        end if
+        if fmt["audioChannels"] <> invalid
+            result["audioChannels"] = ToString(fmt["audioChannels"])
+        end if
+
+        if IsString(fmt["qualityLabel"])
+            result["qualityLabel"] = fmt["qualityLabel"]
+        end if
+        if fmt["fps"] <> invalid
+            result["fps"] = ToString(fmt["fps"])
+        end if
+
+        if fmt["colorInfo"] <> invalid
+            result["colorInfo"] = fmt["colorInfo"]
+        end if
+        if fmt["audioTrack"] <> invalid
+            result["audioTrack"] = fmt["audioTrack"]
+        end if
+        if fmt["isDrc"] <> invalid
+            result["isDrc"] = fmt["isDrc"]
+        end if
+        if fmt["targetDurationSec"] <> invalid
+            result["targetDurationSec"] = fmt["targetDurationSec"]
+        end if
+        if fmt["maxDvrDurationSec"] <> invalid
+            result["maxDvrDurationSec"] = fmt["maxDvrDurationSec"]
+        end if
+
+        if ValidString(fmt["type"]) = "FORMAT_STREAM_TYPE_OTF"
+            result["isTypeOTF"] = true
+        end if
+
+        if fmt["drmFamilies"] <> invalid
+            result["drmFamilies"] = fmt["drmFamilies"]
+        end if
+
+        if fmt["xtags"] <> invalid
+            result["xtags"] = fmt["xtags"]
+        end if
+
+        result["width"] = fmt["width"]
+        result["height"] = fmt["height"]
+
+        if fmt["width"] <> invalid and fmt["height"] <> invalid
+            result["size"] = `${fmt["width"]}x${fmt["height"]}`
+            result["resolution"] = `${fmt["height"]}p`
+        else
+            #if DEBUG
+                if result["type"].StartsWith("video/")
+                    throw "Missing width/height for itag " + itag
+                end if
+            #end if
+        end if
+
+        return result
+    end function
+
+    function GetSignatureTimestamp(cancellation as object) as object
+        LogDebug(`ReadAsciiFile("tmp:/sts_cache.json")`)
+        cache = ReadAsciiFile("tmp:/sts_cache.json")
+        if not StringUtils.IsNullOrEmpty(cache)
+            json = StringUtils.ParseJsonSafe(cache)
+            if IsAssociativeArray(json) and json["sts"] <> invalid
+                return { sts: json["sts"] }
+            end if
+        end if
+
+        request = HttpClient.Get(`${PLAYLET_SUPPORT_SERVER}/v1/sts`)
+        request.Cancellation(cancellation)
+        request.RetryCount(2)
+        request.NoCache()
+        response = request.Await()
+        if not response.IsSuccess()
+            if response.IsCancelled()
+                LogErrorNoTelemetry(response.ErrorMessage())
+            else
+                LogError(response.ErrorMessage())
+            end if
+            return { error: response.ErrorMessage() }
+        end if
+
+        text = response.Text()
+        json = StringUtils.ParseJsonSafe(text)
+        if not IsAssociativeArray(json) or json["sts"] = invalid
+            error = "Invalid response from sts service"
+            LogError(error, text)
+            return {
+                error: error
+            }
+        end if
+
+        WriteAsciiFile("tmp:/sts_cache.json", text)
+        return { sts: json["sts"] }
+    end function
+
+    function HasPotParam(formats as object) as boolean
+        for each fmt in formats
+            url = fmt["url"]
+            if not StringUtils.IsNullOrEmpty(url)
+                if url.Instr("&pot=") <> -1
+                    return true
+                end if
+            end if
+        end for
+        return false
+    end function
+
+    function DecipherUrls(formats as object, adaptiveFormats as object, signatureTimestamp as dynamic, cancellation as object, client = invalid as dynamic, poTokenIdentity = invalid as dynamic, poToken = invalid as dynamic) as object
+        if signatureTimestamp = invalid
+            ' No need to decipher if signatureTimestamp is not available
+            return invalid
+        end if
+
+        reqFormats = []
+        for each fmt in formats
+            reqFormats.push({
+                "url": fmt["url"]
+                "cipher": fmt["cipher"]
+                "signatureCipher": fmt["signatureCipher"]
+            })
+        end for
+
+        reqAdaptiveFormats = []
+        for each fmt in adaptiveFormats
+            reqAdaptiveFormats.push({
+                "url": fmt["url"]
+                "cipher": fmt["cipher"]
+                "signatureCipher": fmt["signatureCipher"]
+            })
+        end for
+
+        body = {
+            "sts": signatureTimestamp
+            "formats": reqFormats
+            "adaptiveFormats": reqAdaptiveFormats
+        }
+        if not StringUtils.IsNullOrEmpty(poTokenIdentity)
+            body["identity"] = poTokenIdentity
+        end if
+        LogDebug("decipher poToken identity:", poTokenIdentity)
+        if not StringUtils.IsNullOrEmpty(poToken)
+            body["poToken"] = poToken
+        end if
+
+        request = HttpClient.Post(`${PLAYLET_SUPPORT_SERVER}/v2/decipher`).JsonBody(body)
+        request.Cancellation(cancellation)
+        request.LogCurlCommand(false)
+
+        response = request.Await()
+        if not response.IsSuccess()
+            errorCode = ""
+            if response.StatusCode() = 400
+                json = response.Json()
+                if IsAssociativeArray(json)
+                    errorCode = ValidString(json["code"])
+                    if errorCode = "STS_MISMATCH"
+                        DeleteFile("tmp:/sts_cache.json")
+                    end if
+                end if
+            end if
+
+            exception = {
+                error: response.ErrorMessage()
+            }
+            if errorCode <> ""
+                exception.errorCode = errorCode
+            end if
+
+            if response.IsCancelled() or errorCode = "STS_MISMATCH"
+                LogErrorNoTelemetry(response.ErrorMessage())
+            else
+                LogError(response.ErrorMessage())
+            end if
+
+            return exception
+        end if
+
+        json = response.Json()
+        if not IsAssociativeArray(json) or not json.DoesExist("formats") or not json.DoesExist("adaptiveFormats")
+            error = "Invalid response from decipher service"
+            LogError(error)
+            return {
+                error: error
+            }
+        end if
+
+        decipheredFormats = json["formats"]
+        if not IsArray(decipheredFormats) or decipheredFormats.Count() <> formats.Count()
+            error = "Invalid formats in deciphered response"
+            LogError(error)
+            return {
+                error: error
+            }
+        end if
+        for i = 0 to decipheredFormats.Count() - 1
+            fmt = formats[i]
+            decipheredFmt = decipheredFormats[i]
+            fmt["url"] = ResetUrlClientVersion(decipheredFmt["url"], client)
+        end for
+
+        decipheredAdaptiveFormats = json["adaptiveFormats"]
+        if not IsArray(decipheredAdaptiveFormats) or decipheredAdaptiveFormats.Count() <> adaptiveFormats.Count()
+            error = "Invalid adaptiveFormats in deciphered response"
+            LogError(error)
+            return {
+                error: error
+            }
+        end if
+        for i = 0 to decipheredAdaptiveFormats.Count() - 1
+            fmt = adaptiveFormats[i]
+            decipheredFmt = decipheredAdaptiveFormats[i]
+            fmt["url"] = ResetUrlClientVersion(decipheredFmt["url"], client)
+        end for
+        return invalid
+    end function
+
+    ' YouTube.js sets cver to hardcoded values that might be different from
+    ' What's used in Playlet. There's no indication that this makes a difference,
+    ' but it makes sense to keep it consistent.
+    function ResetUrlClientVersion(url as dynamic, requestClient = invalid as dynamic) as dynamic
+        if StringUtils.IsNullOrEmpty(url)
+            return url
+        end if
+
+        queryComponents = UrlUtils.ParseQueryComponents(url)
+        client = ValidString(queryComponents["c"])
+        if client = "TVHTML5"
+            if requestClient = Innertube.ClientType.TvDowngraded
+                queryComponents["cver"] = INNERTUBE_TV_CLIENT_VERSION_DOWNGRADED
+            else
+                queryComponents["cver"] = INNERTUBE_TV_CLIENT_VERSION
+            end if
+        else if client = "IOS"
+            queryComponents["cver"] = INNERTUBE_IOS_CLIENT_VERSION
+        else if client = "WEB"
+            queryComponents["cver"] = INNERTUBE_WEB_CLIENT_VERSION
+        else
+            return url
+        end if
+
+        return UrlUtils.SetQueryParams(url, queryComponents)
+    end function
+
+    function ParseIsLoggedIn(payload as object) as boolean
+        trackingParams = ObjectUtils.Dig(payload, ["responseContext", "serviceTrackingParams"])
+        if not IsArray(trackingParams)
+            return false
+        end if
+        for each trackingParam in trackingParams
+            if not IsAssociativeArray(trackingParam)
+                continue for
+            end if
+
+            params = trackingParam["params"]
+            if not IsArray(params)
+                continue for
+            end if
+
+            for each param in params
+                if not IsAssociativeArray(param)
+                    continue for
+                end if
+
+                if param["key"] = "logged_in" and param["value"] = "1"
+                    return true
+                end if
+            end for
+        end for
+        return false
+    end function
+
+    function ParsePlaybackTrackingUrls(payload as object, isLoggedIn as boolean) as object
+        if not isLoggedIn
+            return invalid
+        end if
+
+        playbackTracking = payload["playbackTracking"]
+        if not IsAssociativeArray(playbackTracking)
+            return invalid
+        end if
+
+        return {
+            "videostatsPlaybackUrl": ObjectUtils.Dig(playbackTracking, ["videostatsPlaybackUrl", "baseUrl"])
+            "videostatsWatchtimeUrl": ObjectUtils.Dig(playbackTracking, ["videostatsWatchtimeUrl", "baseUrl"])
+        }
+    end function
+
+    function FormatsHaveLiveStreamingData(formats as object) as boolean
+        if not IsArray(formats)
+            return false
+        end if
+        for each fmt in formats
+            url = fmt["url"]
+            if IsString(url) and (url.InStr("yt_live_broadcast") <> -1 or url.InStr("yt_premiere_broadcast") <> -1)
+                return true
+            end if
+        end for
+
+        return false
+    end function
+
+    function FormatsHasTypeOTF(formats as object) as boolean
+        if not IsArray(formats)
+            return false
+        end if
+        for each fmt in formats
+            if ValidString(fmt["type"]) = "FORMAT_STREAM_TYPE_OTF"
+                return true
+            end if
+        end for
+
+        return false
+    end function
+
+end namespace

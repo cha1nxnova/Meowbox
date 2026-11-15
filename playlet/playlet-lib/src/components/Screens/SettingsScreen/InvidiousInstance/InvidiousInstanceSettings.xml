@@ -1,0 +1,81 @@
+<component name="InvidiousInstanceSettings" extends="Group" includes="AutoBind,Focus">
+    <interface>
+        <field id="text" type="string" alias="textEditBox.text" />
+        <field id="save" type="boolean" alwaysNotify="true" />
+        <field id="appController" type="node" bind="/AppController" />
+    </interface>
+    <children>
+        <Rectangle
+            width="1280"
+            height="720"
+            color="#000000"
+            opacity="0.5">
+        </Rectangle>
+        <Rectangle
+            width="960"
+            height="600"
+            translation="[160,60]"
+            color="#242424">
+            <Label
+                text="Invidious custom instance"
+                horizAlign="center"
+                width="960"
+                translation="[0,13]" />
+            <TextEditBox
+                id="textEditBox"
+                width="480"
+                height="50"
+                translation="[170,50]" />
+            <ButtonEx
+                id="editButton"
+                iconUri="pkg:/images/icons/edit.png"
+                height="50"
+                iconWidth="22"
+                iconHeight="22"
+                text="Edit"
+                translation="[670,50]" />
+
+            <LayoutGroup
+                layoutDirection="horiz"
+                horizAlignment="center"
+                vertAlignment="center"
+                itemSpacings="[30,30]"
+                translation="[480,125]">
+                <Rectangle
+                    width="250"
+                    height="1" />
+
+                <Label
+                    text="Or" />
+
+                <Rectangle
+                    width="250"
+                    height="1" />
+
+            </LayoutGroup>
+
+            <Label
+                text="Invidious public instances"
+                horizAlign="center"
+                width="960"
+                translation="[0,145]" />
+
+            <InvidiousPublicInstances
+                id="instances"
+                translation="[50,190]" />
+
+            <ButtonEx
+                id="testButton"
+                text="Test instance"
+                iconVisible="false"
+                padding="[30,30]"
+                translation="[300,510]" />
+            <ButtonEx
+                id="saveButton"
+                text="Save"
+                iconVisible="false"
+                padding="[30,30]"
+                translation="[545,510]" />
+        </Rectangle>
+    </children>
+</component>

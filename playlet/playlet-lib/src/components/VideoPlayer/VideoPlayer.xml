@@ -1,0 +1,37 @@
+<component name="VideoPlayer" extends="Video" includes="AutoBind">
+    <interface>
+        <field id="appController" type="node" bind="/AppController" />
+        <field id="jobQueue" type="node" bind="/JobQueue" />
+        <field id="container" type="node" bind=".." />
+        <field id="notifications" type="node" bind="../../Notifications" />
+        <field id="videoQueue" type="node" bind="../../VideoQueue" />
+        <field id="preferences" type="node" bind="../../Preferences" />
+        <field id="innertube" type="node" bind="../../Innertube" />
+        <field id="invidious" type="node" bind="../../Invidious" />
+        <field id="webServer" type="node" bind="../../WebServer" />
+        <field id="loungeService" type="node" bind="../../LoungeService" />
+        <field id="profilesService" type="node" bind="../../ProfilesService" />
+        <field id="previousPlayer" type="node" />
+        <field id="minRect" type="rect2D" value="[834,460,426,240]" />
+        <field id="maxRect" type="rect2D" value="[0,0,1280,720]" />
+        <field id="chapter" type="string" alias="chapterLabel.text" />
+        <field id="showFullScreenHint" type="boolean" alwaysNotify="true" onChange="OnShowFullScreenHint" />
+        <field id="close" type="boolean" alwaysNotify="true" onChange="OnClose" />
+        <field id="setSeek" type="float" alwaysNotify="true" onChange="OnSetSeek" />
+        <function name="PlayWithContent" />
+    </interface>
+    <children>
+        <Label id="chapterLabel" width="350" height="25" horizAlign="center" vertAlign="center" font="font:SmallestSystemFont" />
+        <Timer id="chapterLabelTimer" repeat="true" duration="0.5" />
+        <Animation id="minimizeAnimation" duration="0.3" optional="true">
+            <FloatFieldInterpolator id="widthInterpolator" key="[0.0, 0.5, 1.0]" fieldToInterp="VideoPlayer.width" />
+            <FloatFieldInterpolator id="heightInterpolator" key="[0.0, 0.5, 1.0]" fieldToInterp="VideoPlayer.height" />
+            <Vector2DFieldInterpolator id="translationInterpolator" key="[0.0, 0.5, 1.0]" fieldToInterp="VideoPlayer.translation" />
+        </Animation>
+        <Rectangle id="fullScreenHint" height="26" color="0x000000" opacity="0.8" visible="false">
+            <Label id="fullScreenHintLabel" text="Press Options (*) for full screen" height="26" color="0xFFFFFF" horizAlign="center" vertAlign="center" font="font:SmallestSystemFont" />
+            <Timer id="fullScreenHintTimer" duration="5" />
+            <Timer id="trickplayUITimer" duration="5" />
+        </Rectangle>
+    </children>
+</component>

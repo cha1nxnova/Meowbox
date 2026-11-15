@@ -1,0 +1,51 @@
+import "pkg:/source/utils/Logging.bs"
+import "pkg:/source/utils/Types.bs"
+
+namespace Assert
+
+    function IsTrue(condition as dynamic, message = invalid as dynamic) as void
+        if not ValidBool(condition)
+            throw "Assertion failed: " + ToString(message)
+        end if
+    end function
+
+    function IsFalse(condition as dynamic, message = invalid as dynamic) as void
+        if ValidBool(condition)
+            throw "Assertion failed: " + ToString(message)
+        end if
+    end function
+
+    function IsValid(value as dynamic, message = invalid as dynamic) as void
+        if value = invalid
+            throw "Assertion failed: " + ToString(message)
+        end if
+    end function
+
+    function AreEqual(expected as dynamic, actual as dynamic, message = invalid as dynamic) as void
+        if expected <> actual
+            throw "Assertion failed: Expected " + ToString(expected) + ", but got " + ToString(actual) + ". " + ToString(message)
+        end if
+    end function
+
+    function NodeHasField(node as dynamic, field as string, message = invalid as dynamic) as void
+        if node = invalid
+            throw "Assertion failed: Node is invalid. " + ToString(message)
+        end if
+        if not node.hasField(field)
+            throw "Assertion failed: Node does not have field '" + field + "'. " + ToString(message)
+        end if
+    end function
+
+    function NotNullOrEmpty(value as dynamic, message = invalid as dynamic) as void
+        if value = invalid
+            throw "Assertion failed: Value is invalid. " + ToString(message)
+        end if
+        if IsString(value) and (Len(value) = 0)
+            throw "Assertion failed: Value is an empty string. " + ToString(message)
+        else if IsArray(value) and (value.Count() = 0)
+            throw "Assertion failed: Value is an empty array. " + ToString(message)
+        else if IsAssociativeArray(value) and (value.ifAssociativeArray.count() = 0)
+            throw "Assertion failed: Value is an empty associative array. " + ToString(message)
+        end if
+    end function
+end namespace

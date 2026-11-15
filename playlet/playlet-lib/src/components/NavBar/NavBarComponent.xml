@@ -1,0 +1,47 @@
+<component name="NavBarComponent" extends="Group">
+    <interface>
+        <field id="itemContent" type="node" onChange="OnContentSet" />
+        <field id="itemHasFocus" type="boolean" onChange="OnItemHasFocusChange" />
+        <field id="listHasFocus" type="boolean" onChange="OnListHasFocusChange" />
+
+        <field id="titleLabelText" type="string" alias="TitleLabel.text" />
+        <field id="titleLabelFocusedText" type="string" alias="TitleLabelFocused.text" />
+        <field id="titleLabelVisible" type="boolean" alias="TitleLabel.visible" />
+        <field id="titleLabelFocusedVisible" type="boolean" alias="TitleLabelFocused.visible" />
+        <field id="iconPosterVisible" type="boolean" alias="IconPoster.visible" />
+        <field id="iconPosterUri" type="uri" alias="IconPoster.uri" />
+        <field id="profileIconVisible" type="boolean" alias="ProfileIcon.visible" />
+    </interface>
+
+    <children>
+        <Poster
+            id="IconPoster"
+            width="32"
+            height="32"
+            translation="[8,8]" />
+
+        <ProfileIcon
+            id="ProfileIcon"
+            translation="[4,4]"
+            visible="false" />
+
+        <Label
+            id="TitleLabel"
+            height="32"
+            vertAlign="center"
+            translation="[55,8]"
+            visible="false">
+            <Font role="font" uri="font:SystemFontFile" size="22" />
+        </Label>
+
+        <Label
+            id="TitleLabelFocused"
+            height="32"
+            vertAlign="center"
+            translation="[55,8]"
+            visible="false">
+            <Font role="font" uri="font:MediumSystemFontFile" size="22" />
+        </Label>
+
+    </children>
+</component>

@@ -1,0 +1,26 @@
+import "pkg:/components/Screens/HomeScreen/HomeScreenUtils.bs"
+import "pkg:/components/Web/WebServer/Http/HttpRouter.bs"
+
+namespace Http
+
+    class HomeLayoutRouter extends HttpRouter
+
+        function new(server as object)
+            super()
+
+            m.preferencesNode = server.sceneNodes.preferences
+        end function
+
+        @get("/api/home-layout")
+        function GetHomeLayout(context as object) as boolean
+            response = context.response
+
+            feed = HomeScreenUtils.GetFeed("libpkg:/config/default_home_layout.yaml", m.preferencesNode)
+            response.Json(feed)
+
+            return true
+        end function
+
+    end class
+
+end namespace

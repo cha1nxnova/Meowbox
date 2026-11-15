@@ -1,0 +1,39 @@
+<component name="ChannelRowCell" extends="Group">
+    <interface>
+        <field id="type" type="string" value="channel" />
+        <field id="_author" type="string" alias="authorLabel.text" />
+        <field id="subCountText" type="string" alias="subCountLabel.text" />
+        <field id="channelHandle" type="string" alias="handleLabel.text" />
+        <field id="thumbnail" type="uri" alias="thumbnail.uri" />
+        <field id="itemContent" type="node" onChange="OnContentSet" />
+    </interface>
+    <children>
+        <LayoutGroup
+            itemSpacings="[24,5,5]">
+
+            <CirclePoster
+                id="thumbnail"
+                width="196"
+                height="196"
+                failedBitmapUri="pkg:/images/thumbnail-missing.jpg" />
+
+            <Label
+                id="authorLabel"
+                width="196"
+                maxLines="2"
+                wrap="true"
+                font="font:SmallestBoldSystemFont" />
+            <Label
+                id="subCountLabel"
+                width="196"
+                maxLines="2"
+                wrap="true"
+                font="font:SmallestSystemFont" />
+            <Label
+                id="handleLabel"
+                width="196"
+                height="25"
+                font="font:SmallestSystemFont" />
+        </LayoutGroup>
+    </children>
+</component>

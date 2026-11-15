@@ -1,0 +1,1561 @@
+import "pkg:/components/ContentNode/ProfileContentAuthTokenUtils.types.bs"
+import "pkg:/components/Dialog/DialogUtils.bs"
+import "pkg:/components/JobSystem/Jobs.bs"
+import "pkg:/components/JobSystem/JobSystem.bs"
+import "pkg:/components/Services/Innertube/Constants.bs"
+import "pkg:/components/VideoPlayer/Lounge.bs"
+import "pkg:/components/VideoPlayerDev/ErrorDialogController.bs"
+import "pkg:/components/VideoPlayerDev/PlaybackTelemetry.bs"
+import "pkg:/components/VideoPlayerDev/PlayerCoordinatorLogic.bs"
+import "pkg:/components/VideoPlayerDev/SponsorBlockController.bs"
+import "pkg:/components/VideoPlayerDev/TransportController.bs"
+import "pkg:/components/VideoPlayerDev/VideoNode.bs"
+import "pkg:/components/VideoQueue/VideoQueueUtils.bs"
+import "pkg:/source/utils/Locale.bs"
+import "pkg:/source/utils/Logging.bs"
+import "pkg:/source/utils/RemoteKeys.bs"
+import "pkg:/source/utils/StringUtils.bs"
+import "pkg:/source/utils/Types.bs"
+
+' Coordinator for the custom video player. extends Video, enableUI=false.
+'
+' Owns the focused Video node + key router, the Chrome-group fade, PiP resize, and lifecycle plumbing. All
+' transport decisions live in m.transport (TransportController — a plain .bs module, not a node). Per device
+' signal: route -> apply the module's outputs to m.top -> push its scalar outputs onto the renderer components'
+' fields. Renderers self-derive visibility from transportMode (commit sets mode=idle and the bif vanishes by
+' its own rule — no hide call needed).
+
+' ChromeMode (the Chrome group fade state, owned here as one unit) lives in PlayerCoordinatorLogic.bs —
+' the Back ladder decides over it.
+
+' Int values the coordinator pushes onto LoadBufferSpinner.mode. Kept local to avoid importing the component's
+' .bs (which would collide on Init).
+enum SpinMode
+    Off = 0
+    Loading = 1
+    Buffering = 2
+end enum
+
+' Init() lives in the tiny VideoPlayerDevInit.bs because the @oninit/AutoBind injection requires Init in exactly
+' one component scope; this file is shared with the test mock (tests/VideoPlayerDevMock).
+function Initialize()
+    m.top.notificationInterval = 1
+
+    m.transport = new TransportController.Controller()
+    m.playbackTelemetry = new PlaybackTelemetry.Recorder({
+        playerTimer: CreateObject("roTimespan")
+        transport: m.transport
+        top: m.top
+    })
+
+    m.videoContentJob = invalid
+    m.sponsorBlockSegmentsJob = invalid
+    m.markVideoWatchedJob = invalid
+    m.watchTimeMarker = -1
+    m.reportWatchTime = false
+    m.onCloseCalled = false
+    ' a setSeek that arrived while the content loads (ms, -1 = none): the content-load seek goes there instead.
+    m.loadingSetSeekMs = -1
+
+    m.errorDialogNode = invalid
+    m.ignoreNextFinished = false ' a retry replay -> swallow the next "finished" edge
+    m.videoPlayedSuccessfully = false ' true once the stream has actually played (gates error-retry)
+
+    m.chromeMode = ChromeMode.Hidden
+    m.liveBadgeHoldActive = false ' the "● LIVE" reveal hold is running
+    m.firstFrameSeen = false
+    m.showFullScreenHint = false
+    m.focusTarget = PlayerCoordinatorLogic.FocusTarget.Bar
+    m.focusedButton = 0
+    m.armedTimerId = TransportController.Timer.None ' which module timer the single transportTimer holds
+    m.lastCommitSeq = 0
+    m.lastFinishSeq = 0
+    ' a keep-playing seek was issued while the device was PAUSED. The device auto-resumes on any seek
+    ' (autoplayAfterSeek only governs resume-after-REBUFFER per the Video docs), so the paused state is preserved
+    ' by re-pausing on the next playing edge.
+    m.repauseAfterSeek = false
+    ' live edge clock anchor: the manifest's availabilityStartTime (Playlet generates it), as epoch seconds.
+    ' The edge is then wallClock - anchor — continuous through pauses/rebuffers/startup. The fallback pair
+    ' anchors off duration reports for the rare live stream without the metadata.
+    m.liveAstSeconds = -1
+    m.liveFallbackEdgeMs = -1
+    m.liveFallbackAtSeconds = 0
+    m.nowDateTime = CreateObject("roDateTime")
+
+    ' cache the renderer components + timers/anims; the tree is built once, then only fields flip.
+    m.chrome = m.top.findNode("Chrome")
+    m.titleLabel = m.top.findNode("titleLabel")
+    m.secondaryTitleLabel = m.top.findNode("secondaryTitleLabel")
+    m.clock = m.top.findNode("clock")
+    m.bifDisplay = m.top.findNode("bifDisplay")
+    m.trickPlayBar = m.top.findNode("trickPlayBar")
+    m.spinner = m.top.findNode("spinner")
+    m.largePause = m.top.findNode("largePause")
+    m.buttonRow = m.top.findNode("buttonRow")
+    m.fullScreenHint = m.top.findNode("fullScreenHint")
+
+    m.autoHide = m.top.findNode("autoHide")
+    m.transportTimer = m.top.findNode("transportTimer")
+    m.liveBadgeHold = m.top.findNode("liveBadgeHold")
+    m.liveEdgeClock = m.top.findNode("liveEdgeClock")
+    m.fullScreenHintTimer = m.top.findNode("fullScreenHintTimer")
+    m.chromeFadeIn = m.top.findNode("chromeFadeIn")
+    m.chromeFadeOut = m.top.findNode("chromeFadeOut")
+    m.minimize = m.top.findNode("minimize")
+
+    m.autoHide.ObserveField("fire", FuncName(OnAutoHideFire))
+    m.transportTimer.ObserveField("fire", FuncName(OnTransportTimerFire))
+    m.liveBadgeHold.ObserveField("fire", FuncName(OnLiveBadgeHoldFire))
+    m.liveEdgeClock.ObserveField("fire", FuncName(OnLiveEdgeClockFire))
+    m.fullScreenHintTimer.ObserveField("fire", FuncName(OnFullScreenHintTimer))
+    m.chromeFadeIn.ObserveField("state", FuncName(OnChromeFadeInState))
+    m.chromeFadeOut.ObserveField("state", FuncName(OnChromeFadeOutState))
+
+    ' stopping a Video synchronously can time out and crash; async stop avoids it (OS 12.5+).
+    if m.top.hasField("asyncStopSemantics")
+        m.top.asyncStopSemantics = true
+    end if
+
+    ' live DVR scrubbing seeks within the availability window; the Video docs gate that on this (default false).
+    if m.top.hasField("enableLiveAvailabilityWindow")
+        m.top.enableLiveAvailabilityWindow = true
+    end if
+
+    httpAgent = m.top.getHttpAgent()
+    httpAgent.AddHeader("User-Agent", VIDEO_PLAYER_USER_AGENT)
+end function
+
+' Called by AutoBind once the bound interface fields (container, jobQueue, services, ...) resolve.
+function OnNodeReady()
+
+    ' Created here, not Init, because it needs AutoBind-resolved deps (jobQueue / preferences / notifications).
+    m.sponsorblock = new SponsorBlockController.Controller({
+        jobQueue: m.jobQueue
+        preferences: m.top.preferences
+        notifications: m.top.notifications
+        top: m.top
+    })
+
+    ' enableUI=false: the OS draws no chrome; we draw it all from the renderers.
+    m.top.enableUI = false
+
+    minRect = m.top.minRect
+    if m.container.fullscreen
+        rect = m.top.maxRect
+    else
+        rect = minRect
+    end if
+    m.top.width = rect.width
+    m.top.height = rect.height
+    m.top.translation = [rect.x, rect.y]
+
+    ' size the fullScreenHint to the PiP width, pinned to the player's bottom edge.
+    hintLabel = m.top.findNode("fullScreenHintLabel")
+    m.fullScreenHint.width = minRect.width
+    hintLabel.width = minRect.width
+    m.fullScreenHint.translation = [0, minRect.height - m.fullScreenHint.height]
+
+    LogDebug("enableUI=false; fullscreen=", m.container.fullscreen, " rect=", rect)
+
+    m.container.observeFieldScoped("fullscreen", FuncName(OnFullScreenChange))
+    m.top.ObserveField("state", FuncName(OnVideoState))
+    m.top.ObserveField("position", FuncName(OnPosition))
+    m.top.ObserveField("duration", FuncName(OnDuration))
+    m.top.ObserveField("close", FuncName(OnClose))
+    ' native trickplay tiles arrive after the manifest loads -> feed the bif + scrub step (VOD only).
+    m.top.ObserveField("thumbnailTiles", FuncName(OnThumbnailTiles))
+    ' an external resume/play (the linked phone via Lounge) under an active transport must take over.
+    m.top.ObserveField("control", FuncName(OnControlChange))
+    m.top.ObserveField("setSeek", FuncName(OnSetSeek))
+    m.top.ObserveField("bufferingStatus", FuncName(OnBufferingStatus))
+    m.top.ObserveField("playStartInfo", FuncName(OnPlayStartInfo))
+    m.top.ObserveField("streamingSegment", FuncName(OnStreamingSegment))
+
+    ' a player that starts minimized shows the PiP hint (1s after the shrink settles, auto-hides after 5s).
+    m.showFullScreenHint = not m.container.fullscreen
+    RefreshFullScreenHint()
+
+    ' first-load look (title + spinner, no bar) until the first frame, but only when fullscreen; a video that
+    ' starts minimized shows no UI at all.
+    if m.container.fullscreen
+        m.spinner.mode = SpinMode.Loading
+    end if
+end function
+
+'===============================================================================
+' Drain the transport module after every interaction: apply its video intent (-> m.top.control / m.top.seek)
+' and timer command (-> the single transportTimer), then push its scalar outputs onto the renderers.
+'===============================================================================
+function ApplyTransport() as void
+    ' A transport freezes the video. While one is active, disable auto-resume-after-rebuffer so an in-flight or
+    ' pending keep-playing seek can't un-pause the freeze when it completes; restored to the default at idle so
+    ' commit's resume + the normal seek-resume behave. But NOT while a play-through seek is still settling: that
+    ' seek must still reach "playing" so EnforceTransportFreeze can freeze it cleanly — disabling autoplay here
+    ' would strand it buffering. seekSettling clears at state=playing.
+    ' Write-guarded: this runs on every position tick, and most ticks don't change the value.
+    autoplayAfterSeek = (m.transport.transportMode = TransportController.Mode.Idle) or m.transport.seekSettling
+    if m.top.autoplayAfterSeek <> autoplayAfterSeek
+        m.top.autoplayAfterSeek = autoplayAfterSeek
+    end if
+
+    intent = m.transport.TakeVideoIntent()
+    if intent <> invalid
+        if intent.control = TransportController.Control.Pause
+            m.repauseAfterSeek = false
+            m.top.control = VideoControl.Pause
+        else if intent.control = TransportController.Control.Resume
+            m.repauseAfterSeek = false
+            m.top.control = VideoControl.Resume
+        end if
+        if intent.hasSeek
+            ' a keep-playing seek issued while the device is PAUSED must preserve the pause: the device
+            ' auto-resumes on any seek (autoplayAfterSeek only covers rebuffer-resume), so flag a re-pause
+            ' for the playing edge the resume produces.
+            if intent.control = TransportController.Control.None and m.top.state = VideoState.Paused
+                m.repauseAfterSeek = true
+            end if
+            ApplySeek(intent.seekMs)
+        end if
+    end if
+
+    tc = m.transport.TakeTimerCmd()
+    if tc <> invalid
+        if tc.action = TransportController.TimerAction.Arm
+            ' the module multiplexes scrubRepeat/scan/liveEdgeTick onto this single Timer node (only one armed
+            ' at a time); remember which one so the fire handler can Tick(id).
+            m.armedTimerId = tc.id
+            m.transportTimer.control = "stop"
+            if tc.delayMs >= 0
+                m.transportTimer.duration = tc.delayMs / 1000.0
+            end if
+            m.transportTimer.repeat = tc.repeat
+            m.transportTimer.control = "start"
+        else if tc.action = TransportController.TimerAction.Stop
+            m.transportTimer.control = "stop"
+            m.armedTimerId = TransportController.Timer.None
+        end if
+    end if
+
+    ' Push scalar outputs onto the renderers only when the bar/bif can be seen. While idle AND hidden they are
+    ' invisible, so pushing position/cursor every second would fire onChange->Repaint on nothing — the dominant
+    ' render-thread waste during normal playback. ShowChrome re-syncs the full projection on reveal. The
+    ' (mode<>idle) term is load-bearing: OnKeyEvent calls ApplyTransport before ShowChrome on a transport key,
+    ' so here mode<>idle while the chrome is still hidden — gating on chromeVisible alone would drop the first
+    ' seek frame until the next tick.
+    mode = m.transport.transportMode
+
+    ' a live transport seeks by the offset: release the "● LIVE" reveal hold so the time is readable at once.
+    if mode <> TransportController.Mode.Idle
+        CancelLiveBadgeHold()
+    end if
+
+    chromeVisible = (m.chromeMode = ChromeMode.Shown or m.chromeMode = ChromeMode.FadingIn)
+    if mode <> TransportController.Mode.Idle or chromeVisible
+        PushTransportToRenderers()
+    end if
+
+    ' one compact state trace per active transport (gated so idle once/sec position updates don't spam the log).
+    if mode <> TransportController.Mode.Idle or m.transport.commitSeq <> m.lastCommitSeq
+        LogDebug("TRACE mode=", mode, " cursorMs=", m.transport.cursorMs, " glyph=", m.transport.glyph, " offsetMs=", m.transport.liveOffsetMs, " atEdge=", m.transport.atLiveEdge, " chrome=", m.chromeMode, " bifVis=", m.bifDisplay.visible, " vstate=", m.top.state)
+    end if
+
+    ' a transport just committed (mode back to idle this call) -> fade chrome out + clear any buffering spinner.
+    if m.transport.commitSeq <> m.lastCommitSeq
+        m.lastCommitSeq = m.transport.commitSeq
+        if m.spinner.mode = SpinMode.Buffering
+            m.spinner.mode = SpinMode.Off
+        end if
+        HideChrome()
+    end if
+
+    ' a VOD commit at the very end pulses finishSeq: watched to the end -> PlayNext/close, no seek.
+    if m.transport.finishSeq <> m.lastFinishSeq
+        m.lastFinishSeq = m.transport.finishSeq
+        LogInfo("commit at end of content -> finish")
+        OnPlaybackFinished()
+    end if
+end function
+
+' Push the module's scalar outputs onto the renderer components. Split by mode so an idle VOD bar (which reads
+' positionMs and ignores the cursor) doesn't get a cursorMs change that fires a Repaint painting nothing new.
+' Cursor + live offset/edge go only when a transport is active OR on a live stream (the live bar's fill is
+' proportional to the cursor even at rest). Called from ApplyTransport (when visible) and ShowChrome (reveal sync).
+function PushTransportToRenderers() as void
+    mode = m.transport.transportMode
+    isLive = m.transport.isLive
+
+    m.trickPlayBar.transportMode = mode
+    m.trickPlayBar.glyph = m.transport.glyph
+    m.trickPlayBar.isLive = isLive
+    m.trickPlayBar.positionMs = m.transport.positionMs
+    m.trickPlayBar.durationMs = m.transport.durationMs
+
+    if mode <> TransportController.Mode.Idle or isLive
+        m.trickPlayBar.liveFloorMs = m.transport.LiveFloorMs()
+        m.trickPlayBar.cursorMs = m.transport.cursorMs
+        m.trickPlayBar.liveOffsetMs = m.transport.liveOffsetMs
+        m.trickPlayBar.atLiveEdge = m.transport.atLiveEdge
+        m.bifDisplay.cursorMs = m.transport.cursorMs
+    end if
+    ' transportMode set last on the bif so the on-enter cursorMs write above stays guarded by visible=false
+    ' (one RenderTiles on enter, not two).
+    m.bifDisplay.transportMode = mode
+    m.buttonRow.transportMode = mode
+
+    ' SponsorBlock chapter label: the segment title while the cursor sits inside a segment (no-op + "" when off
+    ' / no segments).
+    if m.sponsorblock.HasSegments()
+        m.trickPlayBar.chapterText = m.sponsorblock.ChapterTextForCursor(m.transport.cursorMs)
+    end if
+end function
+
+' Apply a seek (ms): the one writer of the device's `seek`. The live "jump to edge" sentinel maps to the
+' live-end seek the OS understands.
+function ApplySeek(seekMs as integer) as void
+    m.sponsorblock.OnSeek(seekMs)
+    if TransportController.IsLiveEdgeSentinelMs(seekMs)
+        m.top.seek = 999999
+        return
+    end if
+    m.top.seek = seekMs / 1000.0
+end function
+
+'===============================================================================
+' Key router — route intent, hold no behavior.
+'===============================================================================
+function OnKeyEvent(key as string, press as boolean) as boolean
+    ' The SponsorBlock manual-skip notice outranks the focus tiers: while it is armed and on screen, OK does
+    ' what the notice says (skip) no matter which tier holds focus, and Back dismisses the notice (the escape
+    ' hatch for "I don't want to skip") instead of acting on the player.
+    if press and key = RemoteKeys.Ok and TrySponsorBlockSkip()
+        return true
+    end if
+    if press and key = RemoteKeys.Back and m.sponsorblock.DismissManual()
+        return true
+    end if
+
+    ' Focus model (only while the chrome is up + idle): the BUTTON tier takes the directional + select keys; the
+    ' BAR tier takes Up (back to the buttons) and lets the transport keys through. Rev/Fwd/Replay are not owned
+    ' by the buttons, so they fall through to the transport and move focus to the bar.
+    if press and CanFocusInteract()
+        ' Up/Down move between the two tiers; a no-op at the ends is still consumed — Up at the top tier
+        ' (the buttons) pulses the focused button so the press visibly lands somewhere.
+        if key = RemoteKeys.Up or key = RemoteKeys.Down
+            newTarget = PlayerCoordinatorLogic.NextFocusTarget(m.focusTarget, key)
+            if newTarget <> m.focusTarget
+                SetFocusTarget(newTarget)
+            else if m.focusTarget = PlayerCoordinatorLogic.FocusTarget.Buttons
+                m.buttonRow.nudge = true
+                ArmAutoHide()
+            end if
+            return true
+        end if
+        ' the button tier owns Left/Right + OK; Rev/Fwd/Replay/Back fall through to the transport / close.
+        if m.focusTarget = PlayerCoordinatorLogic.FocusTarget.Buttons and HandleButtonsKey(key)
+            return true
+        end if
+    end if
+
+    ' Up/Down also reveal the chrome when it is hidden in idle (they otherwise do nothing); once the chrome is
+    ' up the block above moves focus instead.
+    if press and (key = RemoteKeys.Up or key = RemoteKeys.Down) and m.transport.transportMode = TransportController.Mode.Idle
+        if not (m.chromeMode = ChromeMode.Shown or m.chromeMode = ChromeMode.FadingIn)
+            ShowChrome()
+            return true
+        end if
+    end if
+
+    ' the transport command for this key, or Command.None for a key handled below.
+    cmd = PlayerCoordinatorLogic.KeyToCommand(key)
+
+    if cmd <> TransportController.Command.None
+        if press
+            LogDebug("keyDown transport cmd=", cmd)
+            m.focusTarget = PlayerCoordinatorLogic.FocusTarget.Bar
+        end if
+        m.transport.HandleKey(cmd, press)
+        ApplyTransport()
+        ' any transport key reveals the chrome instantly (no fade) so seeking shows the bar/thumbnails right
+        ' away. InstantReplay returns to idle but flashes the transient replay icon (glyph <> none), so it
+        ' reveals too.
+        if press and (m.transport.transportMode <> TransportController.Mode.Idle or m.transport.glyph <> TransportController.Glyph.None)
+            ShowChrome(true)
+        end if
+        return true
+    end if
+
+    ' non-transport keys act only on keyDown. (Down drops focus buttons->bar via the focus model above; minimize
+    ' is its own button now.)
+    if not press
+        return false
+    end if
+
+    if key = RemoteKeys.Ok
+        return OnOkPress()
+    else if key = RemoteKeys.Play or key = RemoteKeys.PlayOnly
+        return OnPlayPress()
+    else if key = RemoteKeys.Back
+        return OnBackPress()
+    end if
+
+    return false
+end function
+
+' SponsorBlock manual-skip: if a manual segment is armed + we're still inside it, OK skips it (seek to its
+' end, or finish if it's at the very end) and dismisses the notification. Called FIRST in OnKeyEvent — the
+' on-screen "Press OK to skip" must win over the button/bar focus tiers.
+function TrySponsorBlockSkip() as boolean
+    skip = m.sponsorblock.TrySkip(Int(m.top.position * 1000))
+    if skip = SponsorBlockController.NO_SKIP
+        return false
+    end if
+    LogDebug("OK skip resolved=", skip, " (FINISH=", SponsorBlockController.FINISH_SENTINEL, ") posS=", m.top.position, " mode=", m.transport.transportMode)
+    if skip = SponsorBlockController.FINISH_SENTINEL
+        OnPlaybackFinished()
+    else
+        ' route through the module instead of a raw m.top.seek: ForceIdleSeek resets any active transport
+        ' to idle + emits the seek as a normal intent, so the bif/glyph self-hide and module/device never
+        ' diverge. keepPlaying=true preserves the current play state (the user skipped, not resumed).
+        m.transport.ForceIdleSeek(skip, true)
+        ApplyTransport()
+    end if
+    return true
+end function
+
+' OK/Select — the one shared key. Priority (after the SponsorBlock skip, handled in OnKeyEvent): commit (if a
+' transport is active) -> chrome/pause toggle. OK is the VOD pause key. So
+' while idle: VOD = play/pause toggle (reveals chrome + LargePause); live = chrome toggle only (no pause).
+function OnOkPress() as boolean
+    ' commit an active transport.
+    if m.transport.transportMode <> TransportController.Mode.Idle
+        LogDebug("OK -> commit transport")
+        m.transport.HandleCommand(TransportController.Command.Commit)
+        ApplyTransport()
+        return true
+    end if
+
+    ' the OK/Select state machine while idle: VOD pauses/resumes/reveals by play + HUD state, live toggles the HUD.
+    chromeShown = (m.chromeMode = ChromeMode.Shown or m.chromeMode = ChromeMode.FadingIn)
+    action = PlayerCoordinatorLogic.OkActionInIdle(m.top.state, chromeShown, m.transport.isLive)
+    LogDebug("OK idle: state=", m.top.state, " chromeShown=", chromeShown, " isLive=", m.transport.isLive, " action=", action)
+    ApplyOkAction(action)
+    return true
+end function
+
+' Apply an OK/Select action to the Video node, the chrome, and the large pause poster.
+'   pause        -> pause, show the pause poster, keep the HUD up.
+'   resume       -> resume, cancel the pause poster, hide the HUD.
+'   reveal       -> show the HUD, leave playback as-is.
+'   toggleChrome -> live: toggle the HUD, never pause.
+function ApplyOkAction(action as integer) as void
+    if action = PlayerCoordinatorLogic.OkAction.Pause
+        m.repauseAfterSeek = false
+        m.top.control = VideoControl.Pause
+        m.largePause.trigger = true
+        ShowChrome()
+    else if action = PlayerCoordinatorLogic.OkAction.Resume
+        m.repauseAfterSeek = false
+        m.top.control = VideoControl.Resume
+        m.largePause.cancel = true
+        HideChrome()
+    else if action = PlayerCoordinatorLogic.OkAction.ToggleChrome
+        ToggleChromeOrPause()
+    else
+        ShowChrome() ' reveal
+    end if
+end function
+
+' Play — commit if a transport is active, else toggle play/pause (LargePause on the pause edge).
+function OnPlayPress() as boolean
+    if m.transport.transportMode <> TransportController.Mode.Idle
+        m.transport.HandleCommand(TransportController.Command.Commit)
+        ApplyTransport()
+        return true
+    end if
+    TogglePlayPause()
+    return true
+end function
+
+' Back — a ladder: a transport active > the chrome visible in any form > nothing left to dismiss.
+'   1. transport active        -> cancel it (keep watching, never exit; live also resumes)
+'   2. idle, chrome shown      -> dismiss it (the same animated fade auto-hide uses)
+'   3. idle, chrome fading out -> no-op: the dismissal is already underway (a visible chrome never closes)
+'   4. idle, chrome hidden     -> close the player
+function OnBackPress() as boolean
+    action = PlayerCoordinatorLogic.BackActionFor(m.transport.transportMode, m.chromeMode)
+    ApplyBackAction(action)
+    return true
+end function
+
+' Apply the Back decision to the transport / chrome / player.
+function ApplyBackAction(action as integer) as void
+    if action = PlayerCoordinatorLogic.BackAction.CancelTransport
+        m.transport.CancelTransport() ' live also emits a resume at the frozen playhead; VOD stays paused
+        ApplyTransport() ' drains the timer-stop + any resume intent, pushes mode=idle so the bif/glyph self-hide
+        ' OnAutoHideFire no-ops (and does NOT rearm itself, repeat="false") while a transport is active, so a
+        ' scrub/scan/liveDvr that outlasted the 5s auto-hide would leave the timer dead -- rearm it here or the
+        ' chrome could be stuck shown forever.
+        ArmAutoHide()
+    else if action = PlayerCoordinatorLogic.BackAction.DismissChrome
+        HideChrome() ' the same animated 0.3s fade the 5s auto-hide uses -- not the instant HideChromeNow
+    else if action = PlayerCoordinatorLogic.BackAction.Close
+        ClosePlayer()
+    end if
+    ' BackAction.None (mid fade-out) falls through: the press is consumed and the fade finishes on its own.
+end function
+
+'===============================================================================
+' FOCUS (two-tier virtual focus) — the real focus stays on the Video node. Two tiers: the BAR (default on
+' reveal; Left/Right scrub, the cursor grows) and the BUTTONS. Up/Down move between them; both exist only while
+' the chrome is up and idle.
+'===============================================================================
+function CanFocusInteract() as boolean
+    chromeShown = (m.chromeMode = ChromeMode.Shown or m.chromeMode = ChromeMode.FadingIn)
+    return chromeShown and m.transport.transportMode = TransportController.Mode.Idle
+end function
+
+' Move focus to a tier (bar / buttons). Re-entering the buttons returns to the last-focused button — the
+' highlight is only reset to play/pause on a fresh reveal (ShowChrome), i.e. whenever the row was hidden.
+function SetFocusTarget(target as integer) as void
+    m.focusTarget = target
+    SyncFocus()
+    ArmAutoHide()
+end function
+
+' Route a key while the BUTTON tier holds focus: Left/Right move the highlight, OK activates. Play is NOT
+' an activator — it always means play/pause, whatever button is highlighted, so it falls through to
+' OnPlayPress. (Up/Down are handled one level up by NextFocusTarget.) Returns false for keys the buttons
+' don't own (Play/Rev/Fwd/Replay/Back) so those fall through to the transport / play-pause / close.
+function HandleButtonsKey(key as string) as boolean
+    if key = RemoteKeys.Left or key = RemoteKeys.Right
+        newIndex = PlayerCoordinatorLogic.NextButtonIndex(m.focusedButton, key, m.buttonRow.buttonCount)
+        if newIndex = m.focusedButton
+            ' clamped at the row's end: pulse the focused button so the press visibly lands somewhere.
+            m.buttonRow.nudge = true
+        end if
+        m.focusedButton = newIndex
+        SyncFocus()
+        ArmAutoHide()
+        return true
+    else if key = RemoteKeys.Ok
+        ActivateButton(m.focusedButton)
+        return true
+    end if
+    return false
+end function
+
+' Run the action for the focused button.
+function ActivateButton(index as integer) as void
+    if index = PlayerCoordinatorLogic.PlayerButton.PlayPause
+        TogglePlayPause()
+    else if index = PlayerCoordinatorLogic.PlayerButton.Minimize
+        MinimizeReset()
+        VideoQueueUtils.ToggleVideoPictureInPicture(m.videoQueue)
+    end if
+    SyncFocus()
+end function
+
+' Push the focus state to the renderers. The button row highlights its focused button while the BUTTON tier
+' holds focus; the trackbar's cursor grows while the BAR tier holds focus. Both are gated on the chrome being
+' up, so nothing reads as focused while the chrome is hidden.
+function SyncFocus() as void
+    chromeShown = (m.chromeMode = ChromeMode.Shown or m.chromeMode = ChromeMode.FadingIn)
+    m.buttonRow.transportMode = m.transport.transportMode
+    m.buttonRow.rowFocused = chromeShown and (m.focusTarget = PlayerCoordinatorLogic.FocusTarget.Buttons)
+    m.buttonRow.focusedIndex = m.focusedButton
+    m.buttonRow.playing = (m.top.state = VideoState.Playing)
+    m.trickPlayBar.focused = chromeShown and (m.focusTarget = PlayerCoordinatorLogic.FocusTarget.Bar)
+end function
+
+'===============================================================================
+' Chrome — the coordinator owns the Chrome group fade as a unit.
+'===============================================================================
+' OK/Select in idle. Live: toggle chrome only (no pause). VOD: also a chrome toggle (Play is the pause key);
+' reveal -> auto-hide, shown -> hide.
+function ToggleChromeOrPause() as void
+    if m.chromeMode = ChromeMode.Shown or m.chromeMode = ChromeMode.FadingIn
+        HideChrome()
+    else
+        ShowChrome()
+    end if
+end function
+
+' VOD OK/Play in idle. Pause-from-playing pulses the LargePause trigger (the only trigger path) + reveals
+' chrome; resume cancels LargePause + hides chrome. The transport freeze-pause is a different code path and
+' never touches the trigger, so LargePause can't fire on a scrub/scan/live freeze.
+function TogglePlayPause() as void
+    m.repauseAfterSeek = false ' an explicit toggle overrides any pending re-pause
+    if m.top.state = VideoState.Playing
+        m.top.control = VideoControl.Pause
+        m.largePause.trigger = true
+        ShowChrome() ' the pause reveals the HUD
+    else
+        m.top.control = VideoControl.Resume
+        m.largePause.cancel = true
+        HideChrome()
+    end if
+end function
+
+' Minimize: reset any active transport to idle (clears the bif/glyph, stops the transport timer) and hide the
+' chrome, leaving the underlying play/pause state untouched.
+function MinimizeReset() as void
+    if m.transport.transportMode <> TransportController.Mode.Idle
+        m.transport.ResetTransport()
+        ApplyTransport() ' drains the timer-stop + pushes mode=idle so the bif/glyph self-hide
+    end if
+    HideChrome()
+end function
+
+' Reveal: unhide + fade-in 0.5s linear + (re)arm the 5s auto-hide. The fade-in fires once on a hidden->shown
+' transition; while already shown or mid fade-in, a repeat reveal (e.g. a second Left while the chrome is
+' coming up) must not restart the animation — it just refreshes the bar + re-arms auto-hide.
+function ShowChrome(instant = false as boolean) as void
+    ' no chrome at all while minimized.
+    if not m.container.fullscreen
+        return
+    end if
+    ' no chrome before the first frame either: the loading overlay (title + spinner) owns the screen, and the
+    ' bar would render placeholder facts (a VOD-shaped 0:00 bar that flips to the live layout when the content
+    ' facts land — visible flicker on an early reveal). Matches the stock player: no trickplay UI during load.
+    if not m.firstFrameSeen
+        return
+    end if
+    wasHidden = (m.chromeMode = ChromeMode.Hidden or m.chromeMode = ChromeMode.FadingOut)
+    m.chromeFadeOut.control = "stop"
+    m.chrome.visible = true
+    if wasHidden
+        if instant
+            ' transport-key reveal (scrub/scan): appear immediately, no fade, so the bar/thumbnails show the
+            ' moment you start seeking.
+            m.chromeFadeIn.control = "stop"
+            m.chrome.opacity = 1.0
+            m.chromeMode = ChromeMode.Shown
+        else
+            LogDebug("ShowChrome: fade-in (hidden->shown)")
+            m.chromeMode = ChromeMode.FadingIn
+            m.chromeFadeIn.control = "start"
+        end if
+        ' flash "● LIVE" briefly on an IDLE live reveal, then let the label swap to the offset M:SS when behind
+        ' the edge (signals "this is live"). Label only — the playhead is proportional to the real cursor
+        ' position. A transport-key reveal skips the hold: the user is seeking by the offset.
+        if m.transport.isLive and m.transport.transportMode = TransportController.Mode.Idle
+            StartLiveBadgeHold()
+        end if
+    end if
+    ' refresh the renderers with the full current projection before the chrome paints — covers the live
+    ' offset/badge + glyph, not just position, so a reveal while idle-behind-the-edge is never stale.
+    ' default focus on a fresh idle reveal (not a transport-key instant reveal): the trackbar, so Left/Right
+    ' seek and OK-to-pause both work immediately with no extra navigation. focusedButton still resets to
+    ' play/pause — that's the standing highlight for whenever the Buttons tier is later entered via Up.
+    if wasHidden and not instant and m.transport.transportMode = TransportController.Mode.Idle
+        m.focusTarget = PlayerCoordinatorLogic.FocusTarget.Bar
+        m.focusedButton = PlayerCoordinatorLogic.PlayerButton.PlayPause
+    end if
+    PushTransportToRenderers()
+    SyncFocus()
+    ArmAutoHide()
+end function
+
+' Force the bar to show "● LIVE" briefly after a live reveal, then release so it swaps to the offset M:SS
+' when behind the edge.
+function StartLiveBadgeHold() as void
+    m.liveBadgeHoldActive = true
+    m.trickPlayBar.forceLiveBadge = true
+    m.liveBadgeHold.control = "stop"
+    m.liveBadgeHold.control = "start"
+end function
+
+function OnLiveBadgeHoldFire() as void
+    m.liveBadgeHoldActive = false
+    m.trickPlayBar.forceLiveBadge = false
+end function
+
+' Release the hold early (a transport started mid-hold). Guarded so the per-drain call from ApplyTransport
+' is free when no hold is running.
+function CancelLiveBadgeHold() as void
+    if not m.liveBadgeHoldActive
+        return
+    end if
+    m.liveBadgeHoldActive = false
+    m.liveBadgeHold.control = "stop"
+    m.trickPlayBar.forceLiveBadge = false
+end function
+
+' Fade-out 0.3s linear (no-op if already hidden).
+function HideChrome() as void
+    if m.chromeMode = ChromeMode.Hidden or m.chromeMode = ChromeMode.FadingOut
+        return
+    end if
+    m.autoHide.control = "stop"
+    m.chromeFadeIn.control = "stop"
+    m.chromeMode = ChromeMode.FadingOut
+    m.chromeFadeOut.control = "start"
+    SyncFocus()
+end function
+
+' Hide the chrome immediately (no fade). Used on minimize so no UI lingers in the PiP window.
+function HideChromeNow() as void
+    m.chromeFadeIn.control = "stop"
+    m.chromeFadeOut.control = "stop"
+    m.autoHide.control = "stop"
+    m.chrome.opacity = 0
+    m.chrome.visible = false
+    m.chromeMode = ChromeMode.Hidden
+    SyncFocus()
+end function
+
+' (re)arm the 5s auto-hide. Only matters while shown; OnAutoHideFire re-checks the idle gate.
+function ArmAutoHide() as void
+    m.autoHide.control = "stop"
+    m.autoHide.control = "start"
+end function
+
+function OnAutoHideFire() as void
+    ' auto-hide ONLY when no transport is active (a rewound-sit / scrub keeps the chrome up).
+    if m.transport.transportMode = TransportController.Mode.Idle
+        HideChrome()
+    end if
+end function
+
+function OnChromeFadeInState() as void
+    if m.chromeFadeIn.state = "stopped"
+        m.chromeMode = ChromeMode.Shown
+    end if
+end function
+
+function OnChromeFadeOutState() as void
+    if m.chromeFadeOut.state = "stopped"
+        m.chromeMode = ChromeMode.Hidden
+        m.chrome.visible = false
+    end if
+end function
+
+'===============================================================================
+' Device signal handlers (state / position / duration / timers / fullscreen).
+'===============================================================================
+' Device signal observers take the event and read the changed value from it — event.getData() hands over the
+' value the notification carried, instead of a second read of the node field (which copies again).
+function OnVideoState(event as object) as void
+    if m.onCloseCalled = true
+        return
+    end if
+    state = event.getData()
+    LogInfo("videoState ->", state)
+    m.playbackTelemetry.OnState(state)
+
+    ' push the new state to the cast/lounge side in real time.
+    Lounge.SendOnStateChange()
+    SyncFocus()
+
+    if state = VideoState.Playing
+        ' first frame -> the module's ready gate opens; drop the loading overlay.
+        if not m.firstFrameSeen
+            m.firstFrameSeen = true
+            m.transport.OnReady()
+            m.spinner.mode = SpinMode.Off
+            LogInfo("first frame: ready=true, loading overlay off")
+        end if
+        ' reaching "playing" means any in-flight play-through seek has landed. Clear the settling flag before
+        ' the freeze so a transport that deferred its pause now freezes this settled-playing video.
+        m.transport.MarkSeekSettled()
+        EnforceTransportFreeze("OnVideoState")
+        ' a keep-playing seek issued while paused has landed (the device auto-resumed): restore the pause.
+        if m.repauseAfterSeek
+            m.repauseAfterSeek = false
+            m.top.control = VideoControl.Pause
+        end if
+        ' the stream actually played -> any later error is not a 403; stop retrying stream URLs.
+        m.videoPlayedSuccessfully = true
+        ' recovered after an error dialog -> dismiss it.
+        DismissErrorDialog()
+        ' a mid-stream buffer cleared while idle -> drop the buffering spinner.
+        if m.spinner.mode = SpinMode.Buffering
+            m.spinner.mode = SpinMode.Off
+        end if
+    else if state = VideoState.Buffering
+        ' show the buffering spinner ONLY mid-stream + idle (a seek-rebuffer under a transport is covered by
+        ' the bif — no spinner). Never during the first load (that's the loading mode).
+        if PlayerCoordinatorLogic.ShouldShowBuffering(m.firstFrameSeen, m.transport.transportMode, m.container.fullscreen)
+            m.spinner.mode = SpinMode.Buffering
+        end if
+    else if state = VideoState.Finished
+        ' a retry replay (error -> next stream URL) ends with a "finished" edge we must swallow.
+        if m.ignoreNextFinished
+            m.ignoreNextFinished = false
+            return
+        end if
+        OnPlaybackFinished()
+    else if state = VideoState.Error
+        OnVideoError()
+    end if
+end function
+
+function OnBufferingStatus(event as object) as void
+    if m.onCloseCalled = true
+        return
+    end if
+    m.playbackTelemetry.OnBufferingStatus(event.getData())
+end function
+
+function OnPlayStartInfo(event as object) as void
+    if m.onCloseCalled = true
+        return
+    end if
+    m.playbackTelemetry.OnPlayStartInfo(event.getData())
+end function
+
+' Only the first video segment is wanted: no callback per segment for the rest of the play.
+function OnStreamingSegment(event as object) as void
+    if m.onCloseCalled = true
+        return
+    end if
+    if m.playbackTelemetry.OnStreamingSegment(event.getData())
+        m.top.unobserveField("streamingSegment")
+    end if
+end function
+
+' A transport freezes the video; if the device is playing under an active transport (Roku resumes a paused
+' Video on a seek, or a freeze command was dropped), re-pause. The transport stays active so the bif stays
+' visible over the now-paused video. Called from OnVideoState (the change edge) and OnPosition (the net —
+' OnPosition fires only while playing, so a transport-under-playing always trips it even with no state-change
+' event). Re-pausing yields state=paused -> OnPosition stops -> no loop.
+function EnforceTransportFreeze(source as string) as void
+    inTransport = (m.transport.transportMode <> TransportController.Mode.Idle)
+    action = PlayerCoordinatorLogic.TransportSafetyAction(m.top.state, inTransport, m.transport.isLive, Int(m.top.position * 1000), m.transport.cursorMs, m.transport.durationMs, m.transport.SafetyFloorMs())
+    if action = PlayerCoordinatorLogic.SafetyAction.Freeze
+        m.top.control = VideoControl.Pause
+        ' the play-through seek that opened this transport has landed, so clear autoplayAfterSeek; a later
+        ' seek-complete must not silently un-freeze the video behind the transport.
+        m.top.autoplayAfterSeek = false
+        m.playbackTelemetry.RecordHeal(source)
+    else if action = PlayerCoordinatorLogic.SafetyAction.ResumeLiveTail
+        ' the tail overtook the frozen playhead: resolve forward (ResolveLiveTail), don't heal.
+        m.playbackTelemetry.RecordTailResolve(source)
+        m.transport.ResolveLiveTail()
+        ApplyTransport()
+    else if action = PlayerCoordinatorLogic.SafetyAction.FinishEof
+        ' content played to the end under a transport sitting at the end: finishing is what "at the end"
+        ' means, and the alternative (re-pausing at EOF) loops against the device forever.
+        LogInfo("transport at end of content -> finish")
+        m.transport.ResetTransport()
+        ApplyTransport()
+        OnPlaybackFinished()
+    end if
+end function
+
+' The Video node reached state=error. ErrorDialogController decides retry-vs-dialog; the coordinator applies
+' (replay the next URL, or show the scene-level TimedDialog).
+function OnVideoError() as void
+    ' an error cancels any active transport before the retry/dialog (the scrub is meaningless on an errored
+    ' stream, and keeps the retry's control="play" from tripping the external-resume takeover).
+    if m.transport.transportMode <> TransportController.Mode.Idle
+        m.transport.ResetTransport()
+        ApplyTransport()
+    end if
+    content = m.top.content
+    errorInfo = m.top.errorInfo
+    errorData = GetPlayerErrorData(content.videoId, errorInfo)
+    ' NoTelemetry: ReportVideoError below already telemeters this.
+    LogErrorNoTelemetry(errorData.title, errorData.body)
+    ' read before deciding: a retry advances content.url and its index to the next stream url.
+    failedUrl = content.url
+    failedUrlIndex = content.playletStreamUrlIndex
+
+    decision = ErrorDialogController.DecideVideoError(content, m.videoPlayedSuccessfully)
+
+    if decision.action = ErrorDialogController.Action.Retry
+        LogInfo("error retry -> next stream url=", decision.nextUrl)
+        m.playbackTelemetry.ReportVideoError(errorData, errorInfo, failedUrl, failedUrlIndex, false)
+        ' the controller already advanced content.url/index; replay it from the initial position (live edge /
+        ' timestamp / percent watched), seeked before play so it is the start position. Swallow the next
+        ' finished edge.
+        m.ignoreNextFinished = true
+        m.repauseAfterSeek = false ' the retry plays fresh; drop any pending re-pause
+        SeekToInitialPosition(content)
+        m.top.control = VideoControl.Play
+        return
+    end if
+
+    ' a retry isn't possible: report it and show the error dialog (swallowing the trailing finished edge).
+    m.playbackTelemetry.ReportVideoError(errorData, errorInfo, failedUrl, failedUrlIndex, true)
+    m.ignoreNextFinished = true
+    ShowErrorDialog({ title: errorData.title, message: errorData.body })
+end function
+
+function OnPosition(event as object) as void
+    if m.onCloseCalled = true
+        return
+    end if
+    posMs = Int(event.getData() * 1000)
+    m.transport.OnPosition(posMs)
+    ApplyTransport()
+    EnforceTransportFreeze("OnPosition") ' OnPosition only fires while playing, so it catches a transport auto-resumed with no state-change edge.
+
+    ' EnforceTransportFreeze can finish playback (FinishEof at the end of content under a transport), which
+    ' synchronously closes the player and drops m.sponsorblock. A closed player must run no more of the tick.
+    if m.onCloseCalled = true
+        return
+    end if
+
+    ' SponsorBlock auto-skip off the real position (the controller decides; we apply the seek / finish).
+    skipMs = m.sponsorblock.OnPosition(posMs)
+    if skipMs = SponsorBlockController.FINISH_SENTINEL
+        OnPlaybackFinished()
+    else if skipMs <> SponsorBlockController.NO_SKIP
+        m.transport.ForceIdleSeek(skipMs, true) ' through the module (no out-of-band seek); keep playing
+        ApplyTransport()
+    end if
+
+    ' report watch progress to the account in 20-second steps.
+    if m.reportWatchTime and m.markVideoWatchedJob <> invalid
+        marker = (posMs \ 20000) * 20
+        if marker <> m.watchTimeMarker
+            m.watchTimeMarker = marker
+            m.markVideoWatchedJob.watchTime = marker
+        end if
+    end if
+end function
+
+function OnDuration(event as object) as void
+    if m.onCloseCalled = true
+        return
+    end if
+    durMs = Int(event.getData() * 1000)
+    m.transport.OnDuration(durMs) ' the brain ignores this on live (the edge comes from the clock)
+    ' a live stream WITHOUT the manifest anchor in its metadata: anchor the clock off each duration report
+    ' instead (duration freezes during pause, so each report re-anchors; between reports the clock projects).
+    if m.transport.isLive and m.liveAstSeconds <= 0 and durMs > 0 and not TransportController.IsLiveEdgeSentinelMs(durMs)
+        m.liveFallbackEdgeMs = durMs
+        m.liveFallbackAtSeconds = NowSeconds()
+        PushLiveEdge()
+    end if
+    ApplyTransport()
+end function
+
+' Current wall-clock epoch seconds, off the cached roDateTime.
+function NowSeconds() as integer
+    m.nowDateTime.Mark()
+    return m.nowDateTime.AsSeconds()
+end function
+
+' The live edge on the manifest timeline (ms): wall clock minus the availabilityStartTime anchor (or the
+' duration-report fallback). 0 when no anchor is known yet.
+function ComputeLiveEdgeMs() as integer
+    epochSeconds = NowSeconds()
+    if m.liveAstSeconds > 0
+        return (epochSeconds - m.liveAstSeconds) * 1000
+    end if
+    if m.liveFallbackEdgeMs >= 0
+        return m.liveFallbackEdgeMs + (epochSeconds - m.liveFallbackAtSeconds) * 1000
+    end if
+    return 0
+end function
+
+function PushLiveEdge() as void
+    edgeMs = ComputeLiveEdgeMs()
+    if edgeMs > 0
+        m.transport.OnLiveEdge(edgeMs)
+    end if
+end function
+
+' the 1s live heartbeat: keep the brain's edge current (and the on-screen offset counting) even while the
+' device is paused/frozen and emits no events. ApplyTransport's render gating keeps the idle-hidden case free.
+function OnLiveEdgeClockFire() as void
+    if m.onCloseCalled = true
+        return
+    end if
+    PushLiveEdge()
+    ApplyTransport()
+end function
+
+' the single transport timer fired -> Tick the module with the currently-armed timer id, then drain it.
+function OnTransportTimerFire() as void
+    if m.armedTimerId = TransportController.Timer.None
+        return
+    end if
+    ' a non-repeating timer (scrubRepeat) has stopped itself; clear the armed id before Tick so a re-arm inside
+    ' Tick (scrubRepeat re-arms at the repeat cadence) sets the fresh id via ApplyTransport.
+    firedId = m.armedTimerId
+    if not m.transportTimer.repeat
+        m.armedTimerId = TransportController.Timer.None
+    end if
+    m.transport.Tick(firedId)
+    ApplyTransport()
+end function
+
+function OnFullScreenChange() as void
+    ' a closed player has disposed m.sponsorblock; without this guard a PiP toggle after close crashes here
+    ' (the container observer is also removed in OnClose — this is defense in depth).
+    if m.onCloseCalled = true
+        return
+    end if
+    fullscreen = m.container.fullscreen
+    LogDebug("fullscreen ->", fullscreen)
+    ' the SponsorBlock notification rides with the player: hidden while minimized, shown when full.
+    m.sponsorblock.SetVisible(fullscreen)
+    ' after a PiP restore the OS leaves captions blank while enableUI=false (resizing alone doesn't); suppress on minimize, release on restore to re-engage them.
+    m.top.suppressCaptions = not fullscreen
+    ' minimized: no player UI at all. Reset any active transport (the bif/glyph clear; the underlying play/pause
+    ' stays as-is) and hide chrome/spinner/pause now. Fires for the minimize button, external minimize, and a
+    ' video that starts minimized.
+    if not fullscreen
+        if m.transport.transportMode <> TransportController.Mode.Idle
+            m.transport.ResetTransport()
+            ApplyTransport()
+        end if
+        HideChromeNow()
+        m.spinner.mode = SpinMode.Off
+        m.largePause.cancel = true
+    end if
+    ' reverse the minimize interpolators so the SAME anim grows back on restore.
+    for each id in ["widthInterpolator", "heightInterpolator", "translationInterpolator"]
+        interp = m.top.findNode(id)
+        if interp <> invalid
+            interp.reverse = fullscreen
+        end if
+    end for
+    m.minimize.control = "start"
+    ' the fullScreenHint strip rides the shrink: show it ~1s after minimizing, auto-hide 5s later.
+    m.showFullScreenHint = not fullscreen
+    RefreshFullScreenHint()
+end function
+
+' (re)arm the hint timer for the current phase: while minimized, 1s before showing (let the shrink finish),
+' then 5s before hiding. Fullscreen hides it immediately.
+function RefreshFullScreenHint() as void
+    m.fullScreenHintTimer.control = "stop"
+    if m.container.fullscreen
+        m.fullScreenHint.visible = false
+        return
+    end if
+    if m.showFullScreenHint
+        m.fullScreenHintTimer.duration = 1
+    else
+        m.fullScreenHintTimer.duration = 5
+    end if
+    m.fullScreenHintTimer.control = "start"
+end function
+
+' phase 1 (showFullScreenHint=true) reveals the strip then arms the 5s hide; phase 2 (false) hides it.
+function OnFullScreenHintTimer() as void
+    m.fullScreenHint.visible = m.showFullScreenHint
+    if m.showFullScreenHint
+        m.showFullScreenHint = false
+        RefreshFullScreenHint()
+    end if
+end function
+
+' A resume/play arriving while a transport is active is necessarily external: VPD only ever resumes/plays at
+' idle, so this is the linked phone (Lounge) resuming. The phone action wins — cancel the scrub/scan (the bif +
+' chrome clear) and let the video play.
+function OnControlChange(event as object) as void
+    if m.onCloseCalled = true
+        return
+    end if
+    control = event.getData()
+    if (control = VideoControl.Resume or control = VideoControl.Play) and m.transport.transportMode <> TransportController.Mode.Idle
+        LogInfo("external resume under transport -> take over (cancel transport)")
+        m.transport.ResetTransport()
+        ApplyTransport()
+        HideChromeNow()
+        m.repauseAfterSeek = false ' the external play wins over any pending re-pause
+        m.top.autoplayAfterSeek = true
+        m.top.control = VideoControl.Resume
+    end if
+end function
+
+' Keeps the play state; a frozen transport resumes, as its commit would.
+function OnSetSeek(event as object) as void
+    if m.onCloseCalled = true
+        return
+    end if
+    seekMs = Int(event.getData() * 1000)
+    LogDebug("external seek ->", seekMs)
+    if m.videoContentJob <> invalid
+        m.loadingSetSeekMs = seekMs
+        return
+    end if
+    wasTransport = (m.transport.transportMode <> TransportController.Mode.Idle)
+    m.transport.ForceIdleSeek(seekMs, not wasTransport)
+    ApplyTransport()
+    if wasTransport
+        HideChromeNow()
+    end if
+end function
+
+'===============================================================================
+' Content load, initial seek, previous-player handoff, close.
+'===============================================================================
+function PlayWithContent(contentNode as object)
+    LogInfo("PlayWithContent videoId=", contentNode.videoId, " title=", contentNode.title)
+    videoContentNode = CreateObject("roSGNode", "ContentNode")
+
+    if not StringUtils.IsNullOrEmpty(contentNode.videoId)
+        videoContentNode.AddFields({ videoId: contentNode.videoId })
+    end if
+    if ValidInt(contentNode.timestamp) <> -1
+        videoContentNode.AddFields({ timestamp: contentNode.timestamp })
+    else if contentNode.percentDurationWatched > 0 and contentNode.percentDurationWatched < 100
+        videoContentNode.AddFields({ percentDurationWatched: contentNode.percentDurationWatched })
+    end if
+    if not StringUtils.IsNullOrEmpty(contentNode.title)
+        videoContentNode.title = contentNode.title
+    end if
+    ' NOTE: "_author" not "author" (see PlaylistContentNode.xml).
+    author = contentNode._author
+    if StringUtils.IsNullOrEmpty(author)
+        lines = contentNode.lines
+        if IsArray(lines) and lines.Count() > 0
+            author = lines[0]
+        end if
+    end if
+    if not StringUtils.IsNullOrEmpty(author)
+        videoContentNode.secondaryTitle = author
+    end if
+    metadata = contentNode.metadata
+    if IsAssociativeArray(metadata)
+        videoContentNode.AddFields({ metadata: metadata })
+    end if
+
+    StartVideoContentJob(videoContentNode)
+
+    ' tell the cast/lounge side we are loading (resets playback speed to 1.0 when playback starts).
+    playbackSpeed = ValidFloat(m.top.playbackSpeed)
+    if playbackSpeed <= 0
+        playbackSpeed = 1.0
+    end if
+    Lounge.SendNowPlayingLoading(contentNode.videoId, playbackSpeed)
+end function
+
+function StartVideoContentJob(videoContentNode as object)
+    if m.videoContentJob <> invalid
+        m.videoContentJob.cancel = true
+    end if
+
+    m.top.content = videoContentNode
+    m.top.content.ObserveField("title", FuncName(OnContentMetaChange))
+    m.top.content.ObserveField("secondaryTitle", FuncName(OnContentMetaChange))
+    UpdateOverlayMeta()
+
+    input = {
+        content: videoContentNode
+        invidious: m.top.invidious
+        innertube: m.top.innertube
+        preferences: m.top.preferences
+        loungeService: m.top.loungeService
+        playletServerPort: m.top.webServer.port
+        profilesService: m.top.profilesService
+    }
+
+    m.videoContentJob = JobSystem.CreateCallback(OnVideoContentJobDone)
+    JobSystem.QueueJob(m.jobQueue, Jobs.VideoContentJob, input, m.videoContentJob)
+    LogDebug("queued VideoContentJob")
+end function
+
+function OnVideoContentJobDone(event as object) as void
+    JobSystem.UnobserveCallback(event.getRoSGNode())
+    m.videoContentJob = invalid
+
+    info = event.getInfo()
+    if info.cancel = true or m.onCloseCalled = true
+        LogDebug("VideoContentJob done but cancelled/closed")
+        return
+    end if
+
+    m.playbackTelemetry.OnMetadataDone()
+    content = m.top.content
+
+    if not info.success
+        m.playbackTelemetry.ReportContentJobFailure(info.error)
+        decision = ErrorDialogController.DecideContentJobFailure(content, info.error)
+        ShowErrorDialog(decision)
+        Lounge.SendOnStateChange()
+        return
+    end if
+
+    LogInfo("VideoContentJob success, url=", content.url)
+
+    metadata = content.metadata
+
+    ' The scrub step + bif tiles come from the native Video.thumbnailTiles field, which the OS populates after
+    ' the manifest loads (OnThumbnailTiles) — start with the defaults + a cleared bif and let OnThumbnailTiles
+    ' fill them in for VOD.
+    isLive = content <> invalid and content.Live = true
+    m.transport.SetContent(isLive, 2000, false)
+    ' The seekable depth keeps the rewind floor on the manifest's listed segments (see Innertube.GetLiveTimeline).
+    m.transport.SetLiveDvrWindow(ValidInt(metadata.liveSeekableWindowSec) * 1000)
+    m.trickPlayBar.isLive = isLive
+    m.bifDisplay.tileSet = invalid
+
+    ' anchor the live edge clock at the cushioned availabilityStartTime and start the 1s heartbeat: the brain
+    ' gets a continuous edge (OnLiveEdge) that keeps advancing through pauses, so the time-behind offset is
+    ' always current — including the moment the chrome reveals.
+    m.liveAstSeconds = -1
+    m.liveFallbackEdgeMs = -1
+    m.liveFallbackAtSeconds = 0
+    if isLive
+        ast = ValidString(metadata.liveAvailabilityStartUtc)
+        if ast <> ""
+            astDate = CreateObject("roDateTime")
+            astDate.FromISO8601String(ast)
+            if astDate.AsSeconds() > 0
+                m.liveAstSeconds = astDate.AsSeconds()
+            end if
+        end if
+        PushLiveEdge()
+        m.liveEdgeClock.control = "start"
+    else
+        m.liveEdgeClock.control = "stop"
+    end if
+
+    ' SponsorBlock: the controller decides (pref + not-live) + builds the job input; the coordinator owns
+    ' the job callback (a plain .bs module can't register an observeFieldScoped). Off by default.
+    sbInput = m.sponsorblock.OnContentReady(metadata, isLive)
+    if sbInput <> invalid
+        m.sponsorBlockSegmentsJob = JobSystem.CreateCallback(OnSponsorBlockSegmentsJobDone)
+        JobSystem.QueueJob(m.jobQueue, Jobs.SponsorBlockSegmentsJob, sbInput, m.sponsorBlockSegmentsJob)
+        LogDebug("queued SponsorBlockSegmentsJob")
+    end if
+
+    UpdateOverlayMeta()
+    SeekToInitialPosition(content)
+    PlayAfterPreviousPlayerHasStopped()
+    MarkVideoWatched(content.videoId, metadata.playbackTrackingUrls, metadata.cpn)
+end function
+
+' The coordinator-owned SB job callback (node scope). Hands the result to the controller (it stores segments +
+' sets seekMode), then pushes the bar tint fields when segments exist.
+function OnSponsorBlockSegmentsJobDone(event as object) as void
+    JobSystem.UnobserveCallback(event.getRoSGNode())
+    m.sponsorBlockSegmentsJob = invalid
+
+    info = event.getInfo()
+    ' the cancel issued by OnClose still pulses `done`, and m.sponsorblock is already disposed by then.
+    if info.cancel = true or m.onCloseCalled = true
+        return
+    end if
+
+    m.sponsorblock.OnSegmentsJobDone(event)
+    if m.sponsorblock.HasSegments() and IsAssociativeArray(info) and IsAssociativeArray(info.data)
+        barPath = info.data.barPath
+        m.trickPlayBar.sbBarUri = barPath
+        m.trickPlayBar.sbFillBlend = SponsorBlockController.BAR_FILL_BLEND
+        LogDebug("SponsorBlock bar tinted: ", barPath)
+    end if
+end function
+
+' Report the video as watched to the account: a one-shot history ping plus, for YouTube profiles, a watch-time
+' position loop (reported in 20-second steps from OnPosition). No-op without a signed-in account or a videoId.
+function MarkVideoWatched(videoId as dynamic, playbackTrackingUrls as dynamic, cpn as dynamic) as void
+    if StringUtils.IsNullOrEmpty(videoId)
+        return
+    end if
+    profile = m.top.profilesService.currentProfile
+    if profile = invalid
+        return
+    end if
+    if profile.authState = ProfileContentAuthTokenUtils.ProfileAuthState.NeedsReauth
+        return
+    end if
+    if m.markVideoWatchedJob <> invalid
+        m.markVideoWatchedJob.cancel = true
+    end if
+    input = {
+        videoId: videoId
+        invidious: m.top.invidious
+        profile: profile
+        playbackTrackingUrls: playbackTrackingUrls
+        cpn: cpn
+    }
+    m.markVideoWatchedJob = JobSystem.CreateCallback()
+    m.markVideoWatchedJob.addField("watchTime", "float", false)
+    JobSystem.QueueJob(m.jobQueue, Jobs.MarkVideoWatchedJob, input, m.markVideoWatchedJob)
+
+    ' only YouTube profiles take the periodic watch-time updates.
+    m.watchTimeMarker = -1
+    m.reportWatchTime = (profile.type = "youtube")
+end function
+
+function SeekToInitialPosition(content as object) as void
+    if content = invalid
+        return
+    end if
+    if m.loadingSetSeekMs <> -1
+        LogDebug("seeking to the setSeek that arrived while loading:", m.loadingSetSeekMs)
+        ApplySeek(m.loadingSetSeekMs)
+        m.loadingSetSeekMs = -1
+        return
+    end if
+    if content.Live = true
+        LogDebug("seeking to end of live stream")
+        ApplySeek(TransportController.LIVE_EDGE_SEEK_MS)
+        return
+    end if
+    timestamp = ValidInt(content.timestamp)
+    if timestamp > 0
+        LogDebug("seeking to timestamp:", timestamp)
+        ApplySeek(timestamp * 1000)
+        return
+    end if
+    percentDurationWatched = ValidFloat(content.percentDurationWatched)
+    if percentDurationWatched <= 0
+        return
+    end if
+    ' the metadata's length, not the Video's duration (known only once playing): a seek into a started DRM play
+    ' errors on some Roku TVs.
+    lengthSeconds = ValidInt(ValidAssociativeArray(content.metadata).lengthSeconds)
+    if lengthSeconds <= 0
+        LogWarn("no lengthSeconds to resume the percent watched from; starting from the beginning. videoId:", content.videoId)
+        return
+    end if
+    if lengthSeconds < 30
+        return
+    end if
+    seekMs = Int(percentDurationWatched / 100.0 * lengthSeconds * 1000)
+    LogDebug("seeking to percent watched ->", seekMs)
+    ApplySeek(seekMs)
+end function
+
+function PlayAfterPreviousPlayerHasStopped() as void
+    previousPlayer = m.top.previousPlayer
+    m.top.previousPlayer = invalid
+    ' AutoBind strong-cached the prior player into m.previousPlayer; with only the field cleared, that cache
+    ' chains every closed player alive.
+    m.previousPlayer = invalid
+
+    if previousPlayer = invalid
+        LogDebug("no previous player -> control=play")
+        m.top.control = VideoControl.Play
+        return
+    end if
+
+    previousPlayerState = previousPlayer.state
+    LogDebug("previous player state:", previousPlayerState)
+
+    if previousPlayerState = VideoState.Stopping
+        previousPlayer.observeFieldScoped("state", FuncName(OnPreviousPlayerState))
+        return
+    end if
+
+    m.top.control = VideoControl.Play
+end function
+
+function OnPreviousPlayerState(event as object) as void
+    previousPlayer = event.getRoSGNode()
+
+    if m.onCloseCalled = true
+        previousPlayer.unobserveFieldScoped("state")
+        return
+    end if
+
+    previousPlayerState = previousPlayer.state
+    LogDebug("previous player state change:", previousPlayerState)
+
+    if previousPlayerState = VideoState.Stopped or previousPlayerState = VideoState.Error or previousPlayerState = VideoState.Finished or previousPlayerState = VideoState.None
+        previousPlayer.unobserveFieldScoped("state")
+        m.top.control = VideoControl.Play
+    end if
+end function
+
+'-------------------------------------------------------------------------------
+' Title / secondary-title overlay (plumbing, fed from content). The wall clock is the sibling Clock component,
+' which self-updates once a minute — no plumbing here.
+'-------------------------------------------------------------------------------
+function OnContentMetaChange()
+    UpdateOverlayMeta()
+end function
+
+function UpdateOverlayMeta() as void
+    content = m.top.content
+    if content = invalid
+        return
+    end if
+    title = ValidString(content.title)
+    secondaryTitle = ValidString(content.secondaryTitle)
+    m.titleLabel.text = title
+    m.secondaryTitleLabel.text = secondaryTitle
+    ' the loading overlay shows the same title + secondary title while loading.
+    m.spinner.title = title
+    m.spinner.secondaryTitle = secondaryTitle
+end function
+
+'-------------------------------------------------------------------------------
+' Storyboards — sourced from the native Video.thumbnailTiles field (the OS populates it from the DASH image
+' AdaptationSet; the DASH builder equalizes @bandwidth across levels and orders sharpest-first so the OS
+' selects the sharpest — see GenerateImageAdaptationSets). Live has none.
+'-------------------------------------------------------------------------------
+' Reads the tiles from the event — thumbnailTiles is a large AA (every sheet url), and a m.top read would
+' copy the whole thing a second time.
+function OnThumbnailTiles(event as object) as void
+    if m.onCloseCalled = true
+        return
+    end if
+    if m.transport.isLive
+        return
+    end if
+    tileSet = PlayerCoordinatorLogic.PickThumbnailTileSet(event.getData())
+    if tileSet = invalid
+        return
+    end if
+    m.bifDisplay.tileSet = tileSet
+    intervalMs = PlayerCoordinatorLogic.TileSetIntervalMs(tileSet)
+    m.transport.UpdateStoryboards(intervalMs, true)
+    LogDebug("thumbnailTiles: grid=", tileSet.htiles, "x", tileSet.vtiles, " interval=", intervalMs, " sheets=", tileSet.tiles.Count())
+end function
+
+'-------------------------------------------------------------------------------
+' EOF / close lifecycle.
+'-------------------------------------------------------------------------------
+function OnPlaybackFinished() as void
+    ' before PlayNext/ClosePlayer: either can close this player, and send its summary, synchronously.
+    m.playbackTelemetry.OnFinished()
+    LogDebug("playback finished -> PlayNext or close")
+    if not VideoQueueUtils.PlayNext(m.videoQueue, m.invidious, m.preferences)
+        ClosePlayer()
+    end if
+end function
+
+'-------------------------------------------------------------------------------
+' Error dialog — the coordinator owns the scene-level TimedDialog node + the response observer (node-scoped;
+' the retry-vs-dialog decision is ErrorDialogController). 10s countdown on "Play next video"(default) /
+' "Cancel"; any key cancels the countdown; response -> PlayNext or close.
+'-------------------------------------------------------------------------------
+' Always returns a record — callers dereference .title/.body unconditionally, so a state=error with no errorInfo
+' must still produce one.
+function GetPlayerErrorData(videoId as string, errorInfo as object) as object
+    title = Tr(Locale.VideoPlayer.ErrorPlayingVideo).Replace("%1", videoId)
+    body = `errorMsg: ${m.top.errorMsg}\nerrorCode: ${m.top.errorCode}\nerrorStr: ${m.top.errorStr}`
+    if errorInfo <> invalid
+        for each key in errorInfo
+            body += `\n${key}: ${errorInfo[key]}`
+        end for
+    end if
+    return { title: title, body: body }
+end function
+
+function ShowErrorDialog(decision as object) as void
+    ' first: a blocked dialog closes this player, and sends its summary, synchronously (below).
+    m.playbackTelemetry.OnErrorDialog()
+    buttons = [Tr(Locale.Buttons.PlayNextVideo), Tr(Locale.Buttons.Cancel)]
+    dialog = DialogUtils.ShowTimedDialogButtons(decision.message, decision.title, buttons, 0, 10, true)
+    if dialog <> invalid
+        m.errorDialogNode = dialog
+        dialog.observeFieldScoped("wasClosed", FuncName(OnErrorDialogResponse))
+    else
+        ' a higher-priority dialog blocked ours -> fall back to the close/PlayNext decision directly.
+        OnErrorDialogResponse(invalid)
+    end if
+end function
+
+' Close our error dialog if playback recovered while it was up.
+function DismissErrorDialog() as void
+    dialog = m.errorDialogNode
+    if dialog <> invalid
+        m.errorDialogNode = invalid
+        dialog.unobserveFieldScoped("wasClosed")
+        dialog.close = true
+    end if
+end function
+
+' button 0 (Play next video) / 10s timeout -> PlayNext (-> close if none); button 1 (Cancel) -> close.
+function OnErrorDialogResponse(event as object) as void
+    shouldPlayNext = false
+    if event <> invalid
+        dialog = event.getRoSGNode()
+        if m.errorDialogNode <> invalid and dialog.isSameNode(m.errorDialogNode)
+            m.errorDialogNode = invalid
+        end if
+        dialog.unobserveFieldScoped("wasClosed")
+        shouldPlayNext = (dialog.actualButtonSelected = 0)
+    end if
+
+    if not shouldPlayNext or not VideoQueueUtils.PlayNext(m.videoQueue, m.invidious, m.preferences)
+        ClosePlayer()
+    end if
+end function
+
+function ClosePlayer() as void
+    if m.videoQueue <> invalid
+        m.videoQueue.closePlayer = true
+    end if
+end function
+
+function OnClose() as void
+    ' a second close=true must be a no-op, not a second teardown.
+    if m.onCloseCalled = true
+        return
+    end if
+    m.onCloseCalled = true
+    m.top.previousPlayer = invalid
+    m.playbackTelemetry.SendSummary()
+
+    ' A closed player must not react to anything anymore. The onCloseCalled guards already make the handlers
+    ' no-ops; unobserving stops the traffic at the source — late device edges from the async stop, a stray
+    ' seek/control/url write, late thumbnails, and the container's next fullscreen flip (the
+    ' PiP-toggle-after-close crash: m.sponsorblock is invalid below) would otherwise still schedule callbacks
+    ' on this dead instance.
+    m.container.unobserveFieldScoped("fullscreen")
+    m.top.unobserveField("state")
+    m.top.unobserveField("position")
+    m.top.unobserveField("duration")
+    m.top.unobserveField("thumbnailTiles")
+    m.top.unobserveField("control")
+    m.top.unobserveField("setSeek")
+    m.top.unobserveField("bufferingStatus")
+    m.top.unobserveField("playStartInfo")
+    m.top.unobserveField("streamingSegment")
+    m.top.unobserveField("close")
+    content = m.top.content
+    if content <> invalid
+        content.unobserveField("title")
+        content.unobserveField("secondaryTitle")
+    end if
+    m.autoHide.unobserveField("fire")
+    m.transportTimer.unobserveField("fire")
+    m.liveBadgeHold.unobserveField("fire")
+    m.liveEdgeClock.unobserveField("fire")
+    m.fullScreenHintTimer.unobserveField("fire")
+    m.chromeFadeIn.unobserveField("state")
+    m.chromeFadeOut.unobserveField("state")
+
+    ' stop the coordinator-owned timers.
+    m.autoHide.control = "stop"
+    m.transportTimer.control = "stop"
+    m.liveBadgeHold.control = "stop"
+    m.liveEdgeClock.control = "stop"
+    m.fullScreenHintTimer.control = "stop"
+    m.clock.dispose = true
+
+    if m.videoContentJob <> invalid
+        m.videoContentJob.cancel = true
+        m.videoContentJob = invalid
+    end if
+
+    if m.markVideoWatchedJob <> invalid
+        m.markVideoWatchedJob.cancel = true
+        m.markVideoWatchedJob = invalid
+    end if
+
+    if m.sponsorBlockSegmentsJob <> invalid
+        m.sponsorBlockSegmentsJob.cancel = true
+        m.sponsorBlockSegmentsJob = invalid
+    end if
+    if m.sponsorblock <> invalid
+        m.sponsorblock.Dispose()
+        m.sponsorblock = invalid
+    end if
+    DismissErrorDialog()
+
+    parent = m.top.getParent()
+    if parent <> invalid
+        parent.RemoveChild(m.top)
+    end if
+
+    try
+        m.top.control = VideoControl.Stop
+    catch error
+        m.playbackTelemetry.ReportStopFailure(error)
+    end try
+
+    m.top.content = invalid
+end function

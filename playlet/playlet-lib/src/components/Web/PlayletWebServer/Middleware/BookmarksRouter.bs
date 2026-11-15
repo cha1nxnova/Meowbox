@@ -1,0 +1,46 @@
+import "pkg:/components/Services/BookmarksService/BookmarksServiceUtils.bs"
+import "pkg:/components/Web/WebServer/Http/HttpRouter.bs"
+import "pkg:/source/utils/RegistryUtils.bs"
+
+namespace Http
+
+    class BookmarksRouter extends HttpRouter
+
+        function new(server as object)
+            super()
+
+            m.bookmarksService = server.sceneNodes.bookmarksService
+        end function
+
+        @get("/api/bookmarks")
+        function GetBookmarks(context as object) as boolean
+            response = context.response
+
+            bookmarksString = RegistryUtils.Read(RegistryUtils.BOOKMARKS)
+            if bookmarksString = invalid
+                response.Json({
+                    groups: []
+                })
+                return true
+            end if
+
+            response.SetBodyDataString(bookmarksString)
+            response.ContentType("application/json")
+            response.http_code = 200
+
+            return true
+        end function
+
+        @get("/api/bookmarks/feeds")
+        function GetBookmarksFeeds(context as object) as boolean
+            response = context.response
+
+            feeds = BookmarksServiceUtils.BookmarksContentToFeed(m.bookmarksService.content)
+            response.Json(feeds)
+
+            return true
+        end function
+
+    end class
+
+end namespace

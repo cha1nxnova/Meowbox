@@ -1,0 +1,41 @@
+import "pkg:/components/ContentNode/ProfileContentAuthTokenUtils.bs"
+import "pkg:/components/Services/Invidious/InvidiousService.bs"
+
+@job("SubscribeJob")
+function ExecuteJob() as void
+    input = JobGetInput()
+
+    channelView = input.channelView
+    invidiousNode = input.invidious
+    ucid = input.ucid
+    subscribe = input.subscribe
+    profile = input.profile
+
+    if JobIsCancelled()
+        JobCancel()
+        return
+    end if
+
+    cancellation = JobGetCancellation()
+
+    auth = ProfileContentAuthTokenUtils.EnsureFreshAccessToken(profile)
+    if auth.state <> ProfileContentAuthTokenUtils.AccessTokenState.Ok
+        JobError("No usable access token to subscribe/unsubscribe: " + auth.state)
+        return
+    end if
+
+    service = new Invidious.InvidiousService(invidiousNode)
+
+    if subscribe
+        response = service.Subscribe(auth, ucid, cancellation)
+    else
+        response = service.Unsubscribe(auth, ucid, cancellation)
+    end if
+
+    if not response.IsSuccess()
+        JobError("Failed to subscribe/unsubscribe to channel: " + response.ErrorMessage())
+        return
+    end if
+
+    channelView.isSubscribed = subscribe
+end function

@@ -1,0 +1,494 @@
+import "pkg:/components/ContentNode/ProfileContentAuthTokenUtils.types.bs"
+import "pkg:/components/ContextMenu/ContextMenuUtils.bs"
+import "pkg:/components/Dialog/DialogUtils.bs"
+import "pkg:/components/JobSystem/Jobs.bs"
+import "pkg:/components/JobSystem/JobSystem.bs"
+import "pkg:/components/Navigation/Navigation.bs"
+import "pkg:/source/utils/DisposableObserve.bs"
+import "pkg:/source/utils/FocusManagement.bs"
+import "pkg:/source/utils/Locale.bs"
+import "pkg:/source/utils/Logging.bs"
+import "pkg:/source/utils/RemoteKeys.bs"
+import "pkg:/source/utils/StringUtils.bs"
+import "pkg:/source/utils/Types.bs"
+
+function Init()
+    m.container = m.top.findNode("container")
+    m.scrollAnimation = m.top.findNode("scrollAnimation")
+    m.containerTranslation = m.scrollAnimation.findNode("containerTranslation")
+    m.bannerTranslation = m.scrollAnimation.findNode("bannerTranslation")
+
+    m.banner = m.top.findNode("banner")
+    m.thumbnail = m.top.findNode("thumbnail")
+    m.authorLabel = m.top.findNode("authorLabel")
+    m.subCountLabel = m.top.findNode("subCountLabel")
+    m.subscribeButton = m.top.findNode("subscribeButton")
+    m.rowList = m.top.FindNode("rowList")
+    m.rowList.focusable = true
+    m.rowList.screen = m.top
+
+    DisposableObserveFieldScoped(m.banner, "loadStatus", FuncName(OnBannerLoadStatus))
+    m.author = ""
+    m.authorId = ""
+
+    InitializeTabs()
+    InitializeSortOptions()
+end function
+
+function OnNodeready()
+    m.rowList@.BindNode()
+
+    SetNavigation(m.rowList, RemoteKeys.Up, m.subscribeButton)
+    SetNavigation(m.subscribeButton, RemoteKeys.Down, m.rowList)
+
+    m.subscribeButton.text = Tr(Locale.Buttons.Subscribe)
+    DisposableObserveFieldScoped(m.subscribeButton, "buttonSelected", FuncName(OnSubscribeButtonSelected))
+
+    SetSubscribeButtonVisibility()
+    DisposableObserveFieldScoped(m.profilesService, "currentProfileChanged", FuncName(SetSubscribeButtonVisibility))
+    OnSubscriptionChanged()
+    DisposableObserveFieldScoped(m.invidious, "subscriptions", FuncName(OnSubscriptionChanged))
+end function
+
+function OnFocusChange() as void
+    if not m.top.focus
+        return
+    end if
+
+    NodeSetFocus(m.rowList, true)
+end function
+
+function OnContentSet() as void
+    content = m.top.content
+    if content = invalid
+        m.top.authorId = ""
+        return
+    end if
+
+    ' NOTE: "_author" not "author". See PlaylistContentNode.xml for explanation.
+    m.authorLabel.text = content._author
+
+    subCountText = content.authorSubTitle
+    if StringUtils.IsNullOrEmpty(subCountText)
+        subCountText = content.subCountText
+    end if
+    m.subCountLabel.text = subCountText
+
+    m.banner.uri = content.banner
+    if StringUtils.IsNullOrEmpty(content.thumbnail)
+        m.thumbnail.uri = ""
+    else
+        if m.thumbnail.uri <> content.thumbnail or m.thumbnail.loadStatus = "failed"
+            m.thumbnail.loadingBitmapUri = m.thumbnail.uri
+            m.thumbnail.uri = content.thumbnail
+        end if
+    end if
+
+    content@.LoadChannel(m.invidious, m.jobQueue)
+
+    authorId = ValidString(content.authorId)
+    author = ValidString(content._author)
+    m.top.authorId = authorId
+
+    if (authorId <> m.authorId or author <> m.author) and IsArray(content.tabs)
+        m.authorId = authorId
+        m.author = author
+        m.rowList.feeds = CreateChannelFeeds(m.authorId, author, content.tabs, content.tabsParams, content.tabsTitles)
+    end if
+end function
+
+function CreateChannelFeeds(authorId as string, author as string, tabs as object, tabsParams as object, tabsTitles as object) as object
+    if authorId = ""
+        return invalid
+    end if
+
+    disableShorts = m.preferences["content_feed.disable_shorts"]
+
+    feeds = []
+    for i = 0 to tabs.count() - 1
+        tabName = tabs[i]
+        if tabName = "shorts" and disableShorts
+            LogInfo(`Skipping "Shorts" tab based on user settings`)
+            continue for
+        end if
+
+        if m.tabs.DoesExist(tabName)
+            if tabsParams <> invalid and tabsParams.DoesExist(tabName)
+                params = tabsParams[tabName]
+            else
+                params = ""
+            end if
+
+            if tabsTitles <> invalid and tabsTitles.DoesExist(tabName)
+                title = tabsTitles[tabName]
+            else
+                title = ""
+            end if
+
+            feeds.Push(m.tabs[tabName](authorId, author, title, params))
+        end if
+    end for
+
+    ' If we're dealing with an auto-generated channel, we might not have any tabs at all.
+    ' In this case, it's better to show "home" instead of nothing at all.
+    if feeds.Count() = 0 and tabs.Count() > 0 and tabsParams <> invalid and tabsParams["featured"] <> invalid
+        feeds.Push(CreateChannelFeed("Home", "channel_featured", authorId, author, tabsParams["featured"]))
+    end if
+
+    return feeds
+end function
+
+function OnKeyEvent(key as string, press as boolean) as boolean
+    if NavigationKeyHandler(key, press).handled
+        return true
+    end if
+
+    if press = false
+        return false
+    end if
+
+    if key = RemoteKeys.Back
+        Close()
+        return true
+    end if
+
+    return false
+end function
+
+function Close()
+    m.appController@.PopScreen()
+    m.top.dispose = true
+end function
+
+function OnDispose()
+    m.rowList.dispose = true
+    DisposeObservers()
+    if m.subscribeJob <> invalid
+        m.subscribeJob.cancel = true
+        m.subscribeJob = invalid
+    end if
+    if m.fetchSubscriptionStatusJob <> invalid
+        m.fetchSubscriptionStatusJob.cancel = true
+        m.fetchSubscriptionStatusJob = invalid
+    end if
+end function
+
+function OnSubscribeButtonSelected() as void
+    profile = m.profilesService.currentProfile
+    if profile = invalid
+        return
+    end if
+    if profile.authState = ProfileContentAuthTokenUtils.ProfileAuthState.NeedsReauth
+        DialogUtils.ShowDialogEx({
+            title: Tr(Locale.Dialogs.ProfileNeedsReauthTitle)
+            message: Tr(Locale.Dialogs.ProfileNeedsReauthMessage)
+        })
+        return
+    end if
+
+    if m.subscribeJob <> invalid
+        m.subscribeJob.cancel = true
+    end if
+    if m.fetchSubscriptionStatusJob <> invalid
+        m.fetchSubscriptionStatusJob.cancel = true
+    end if
+
+    input = {
+        channelView: m.top
+        invidious: m.invidious
+        ucid: m.authorId
+        subscribe: not m.top.isSubscribed
+        profile: profile
+    }
+
+    m.subscribeJob = JobSystem.CreateCallback()
+    JobSystem.QueueJob(m.jobQueue, Jobs.SubscribeJob, input, m.subscribeJob)
+end function
+
+function OnBannerLoadStatus() as void
+    status = m.banner.loadStatus
+    if status <> "ready"
+        return
+    end if
+
+    bannerAspect = m.banner.bitmapWidth / m.banner.bitmapHeight
+    bannerHeight = m.banner.width / bannerAspect
+    m.banner.height = bannerHeight
+    m.banner.translation = [0, -bannerHeight]
+    m.banner.visible = true
+
+    startPos = [0, -bannerHeight]
+    endPos = [0, 0]
+    midPos = [0, (startPos[1] + endPos[1]) / 2]
+
+    m.bannerTranslation.keyValue = [startPos, midPos, endPos]
+
+    startPos = [0, 0]
+    endPos = [0, bannerHeight - m.thumbnail.height * 0.4]
+    midPos = [0, (startPos[1] + endPos[1]) / 2]
+
+    m.containerTranslation.keyValue = [startPos, midPos, endPos]
+
+    m.scrollAnimation.control = "start"
+end function
+
+function InitializeTabs()
+    m.tabs = {
+        "videos": function(authorId as string, author as string, title as string, params as string) as object
+            if StringUtils.IsNullOrEmpty(title)
+                title = "Videos"
+            end if
+            return CreateChannelFeed(title, "channel_videos", authorId, author, params)
+        end function
+        "shorts": function(authorId as string, author as string, title as string, params as string) as object
+            if StringUtils.IsNullOrEmpty(title)
+                title = "Shorts"
+            end if
+            return CreateChannelFeed(title, "channel_shorts", authorId, author, params)
+        end function
+        "streams": function(authorId as string, author as string, title as string, params as string) as object
+            if StringUtils.IsNullOrEmpty(title)
+                title = "Live"
+            end if
+            return CreateChannelFeed(title, "channel_streams", authorId, author, params)
+        end function
+        "releases": function(authorId as string, author as string, title as string, params as string) as object
+            if StringUtils.IsNullOrEmpty(title)
+                title = "Releases"
+            end if
+            return CreateChannelFeed(title, "channel_releases", authorId, author, params)
+        end function
+        "podcasts": function(authorId as string, author as string, title as string, params as string) as object
+            if StringUtils.IsNullOrEmpty(title)
+                title = "Podcasts"
+            end if
+            return CreateChannelFeed(title, "channel_podcasts", authorId, author, params)
+        end function
+        "playlists": function(authorId as string, author as string, title as string, params as string) as object
+            if StringUtils.IsNullOrEmpty(title)
+                title = "Playlists"
+            end if
+            return CreateChannelFeed(title, "channel_playlists", authorId, author, params)
+        end function
+        "courses": function(authorId as string, author as string, title as string, params as string) as object
+            if StringUtils.IsNullOrEmpty(title)
+                title = "Courses"
+            end if
+            return CreateChannelFeed(title, "channel_courses", authorId, author, params)
+        end function
+    }
+end function
+
+function InitializeSortOptions()
+    m.sortOptions = {
+        "channel_videos": [{
+            "id": "newest"
+            "title": "Latest"
+        }, {
+            "id": "popular"
+            "title": "Popular"
+        }, {
+            "id": "oldest"
+            "title": "Oldest"
+        }]
+        "channel_shorts": [{
+            "id": "newest"
+            "title": "Latest"
+        }, {
+            "id": "popular"
+            "title": "Popular"
+        }, {
+            "id": "oldest"
+            "title": "Oldest"
+        }]
+        "channel_streams": [{
+            "id": "newest"
+            "title": "Latest"
+        }, {
+            "id": "popular"
+            "title": "Popular"
+        }, {
+            "id": "oldest"
+            "title": "Oldest"
+        }]
+        "channel_playlists": [{
+            "id": "newest"
+            "title": "Date added (newest)"
+        }, {
+            "id": "last"
+            "title": "Last video added"
+        }]
+    }
+end function
+
+function CreateChannelFeed(title as string, endpoint as string, ucid as string, author as string, params as string) as object
+    title = Tr(title)
+    feedSource = {
+        "id": `inv_${endpoint}_${ucid}`
+        "title": `${author} - ${title}`
+        "apiType": "Invidious"
+        "endpoint": endpoint
+        "pathParams": {
+            "ucid": ucid
+        }
+    }
+
+    if not StringUtils.IsNullOrEmpty(params)
+        feedSource["queryParams"] = {
+            "params": params
+        }
+    end if
+
+    return {
+        title: title
+        feedSources: [feedSource]
+    }
+end function
+
+function GetContextMenuOptionsForItem(video as object) as object
+    if StringUtils.IsNullOrEmpty(m.top.authorId)
+        return []
+    end if
+    options = m.bookmarksService@.GetMenuForChannel(m.top.content)
+    options.Append(GetSortingContextMenuOptionsForItem(video))
+    return options
+end function
+
+function GetSortingContextMenuOptionsForItem(video as object) as object
+    feedContentNode = video.getParent()
+    if feedContentNode = invalid or not feedContentNode.hasField("feedSources")
+        return []
+    end if
+
+    feedSources = feedContentNode.feedSources
+    if feedSources = invalid or feedSources.Count() = 0
+        return []
+    end if
+
+    feedSource = feedSources[0]
+    sortOptions = feedSource.state.sortOptions
+    if not IsArray(sortOptions)
+        endpoint = feedSource.endpoint
+        if not m.sortOptions.DoesExist(endpoint)
+            return []
+        end if
+
+        sortOptions = m.sortOptions[endpoint]
+    end if
+
+    title = Tr(Locale.Dialogs.SortFeedBy).replace("%1", `"${feedSource.title}"`)
+    return [ContextMenuUtils.CreateOption(title + "...", m.top, "ShowSortDialog", [title, sortOptions, feedContentNode])]
+end function
+
+function IsLoggedIn() as boolean
+    return m.profilesService.currentProfile <> invalid
+end function
+
+function OnAuthorIdChange()
+    SetSubscribeButtonVisibility()
+    OnSubscriptionChanged()
+    FetchSubscriptionStatus()
+end function
+
+function SetSubscribeButtonVisibility()
+    isEnabled = IsLoggedIn() and not StringUtils.IsNullOrEmpty(m.top.authorId)
+    m.subscribeButton.visible = isEnabled
+    m.subscribeButton.focusable = isEnabled
+    if not isEnabled and m.subscribeButton.hasFocus()
+        NodeSetFocus(m.rowList, true)
+    end if
+end function
+
+function FetchSubscriptionStatus() as void
+    profile = m.profilesService.currentProfile
+    if profile = invalid or profile.authState = ProfileContentAuthTokenUtils.ProfileAuthState.NeedsReauth
+        return
+    end if
+
+    authorId = m.top.authorId
+    if StringUtils.IsNullOrEmpty(authorId)
+        return
+    end if
+
+    if m.fetchSubscriptionStatusJob <> invalid
+        return
+    end if
+
+    input = {
+        channelView: m.top
+        ucid: authorId
+        profile: profile
+        invidious: m.invidious
+    }
+
+    m.fetchSubscriptionStatusJob = JobSystem.CreateCallback(OnFetchSubscriptionStatusDone)
+    JobSystem.QueueJob(m.jobQueue, Jobs.FetchSubscriptionStatusJob, input, m.fetchSubscriptionStatusJob)
+end function
+
+function OnFetchSubscriptionStatusDone(event as object) as void
+    JobSystem.UnobserveCallback(event.getRoSGNode())
+    m.fetchSubscriptionStatusJob = invalid
+end function
+
+function OnSubscriptionChanged()
+    if m.top.isSubscribed
+        m.subscribeButton.text = Tr(Locale.Buttons.Unsubscribe)
+    else
+        m.subscribeButton.text = Tr(Locale.Buttons.Subscribe)
+    end if
+end function
+
+function ShowSortDialog(title as string, sortOptions as object, feedContentNode as object) as void
+    buttons = []
+    for i = 0 to sortOptions.Count() - 1
+        buttons.Push(Tr(sortOptions[i].title))
+    end for
+
+    dialog = DialogUtils.ShowDialogEx({
+        message: ""
+        title: title
+        buttons: buttons
+    })
+    if dialog = invalid
+        return
+    end if
+    dialog.addFields({
+        "feedContentNode": feedContentNode
+        "sortOptions": sortOptions
+    })
+    dialog.observeField("buttonSelected", FuncName(OnSortDialogResult), ["buttonSelected"])
+end function
+
+function OnSortDialogResult(event as object) as void
+    dialog = event.getRoSGNode()
+    sortOptions = dialog.sortOptions
+    buttonIndex = event.GetData()
+
+    if not IsInt(buttonIndex) or buttonIndex < 0 or buttonIndex >= sortOptions.Count()
+        return
+    end if
+
+    selected = sortOptions[buttonIndex]
+
+    feedContentNode = dialog.feedContentNode
+    feedSources = feedContentNode.feedSources
+    if feedSources = invalid or feedSources.Count() = 0
+        return
+    end if
+    selectedFeedSource = feedSources[0]
+
+    currentFeeds = m.rowList.feeds
+    for i = 0 to currentFeeds.Count() - 1
+        feed = currentFeeds[i]
+        feedSource = feed.feedSources[0]
+        if feedSource.id = selectedFeedSource.id
+            if feedSource.queryParams = invalid
+                feedSource.queryParams = {}
+            end if
+
+            feedSource.queryParams["sort_by"] = selected.id
+            m.rowList.feeds = currentFeeds
+            return
+        end if
+    end for
+end function

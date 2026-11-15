@@ -1,0 +1,33 @@
+function Init()
+    m.top.poster = m.top.findNode("Poster")
+    m.top.maskGroup = m.top.findNode("MaskGroup")
+end function
+
+function UpdateMaskSize()
+    width = m.top.width
+    height = m.top.height
+
+    m.top.maskSize = [width * GetUIScaleFactor(), height * GetUIScaleFactor()]
+end function
+
+' MaskGroup component do not scale with with UI resolution
+function GetUIScaleFactor() as float
+    if m.uiScaleFactor <> invalid
+        return m.uiScaleFactor
+    end if
+
+    if m.global.uiScaleFactor <> invalid
+        return m.global.uiScaleFactor
+    end if
+
+    deviceInfo = CreateObject("roDeviceInfo")
+    uiResolutionWidth = deviceInfo.GetUIResolution().width
+    ' divide by 1280 because we have ui_resolutions=hd in manifest
+    m.uiScaleFactor = uiResolutionWidth / 1280
+
+    if not m.global.hasField("uiScaleFactor")
+        m.global.addField("uiScaleFactor", "float", false)
+    end if
+    m.global.uiScaleFactor = m.uiScaleFactor
+    return m.uiScaleFactor
+end function

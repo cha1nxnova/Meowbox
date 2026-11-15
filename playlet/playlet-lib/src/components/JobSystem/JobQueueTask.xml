@@ -1,0 +1,6 @@
+<component name="JobQueueTask" extends="Task">
+    <interface>
+        <field id="request" type="assocarray" />
+        <field id="shutdown" type="boolean" />
+    </interface>
+</component>

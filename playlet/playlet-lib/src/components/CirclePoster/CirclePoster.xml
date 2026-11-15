@@ -1,0 +1,25 @@
+<component name="CirclePoster" extends="Group">
+    <interface>
+        <field id="poster" type="node" />
+        <field id="maskGroup" type="node" />
+
+        <field id="width" type="integer" alias="Poster.width" onChange="UpdateMaskSize" />
+        <field id="height" type="integer" alias="Poster.height" onChange="UpdateMaskSize" />
+        <field id="uri" type="uri" alias="Poster.uri" />
+        <field id="loadingBitmapUri" type="uri" alias="Poster.loadingBitmapUri" />
+        <field id="failedBitmapUri" type="uri" alias="Poster.failedBitmapUri" />
+        <field id="loadStatus" type="string" alias="Poster.loadStatus" />
+        <field id="blendColor" type="color" alias="Poster.blendColor" />
+
+        <field id="maskUri" type="uri" value="pkg:/images/white-circle.png" alias="MaskGroup.maskuri" />
+        <field id="maskSize" type="vector2d" alias="MaskGroup.maskSize" />
+    </interface>
+    <children>
+        <MaskGroup
+            id="MaskGroup"
+            maskuri="pkg:/images/white-circle.png">
+            <Poster
+                id="Poster" />
+        </MaskGroup>
+    </children>
+</component>

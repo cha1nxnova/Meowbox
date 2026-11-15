@@ -1,0 +1,345 @@
+import "pkg:/components/ContentNode/ProfileContentAuthTokenUtils.bs"
+import "pkg:/components/JobSystem/Jobs.bs"
+import "pkg:/components/JobSystem/JobSystem.bs"
+import "pkg:/source/utils/ArrayUtils.bs"
+import "pkg:/source/utils/ColorUtils.bs"
+import "pkg:/source/utils/CryptoUtils.bs"
+import "pkg:/source/utils/Logging.bs"
+import "pkg:/source/utils/RegistryUtils.bs"
+import "pkg:/source/utils/StringUtils.bs"
+
+' TODO:P1 add the ability to change color of profiles
+function Init()
+    m.disableSavingToRegistry = false
+    content = m.top.findNode("ProfilesContent")
+    m.top.content = content
+    m.profilesContent = content.getChild(0)
+end function
+
+function OnNodeReady()
+    LoadProfilesFromRegistry()
+end function
+
+function LoadProfilesFromRegistry()
+    LogInfo("Loading profiles from registry...")
+
+    ' Step 1: Load user profiles from registry
+    userProfiles = RegistryUtils.Read(RegistryUtils.USER_PROFILES)
+    if userProfiles <> invalid
+        userProfiles = StringUtils.ParseJsonSafe(userProfiles)
+        if userProfiles = invalid
+            LogError("user_profiles registry value is corrupt (unparseable); resetting to empty")
+        end if
+    end if
+
+    if userProfiles = invalid
+        userProfiles = {
+            profiles: []
+            currentProfile: invalid
+        }
+    end if
+
+    ' Step 2: Migrate existing profiles to new format (if needed)
+    isDirty = MigrateExistingProfiles(userProfiles)
+
+    ' Step 3: Save user preferences (if needed)
+    if isDirty
+        SaveUserProfilesToRegistry(invalid)
+    end if
+
+    ' Step 4: Load user profiles into content nodes
+    profileNodes = []
+    for each profile in userProfiles.profiles
+        profileNode = CreateObject("roSGNode", "ProfileContentNode")
+        profileNode.id = profile.id
+        profileNode.type = profile.type
+        profileNode.username = profile.username
+        profileNode.serverUrl = profile.serverUrl
+        profileNode.thumbnail = profile.thumbnail
+        profileNode.accessToken = profile.accessToken
+
+        profileNode.activeIdentifyToken = profile.activeIdentifyToken
+        profileNode.refreshToken = profile.refreshToken
+        profileNode.scope = profile.scope
+        profileNode.tokenType = profile.tokenType
+        profileNode.expiresIn = profile.expiresIn
+        profileNode.expiresTimestamp = profile.expiresTimestamp
+        profileNode.clientId = profile.clientId
+        profileNode.clientSecret = profile.clientSecret
+
+        profileNode.color = profile.color
+
+        profileNode.authState = ProfileContentAuthTokenUtils.DeriveAuthState(ValidString(profile.type), profile.accessToken, profile.refreshToken)
+
+        profileNodes.Push(profileNode)
+    end for
+
+    m.profilesContent.insertChildren(profileNodes, 0)
+
+    if not StringUtils.IsNullOrEmpty(userProfiles.currentProfile)
+        for each profileNode in profileNodes
+            if profileNode.id = userProfiles.currentProfile
+                ' Setting current profile will also save the profiles to registry
+                ' but we just saved the profiles
+                m.disableSavingToRegistry = true
+                SetCurrentProfile(profileNode)
+                m.disableSavingToRegistry = false
+                exit for
+            end if
+        end for
+    end if
+
+    if profileNodes.Count() > 0
+        input = {
+            invidious: m.invidious
+            profileNodes: profileNodes
+        }
+        JobSystem.QueueJob(m.jobQueue, Jobs.ProfilesVerifyTokensJob, input)
+    end if
+end function
+
+function MigrateExistingProfiles(userProfiles as object) as boolean
+    tokenPayload = RegistryUtils.Read(RegistryUtils.INVIDIOUS_TOKEN)
+    if tokenPayload = invalid
+        return false
+    end if
+
+    authToken = StringUtils.ParseJsonSafe(tokenPayload)
+    RegistryUtils.Delete(RegistryUtils.INVIDIOUS_TOKEN)
+
+    if authToken = invalid or authToken.instance = invalid or authToken.token = invalid or authToken.username = invalid
+        return false
+    end if
+
+    id = CreateProfileId(authToken.username, "", authToken.instance)
+    for each profile in userProfiles.profiles
+        if profile.id = id
+            return false
+        end if
+    end for
+
+    profile = {
+        "id": id
+        "type": "invidious"
+        "username": authToken.username
+        "serverUrl": authToken.instance
+        "accessToken": authToken.token
+        "color": ColorUtils.RandomSoftColorHex()
+    }
+
+    userProfiles.profiles.Unshift(profile)
+    if StringUtils.IsNullOrEmpty(userProfiles["currentProfile"])
+        userProfiles["currentProfile"] = profile.id
+    end if
+
+    return true
+end function
+
+function SaveUserProfilesToRegistry(_unused as dynamic) as void
+    if m.disableSavingToRegistry
+        return
+    end if
+
+    userProfiles = GetProfilesDto(true)
+
+    userProfiles.__version = m.top.__version
+    RegistryUtils.Write(RegistryUtils.USER_PROFILES, FormatJson(userProfiles))
+end function
+
+function GetProfilesDto(includeAccessToken as boolean) as object
+    userProfiles = {
+        "profiles": []
+        "currentProfile": invalid
+    }
+
+    profileNodes = m.profilesContent.getChildren(-1, 0)
+
+    for each profileNode in profileNodes
+        if profileNode.type = "login"
+            continue for
+        end if
+
+        color = profileNode.color
+        if IsInt(color)
+            ' Use hex color for web app
+            color = ColorUtils.IntToHex(color)
+        end if
+
+        profile = {
+            "id": profileNode.id
+            "type": profileNode.type
+            "username": profileNode.username
+            "activeIdentifyToken": profileNode.activeIdentifyToken
+            "serverUrl": profileNode.serverUrl
+            "thumbnail": profileNode.thumbnail
+            "color": color
+            "authState": profileNode.authState
+        }
+
+        if includeAccessToken
+            profile["accessToken"] = profileNode.accessToken
+            profile["refreshToken"] = profileNode.refreshToken
+            profile["scope"] = profileNode.scope
+            profile["tokenType"] = profileNode.tokenType
+            profile["expiresIn"] = profileNode.expiresIn
+            profile["expiresTimestamp"] = profileNode.expiresTimestamp
+            profile["clientId"] = profileNode.clientId
+            profile["clientSecret"] = profileNode.clientSecret
+        end if
+
+        userProfiles.profiles.Push(profile)
+    end for
+
+    currentProfile = m.top.currentProfile
+    if currentProfile <> invalid
+        userProfiles["currentProfile"] = currentProfile.id
+    end if
+
+    return userProfiles
+end function
+
+function LoginWithProfile(newProfile as object)
+    isNewProfile = true
+    if StringUtils.IsNullOrEmpty(newProfile.id)
+        newProfile.id = CreateProfileId(newProfile.username, newProfile.activeIdentifyToken, newProfile.serverUrl)
+    end if
+
+    existingProfile = invalid
+    profiles = m.profilesContent.getChildren(-1, 0)
+    for each profile in profiles
+        if profile.id = newProfile.id
+            existingProfile = profile
+            isNewProfile = false
+            exit for
+        end if
+    end for
+
+    if not isNewProfile
+        existingProfile.username = newProfile.username
+        existingProfile.activeIdentifyToken = newProfile.activeIdentifyToken
+        existingProfile.thumbnail = newProfile.thumbnail
+        existingProfile.accessToken = newProfile.accessToken
+        existingProfile.refreshToken = newProfile.refreshToken
+        existingProfile.scope = newProfile.scope
+        existingProfile.tokenType = newProfile.tokenType
+        existingProfile.expiresIn = newProfile.expiresIn
+        existingProfile.expiresTimestamp = newProfile.expiresTimestamp
+        existingProfile.clientId = newProfile.clientId
+        existingProfile.clientSecret = newProfile.clientSecret
+
+        newProfile = existingProfile
+    end if
+
+    if isNewProfile
+        newProfile.color = ColorUtils.RandomSoftColorHex()
+        m.profilesContent.insertChild(newProfile, 0)
+    end if
+
+    ' The id-merge above reuses the existing node, which may carry NeedsReauth — re-derive.
+    newProfile.authState = ProfileContentAuthTokenUtils.DeriveAuthState(newProfile.type, newProfile.accessToken, newProfile.refreshToken)
+
+    SetCurrentProfile(newProfile)
+end function
+
+function LogoutWithProfile(profile as object) as void
+    if profile = invalid
+        return
+    end if
+
+    profile = m.profilesContent.findNode(profile.id)
+    if profile = invalid
+        return
+    end if
+
+    m.profilesContent.removeChild(profile)
+    currentProfile = m.top.currentProfile
+    if currentProfile <> invalid and currentProfile.id = profile.id
+        SetCurrentProfile(invalid)
+    else
+        RefreshActiveProfileState(currentProfile)
+        SaveUserProfilesToRegistry(invalid)
+    end if
+
+    m.top.onProfileLogout = true
+
+    input = {
+        invidious: m.invidious
+        profileNodes: [profile]
+    }
+    JobSystem.QueueJob(m.jobQueue, Jobs.ProfilesInvidiousUnregisterTokenJob, input)
+end function
+
+function LogoutWithProfiles(profiles as object) as void
+    if profiles = invalid or profiles.Count() = 0
+        return
+    end if
+
+    currentProfile = m.top.currentProfile
+    logoutFromCurrentProfile = false
+    onProfileLogout = false
+    for each profile in profiles
+        profileNode = m.profilesContent.findNode(profile.id)
+        if profileNode = invalid
+            continue for
+        end if
+
+        m.profilesContent.removeChild(profileNode)
+        onProfileLogout = true
+        if currentProfile <> invalid and currentProfile.id = profile.id
+            logoutFromCurrentProfile = true
+        end if
+    end for
+
+    if logoutFromCurrentProfile
+        SetCurrentProfile(invalid)
+    else
+        RefreshActiveProfileState(currentProfile)
+        SaveUserProfilesToRegistry(invalid)
+    end if
+
+    if onProfileLogout
+        m.top.onProfileLogout = true
+    end if
+
+    input = {
+        invidious: m.invidious
+        profileNodes: profiles
+    }
+    JobSystem.QueueJob(m.jobQueue, Jobs.ProfilesInvidiousUnregisterTokenJob, input)
+end function
+
+function SetCurrentProfile(newActiveProfile as object) as void
+    if newActiveProfile = invalid
+        RefreshActiveProfileState(invalid)
+        m.top.currentProfile = invalid
+        m.top.currentProfileChanged = true
+        LogInfo("Current profile set to <invalid>")
+        SaveUserProfilesToRegistry(invalid)
+        return
+    end if
+
+    RefreshActiveProfileState(newActiveProfile)
+
+    m.top.currentProfile = newActiveProfile
+    m.top.currentProfileChanged = true
+    LogInfo("Current profile set to", newActiveProfile.username, "@", newActiveProfile.serverUrl)
+    SaveUserProfilesToRegistry(invalid)
+end function
+
+function RefreshActiveProfileState(activeProfile as object) as void
+    allProfiles = m.profilesContent.getChildren(-1, 0)
+    if activeProfile = invalid
+        for each profile in allProfiles
+            profile.isSelected = false
+        end for
+        return
+    end if
+
+    for each profile in allProfiles
+        profile.isSelected = profile.id = activeProfile.id
+    end for
+end function
+
+function CreateProfileId(username as string, activeIdentifyToken as string, serverUrl as string) as string
+    return "v1:" + CryptoUtils.GetMd5(username + activeIdentifyToken + serverUrl)
+end function

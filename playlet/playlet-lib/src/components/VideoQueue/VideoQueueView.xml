@@ -1,0 +1,71 @@
+<component name="VideoQueueView" extends="Group" includes="Focus,Disposable">
+    <interface>
+        <field id="content" type="node" onChange="OnContentSet" />
+        <field id="jumpToItem" type="integer" alias="queueList.jumpToItem" />
+        <field id="videoQueue" type="node" />
+        <field id="appController" type="node" />
+        <field id="jobQueue" type="node" />
+        <field id="innertube" type="node" />
+        <field id="invidious" type="node" />
+        <field id="preferences" type="node" />
+        <function name="Show" />
+    </interface>
+
+    <children>
+        <Rectangle
+            id="background"
+            width="1280"
+            height="720"
+            color="#000000"
+            opacity="0" />
+        <Rectangle
+            id="container"
+            width="470"
+            height="720"
+            translation="[-470,0]"
+            color="0x242424">
+            <ScrollingLabel
+                id="queueLabel"
+                maxWidth="270"
+                height="52"
+                text="Queue"
+                vertAlign="center"
+                font="font:MediumBoldSystemFont"
+                translation="[20,20]" />
+            <ButtonEx
+                id="clearButton"
+                iconVisible="false"
+                anchor="[1,0]"
+                height="48"
+                text="Clear"
+                normalFontSize="22"
+                boldFontSize="22"
+                translation="[450,20]" />
+            <MarkupGrid
+                id="queueList"
+                itemComponentName="VideoQueueViewCell"
+                itemSize="[432,90]"
+                itemSpacing="[0,15]"
+                numColumns="1"
+                numRows="6"
+                vertFocusAnimationStyle="floatingFocus"
+                translation="[20,90]"
+                focusBitmapUri="pkg:/images/focus-glow-padding-42.$$RES$$.9.png" />
+        </Rectangle>
+
+        <Animation id="showAnimation"
+            duration="0.3"
+            optional="true">
+            <FloatFieldInterpolator
+                id="fadeInterpolator"
+                key="[0.0, 0.5, 1.0]"
+                keyValue="[0.0, 0.4, 0.8]"
+                fieldToInterp="background.opacity" />
+            <Vector2DFieldInterpolator
+                id="translationInterpolator"
+                key="[0.0, 0.5, 1.0]"
+                keyValue="[[-470,0], [-235,0], [0,0]]"
+                fieldToInterp="container.translation" />
+        </Animation>
+    </children>
+</component>

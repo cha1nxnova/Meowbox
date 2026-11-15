@@ -1,0 +1,11 @@
+{
+  inputHash: '67a41f10707f76ad3c0cd8f18213fee4',
+  outputs: [
+    {
+      outputFilePath: 'images/icons/info.png',
+      outputHash: '83a241bd3ddf8aed424ff45575c107f7',
+      width: 48,
+      height: 48,
+    },
+  ],
+}

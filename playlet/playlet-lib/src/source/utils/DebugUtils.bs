@@ -1,0 +1,36 @@
+#if DEBUG
+    namespace DebugUtils
+        function PrintStackTrace(message = invalid as dynamic)
+
+            try
+                throw "Handled throw in DebugUtils.PrintStackTrace()"
+            catch error
+                lines = []
+                if message <> invalid
+                    lines.push(`${message}`)
+                end if
+                lines.push(`Stacktrace:`)
+                for i = error.backtrace.count() - 2 to 0 step -1
+                    backtrace = error.backtrace[i]
+                    lines.push(`  ${backtrace.function} @ ${backtrace.filename}:${backtrace.line_number}`)
+                end for
+                PrintInABox(lines)
+            end try
+        end function
+
+        function PrintInABox(lines as object)
+            maxLen = 0
+            for each line in lines
+                if line.len() > maxLen
+                    maxLen = line.len()
+                end if
+            end for
+            out = "╔" + string(maxLen + 2, "═") + "╗"
+            for each line in lines
+                out += `\n` + "║ " + line + string(maxLen - line.len(), " ") + " ║"
+            end for
+            out += `\n` + "╚" + string(maxLen + 2, "═") + "╝"
+            print out
+        end function
+    end namespace
+#end if

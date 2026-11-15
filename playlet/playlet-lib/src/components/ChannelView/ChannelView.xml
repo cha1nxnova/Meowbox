@@ -1,0 +1,94 @@
+<component name="ChannelView" extends="Group" includes="AutoBind,Focus,ContextMenuProvider,Disposable">
+    <interface>
+        <field id="content" type="node" onChange="OnContentSet" />
+        <field id="authorId" type="string" onChange="OnAuthorIdChange" />
+        <field id="isSubscribed" type="boolean" onChange="OnSubscriptionChanged" />
+        <field id="appController" type="node" bind="/AppController" />
+        <field id="invidious" type="node" bind="/Invidious" />
+        <field id="profilesService" type="node" bind="/ProfilesService" />
+        <field id="preferences" type="node" bind="/Preferences" />
+        <field id="jobQueue" type="node" bind="/JobQueue" />
+        <field id="bookmarksService" type="node" bind="/BookmarksService" />
+        <function name="ShowSortDialog" />
+    </interface>
+    <children>
+        <Rectangle
+            width="1280"
+            height="720"
+            color="0x242424">
+        </Rectangle>
+
+        <Poster
+            id="banner"
+            width="1280"
+            loadWidth="1280"
+            loadHeight="500"
+            loadDisplayMode="limitSize"
+            visible="false" />
+
+        <Group id="container">
+            <Poster
+                translation="[115,20]"
+                width="104"
+                height="104"
+                blendColor="#DDDDDDFF"
+                uri="pkg:/images/white-circle.png">
+
+                <CirclePoster
+                    id="thumbnail"
+                    width="100"
+                    height="100"
+                    translation="[2,2]"
+                    failedBitmapUri="pkg:/images/thumbnail-missing.jpg" />
+
+                <Label
+                    id="authorLabel"
+                    translation="[115,40]"
+                    font="font:MediumBoldSystemFont" />
+                <Label
+                    id="subCountLabel"
+                    translation="[115,70]"
+                    font="font:SmallestSystemFont" />
+            </Poster>
+
+            <ButtonEx
+                id="subscribeButton"
+                iconVisible="false"
+                anchor="[0.5,0.5]"
+                padding="[30,30]"
+                translation="[1050,90]" />
+
+            <VideoRowList
+                itemComponentName="RowCell"
+                id="rowList"
+                focusable="false"
+                translation="[0,160]"
+                numRows="2"
+                rowitemSize="[[350,196]]"
+                rowItemSpacing="[[25,0]]"
+                itemSize="[1280,326]"
+                itemSpacing="[0,65]"
+                rowLabelOffset="[[115,20]]"
+                focusXOffset="[115]"
+                showRowLabel="[true]"
+                rowFocusAnimationStyle="floatingfocus"
+                variableWidthItems="true"
+                focusBitmapUri="pkg:/images/focus-glow-padding-30.$$RES$$.9.png" />
+
+            <Animation
+                id="scrollAnimation"
+                delay="0.3"
+                duration="0.6">
+                <Vector2DFieldInterpolator
+                    id="bannerTranslation"
+                    key="[ 0.0, 0.5, 1.0 ]"
+                    fieldToInterp="banner.translation" />
+                <Vector2DFieldInterpolator
+                    id="containerTranslation"
+                    key="[ 0.0, 0.5, 1.0 ]"
+                    fieldToInterp="container.translation" />
+            </Animation>
+
+        </Group>
+    </children>
+</component>

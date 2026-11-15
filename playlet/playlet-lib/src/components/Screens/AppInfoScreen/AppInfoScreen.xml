@@ -1,0 +1,15 @@
+<component name="AppInfoScreen" extends="Group" includes="AutoBind">
+    <interface>
+        <field id="applicationInfo" type="node" bind="/ApplicationInfo" />
+    </interface>
+    <children>
+        <LabelList
+            translation="[130,92]"
+            itemSize="[1020,48]"
+            font="font:SmallestBoldSystemFont"
+            drawFocusFeedback="false">
+            <ContentNode id="KeyValueListContent" role="content">
+            </ContentNode>
+        </LabelList>
+    </children>
+</component>

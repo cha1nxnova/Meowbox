@@ -1,0 +1,24 @@
+{
+    "name": "playlet-app",
+    "version": "0.48.10",
+    "description": "Unofficial YouTube client for Roku",
+    "scripts": {
+        "prebuild": "node ../tools/rm.js ../build/playlet-app",
+        "prebuild:dev": "npm run prebuild",
+        "prebuild:prod": "npm run prebuild",
+        "build:dev": "bsc --create-package --debug --sourceMap=true --lintConfig ../config/bslint.jsonc",
+        "build:prod": "bsc --create-package --sourceMap=false --lintConfig ../config/bslint.jsonc",
+        "postbuild:prod": "node ../tools/mkdir.js ../release && node ../tools/cp.js ../dist/playlet-app.zip ../release/playlet.zip && npm run squash-fs && npm run sign-package",
+        "squash-fs": "node ../tools/squash-fs.js --in-file ../release/playlet.zip --out-file ../release/playlet.squashfs.zip",
+        "sign-package": "node ../tools/sign-package.js --out-file playlet.squashfs.zip --out-dir ../release --staging-dir ../build/playlet-app",
+        "lint": "bslint --project bsconfig.lint.json --lintConfig ../config/bslint.jsonc",
+        "lint:fix": "npm run lint -- --fix",
+        "format:base": "bsfmt \"src/**/*.brs\" \"src/**/*.bs\" \"!**/bslib.brs\" \"!**/roku_modules/**/*\" --bsfmt-path ../config/bsfmt.jsonc",
+        "format": "npm run format:base -- --check",
+        "format:fix": "npm run format:base -- --write",
+        "test": "npm run test:build && npm run test:run",
+        "test:build": "bsc --project bsconfig.tests.json --create-package --sourceMap=true --debug --test-mode --lintConfig ../config/bslint.jsonc",
+        "test:run": "node ../tools/run-test-app.js --package ../build/playlet-app-tests.zip",
+        "test:v2": "../../../dev-tools/bin/test.sh app --output ../build/playlet-app-tests.txt"
+    }
+}

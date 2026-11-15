@@ -1,0 +1,648 @@
+import "pkg:/components/Services/Invidious/InvidiousToContentNode.bs"
+import "pkg:/components/Services/LoungeService/LoungeBackchannel.bs"
+import "pkg:/components/Services/LoungeService/LoungeConstants.bs"
+import "pkg:/components/Services/LoungeService/LoungeMessages.bs"
+import "pkg:/components/Services/LoungeService/LoungeVideoQueue.bs"
+import "pkg:/components/Services/LoungeService/Notifications/DeviceConnectedNotificationUtils.bs"
+import "pkg:/source/services/HttpClient.bs"
+import "pkg:/source/utils/Logging.bs"
+import "pkg:/source/utils/RegistryUtils.bs"
+import "pkg:/source/utils/StringUtils.bs"
+import "pkg:/source/utils/Types.bs"
+
+const COMMAND_HANDLER_PREFIX = "_Handle_"
+
+' Apparently devices can be connected and disconnected very frequently.
+' We don't want to spam the user with notifications, so we'll only show a notification
+' if the last notification was more than 30 minutes ago.
+const CONNECT_NOTIFICATION_MIN_INTERVAL_SECONDS = 1800
+
+class LoungeApi
+
+    public loungeServiceNode
+    public videoQueueNode
+    public notificationsNode
+    public invService
+
+    public deviceId
+    public deviceName
+    public screenId
+    public screenName
+    public loungeToken
+    public sessionId
+    public gSessionId
+    public devices
+    ' Set by a send's failure, until the next bind.
+    public sessionGone = false
+    public tokenExpired = false
+    public backchannel as LoungeBackchannel
+
+    private ofs
+    private messagePort
+    private pendingOutgoingMessages
+    private lastLoungeDisconnect
+
+    function new(loungeServiceNode as object, videoQueueNode as object, notificationsNode as object, invidiousNode as object, messagePort as object)
+        m.loungeServiceNode = loungeServiceNode
+        m.videoQueueNode = videoQueueNode
+        m.notificationsNode = notificationsNode
+        m.invService = new Invidious.InvidiousService(invidiousNode)
+        m.dateTime = CreateObject("roDateTime")
+        m.deviceId = loungeServiceNode.deviceId
+        deviceName = loungeServiceNode.deviceName
+        m.deviceName = deviceName
+        m.screenName = deviceName
+        m.ofs = 0
+        m.messagePort = messagePort
+        m.backchannel = new LoungeBackchannel()
+        m.pendingOutgoingMessages = []
+        m.devices = {}
+
+        commandHandlers = {}
+        commandHandlers[COMMAND_TYPE_NOOP] = m.HandleIgnoreCommand
+        commandHandlers[COMMAND_TYPE_GET_VOLUME] = m.HandleIgnoreCommand
+        commandHandlers[COMMAND_TYPE_SET_VOLUME] = m.HandleIgnoreCommand
+        commandHandlers[COMMAND_TYPE_GET_SUBTITLES_TRACK] = m.HandleIgnoreCommand
+        commandHandlers[COMMAND_TYPE_SET_SUBTITLES] = m.HandleIgnoreCommand
+        commandHandlers[COMMAND_TYPE_SET_AUDIO_TRACK] = m.HandleIgnoreCommand
+        commandHandlers[COMMAND_TYPE_DPAD_COMMAND] = m.HandleIgnoreCommand
+        commandHandlers[COMMAND_TYPE_VOICE_COMMAND] = m.HandleIgnoreCommand
+        commandHandlers[COMMAND_TYPE_ON_USER_ACTIVITY] = m.HandleIgnoreCommand
+        commandHandlers[COMMAND_TYPE_REMOTE_DISCONNECTED] = m.HandleIgnoreCommand
+        commandHandlers[COMMAND_TYPE_GET_DISCOVERT_DEVICE_ID] = m.HandleIgnoreCommand
+        commandHandlers[COMMAND_TYPE_GRACEFUL_RECONNECT] = m.HandleIgnoreCommand
+        commandHandlers[COMMAND_TYPE_GET_RECEIVER_STATUS] = m.HandleIgnoreCommand
+        commandHandlers[COMMAND_TYPE_SEND_DEBUG_COMMAND] = m.HandleIgnoreCommand
+        commandHandlers[COMMAND_TYPE_SET_AUTOPLAY_MODE] = m.HandleIgnoreCommand
+        commandHandlers[COMMAND_TYPE_GET_PARTY_GAMES_MODE] = m.HandleIgnoreCommand
+        commandHandlers[COMMAND_TYPE_SET_IMPACTED_SESSIONS_SERVER_EVENT] = m.HandleIgnoreCommand
+
+        commandHandlers[COMMAND_TYPE_GET_NOW_PLAYING] = m.HandleGetPlayingNow
+        commandHandlers[COMMAND_TYPE_SESSION_ID] = m.HandleSessionId
+        commandHandlers[COMMAND_TYPE_G_SESSION_ID] = m.HandleGSessionId
+        commandHandlers[COMMAND_TYPE_LOUNGE_STATUS] = m.HandleLoungeStatus
+        commandHandlers[COMMAND_TYPE_REMOTE_CONNECTED] = m.HandleRemoteConnected
+        commandHandlers[COMMAND_TYPE_SET_PLAYLIST] = m.HandleSetPlaylist
+        commandHandlers[COMMAND_TYPE_UPDATE_PLAYLIST] = m.HandleUpdatePlaylist
+        commandHandlers[COMMAND_TYPE_PAUSE] = m.HandlePause
+        commandHandlers[COMMAND_TYPE_PLAY] = m.HandlePlay
+        commandHandlers[COMMAND_TYPE_PREVIOUS] = m.HandlePrevious
+        commandHandlers[COMMAND_TYPE_NEXT] = m.HandleNext
+        commandHandlers[COMMAND_TYPE_STOP_VIDEO] = m.HandleStopVideo
+        commandHandlers[COMMAND_TYPE_SEEK_TO] = m.HandleSeekTo
+        commandHandlers[COMMAND_TYPE_SET_PLAYBACK_SPEED] = m.HandleSetPlaybackSpeed
+        commandHandlers[COMMAND_TYPE_GET_PLAYBACK_SPEED] = m.HandleGetPlaybackSpeed
+
+        for each key in commandHandlers
+            m[COMMAND_HANDLER_PREFIX + key] = commandHandlers[key]
+        end for
+    end function
+
+    function Zx() as string
+        ' Math.floor(2147483648 * Math.random()).toString(36) + Math.abs(Math.floor(2147483648 * Math.random()) ^ Date.now()).toString(36)
+        rnd1% = rnd(2147483647)
+        rnd2& = rnd(2147483647)
+        m.dateTime.mark()
+        now& = m.dateTime.AsSeconds()
+        now& = now& * 1000 + m.dateTime.GetMilliseconds()
+        rnd2xor& = (rnd2& or now&) and not (rnd2& and now&)
+        return StrI(rnd1%, 36) + StrI(Abs(rnd2xor&), 36)
+    end function
+
+    function GetScreenId() as dynamic
+        if not StringUtils.IsNullOrEmpty(m.screenId)
+            return m.screenId
+        end if
+
+        request = HttpClient.Get("https://www.youtube.com/api/lounge/pairing/generate_screen_id")
+
+        response = request.Await()
+        if not response.IsSuccess()
+            LogError(`Failed to get lounge screen ID\n${response.ErrorMessage()}`)
+            return invalid
+        end if
+
+        id = response.Text()
+        if StringUtils.IsNullOrEmpty(id)
+            LogError("Failed to get lounge screen ID: empty response")
+            return invalid
+        end if
+
+        m.screenId = id
+        return id
+    end function
+
+    function GetToken() as dynamic
+        if not StringUtils.IsNullOrEmpty(m.loungeToken)
+            return m.loungeToken
+        end if
+
+        request = HttpClient.Post("https://www.youtube.com/api/lounge/pairing/get_lounge_token_batch")
+        request.FormBody({
+            "screen_ids": m.screenId
+        })
+
+        response = request.Await()
+        if not response.IsSuccess()
+            LogError(`Failed to get lounge token\n${response.ErrorMessage()}`)
+            return invalid
+        end if
+
+        json = response.Json()
+        screens = ValidAssociativeArray(json).screens
+        if not IsArray(screens) or screens.Count() <> 1
+            LogError(`Failed to get lounge token: invalid response\nBody: ${response.Text()}`)
+            return invalid
+        end if
+
+        ' payload contains more information, but we only need the token
+        m.loungeToken = screens[0].loungeToken
+        return m.loungeToken
+    end function
+
+    private function BindQueryParams(loungeData as object) as object
+        return {
+            "device": "LOUNGE_SCREEN"
+            "theme": "cl"
+            "capabilities": "vsp"
+            "mdxVersion": "2"
+            "VER": "8"
+            "v": "2"
+            "t": "1"
+            "app": "lb-v4"
+            "name": loungeData.screenName
+            "id": loungeData.deviceId
+            "loungeIdToken": loungeData.loungeToken
+            "zx": m.Zx()
+        }
+    end function
+
+    function GetSessionData() as boolean
+        queryParams = m.BindQueryParams(m)
+        queryParams["RID"] = "1337"
+
+        request = HttpClient.Post("https://www.youtube.com/api/lounge/bc/bind")
+        request.QueryParams(queryParams)
+        request.FormBody({
+            "count": 0
+        })
+
+        response = request.Await()
+        if not response.IsSuccess()
+            LogError(`Failed to get lounge session data\n${response.ErrorMessage()}`)
+            return false
+        end if
+
+        m.ofs = 0
+        m.sessionGone = false
+        m.tokenExpired = false
+        messagesToSend = []
+        for each command in m.backchannel.StartSession(response.Text())
+            m.ProcessCommand(command, messagesToSend)
+        end for
+        if StringUtils.IsNullOrEmpty(m.sessionId) or StringUtils.IsNullOrEmpty(m.gSessionId)
+            LogTelemetryEvent({
+                level: "error"
+                message: "Lounge bind succeeded but yielded no session id"
+                fingerprint: "lounge-bind-no-sid"
+            })
+        end if
+        m.SendMessages(messagesToSend)
+        return true
+    end function
+
+    function StartPoll() as void
+        queryParams = m.BindQueryParams(m)
+        queryParams["RID"] = "rpc"
+        queryParams["SID"] = m.sessionId
+        queryParams["gsessionid"] = m.gSessionId
+        queryParams["CI"] = "1"
+        queryParams["TYPE"] = "xmlhttp"
+
+        request = HttpClient.Get("https://www.youtube.com/api/lounge/bc/bind")
+        request.QueryParams(queryParams)
+        m.backchannel.Open(request, m.messagePort)
+    end function
+
+    function HandleMessage(message as dynamic, messagesToSend as object) as void
+        for each command in m.backchannel.Handle(message)
+            m.ProcessCommand(command, messagesToSend)
+        end for
+        m.HandleSends(message)
+    end function
+
+    function MaxWaitMs() as integer
+        waitMs = m.backchannel.MaxWaitMs()
+        for each pending in m.pendingOutgoingMessages
+            pendingWaitMs = pending.MaxWaitMs()
+            if waitMs = 0 or pendingWaitMs < waitMs
+                waitMs = pendingWaitMs
+            end if
+        end for
+        return waitMs
+    end function
+
+    function RefreshToken() as dynamic
+        m.loungeToken = invalid
+        return m.GetToken()
+    end function
+
+    function Bind() as boolean
+        if not m.GetSessionData()
+            return false
+        end if
+        m.SaveCurrentLoungeData()
+        return true
+    end function
+
+    function Rebind(withNewToken as boolean) as boolean
+        m.CancelSends()
+
+        if withNewToken
+            LogWarnNoTelemetry("Lounge token expired, refreshing")
+            if StringUtils.IsNullOrEmpty(m.RefreshToken())
+                return false
+            end if
+        end if
+
+        LogWarnNoTelemetry("Rebinding lounge session")
+        return m.Bind()
+    end function
+
+    function EndSession() as void
+        m.backchannel.Close()
+        m.CancelSends()
+        m.loungeToken = invalid
+    end function
+
+    private function CancelSends() as void
+        for each pending in m.pendingOutgoingMessages
+            pending.Cancel()
+        end for
+        m.pendingOutgoingMessages = []
+    end function
+
+    function ProcessCommand(command as LoungeCommand, messagesToSend as object) as void
+        handler = COMMAND_HANDLER_PREFIX + command.type
+        if m.DoesExist(handler)
+            LogInfo(command.index, command.type)
+            m[handler](command.index, command.type, command.args, messagesToSend)
+            return
+        end if
+
+        fingerprint = "Unknown command type:" + command.type
+        message = fingerprint + " command:" + ToString(command)
+        LogWarnNoTelemetry(message)
+        LogTelemetryEvent({
+            level: "warning"
+            message: message
+            fingerprint: fingerprint
+        })
+        #if DEBUG
+            throw message
+        #end if
+    end function
+
+    function HandleIgnoreCommand(_commandId as integer, commandType as string, commandArgs as object, _messagesToSend as object)
+        LogDebug("Ignoring command:", commandType, "args:", commandArgs)
+    end function
+
+    function HandleSessionId(_commandId as integer, _commandType as string, commandArgs as object, _messagesToSend as object)
+        m.sessionId = commandArgs
+        LogInfo("sessionId:", m.sessionId)
+    end function
+
+    function HandleGSessionId(_commandId as integer, _commandType as string, commandArgs as object, _messagesToSend as object)
+        m.gSessionId = commandArgs
+        LogInfo("gSessionId:", m.gSessionId)
+    end function
+
+    function HandleGetPlayingNow(_commandId as integer, _commandType as string, _commandArgs as object, messagesToSend as object) as void
+        player = m.videoQueueNode.player
+        messagesToSend.Push(LoungeMessages.OnHasPreviousNextChanged(m.videoQueueNode.hasPrevious, m.videoQueueNode.hasNext))
+        messagesToSend.Push(LoungeMessages.NowPlaying(player))
+        messagesToSend.Push(LoungeMessages.OnStateChange(player))
+    end function
+
+    function HandleLoungeStatus(_commandId as integer, commandType as string, commandArgs as object, _messagesToSend as object) as void
+        LogInfo(commandType, FormatJson(commandArgs))
+        devices = commandArgs["devices"]
+        if not IsString(devices)
+            return
+        end if
+        devices = StringUtils.ParseJsonSafe(devices)
+        if devices = invalid
+            return
+        end if
+
+        for each device in devices
+            if m.devices.DoesExist(device.id)
+                device.lastConnectNotificationTime = m.devices[device.id].lastConnectNotificationTime
+            end if
+            m.devices[device.id] = device
+        end for
+    end function
+
+    function HandleRemoteConnected(_commandId as integer, commandType as string, commandArgs as object, _messagesToSend as object) as void
+        LogInfo(commandType, FormatJson(commandArgs))
+        newDevice = commandArgs
+        id = newDevice.id
+        if StringUtils.IsNullOrEmpty(id)
+            return
+        end if
+
+        if m.devices.DoesExist(id)
+            device = m.devices[id]
+            device.Append(newDevice)
+            newDevice = device
+        end if
+
+        m.devices[id] = newDevice
+
+        nowSeconds = TimeUtils.Now().AsSeconds()
+        lastConnectNotificationInterval = nowSeconds - ValidInt(newDevice.lastConnectNotificationTime)
+        if lastConnectNotificationInterval < CONNECT_NOTIFICATION_MIN_INTERVAL_SECONDS
+            LogInfo("Skipping connect notification. Last connect notification interval:", lastConnectNotificationInterval, "seconds")
+            return
+        end if
+
+        newDevice.lastConnectNotificationTime = nowSeconds
+
+        userName = newDevice.user
+        deviceName = newDevice.name
+        userAvatarUri = newDevice.userAvatarUri
+
+        LoungeDeviceConnected.ShowNotifcation(m.notificationsNode, deviceName, userName, userAvatarUri)
+    end function
+
+    function HandleSetPlaylist(_commandId as integer, commandType as string, commandArgs as object, _messagesToSend as object)
+        LogDebug(commandType, commandArgs)
+        ' TODO:P2 ctt: credentialTransferToken
+        ' We receive credentialTransferTokens here that can be attached to innertube requests.
+        ' The tokens belong to the user logged in on the mobile app.
+        ' These allow us to watch age restricted videos and private videos.
+        ' They are scoped by video.
+        ' Right now we just store only the last ctt, which works ok if we're casting one video at a time.
+        ' But if the age restrcited video is added to the queue, we don't capture a token and playing the video would fail.
+        ' These tokens need to be managed better, based on the video they belong to.
+        if not StringUtils.IsNullOrEmpty(commandArgs[FIELD_CTT]) and not StringUtils.IsNullOrEmpty(commandArgs[FIELD_VIDEO_ID])
+            m.loungeServiceNode.credentialTransferToken = {
+                "token": commandArgs[FIELD_CTT]
+                "videoId": commandArgs[FIELD_VIDEO_ID]
+            }
+        end if
+        LoungeVideoQueue.SetPlaylist(m.videoQueueNode, m.invService, commandArgs)
+    end function
+
+    function HandleUpdatePlaylist(_commandId as integer, commandType as string, commandArgs as object, _messagesToSend as object)
+        LogDebug(commandType, commandArgs)
+        LoungeVideoQueue.UpdatePlaylist(m.videoQueueNode, m.invService, commandArgs)
+    end function
+
+    function HandlePause(_commandId as integer, _commandType as string, _commandArgs as object, _messagesToSend as object)
+        m.videoQueueNode.pause = true
+    end function
+
+    function HandlePlay(_commandId as integer, _commandType as string, _commandArgs as object, _messagesToSend as object)
+        m.videoQueueNode.play = true
+    end function
+
+    function HandlePrevious(_commandId as integer, _commandType as string, _commandArgs as object, _messagesToSend as object)
+        m.videoQueueNode.previous = true
+    end function
+
+    function HandleNext(_commandId as integer, _commandType as string, _commandArgs as object, _messagesToSend as object)
+        m.videoQueueNode.next = true
+    end function
+
+    function HandleStopVideo(_commandId as integer, _commandType as string, _commandArgs as object, _messagesToSend as object)
+        m.videoQueueNode.closePlayer = true
+    end function
+
+    function HandleSeekTo(_commandId as integer, _commandType as string, commandArgs as object, _messagesToSend as object) as void
+        player = m.videoQueueNode.player
+        if player = invalid
+            return
+        end if
+
+        seekTo = Val(commandArgs[FIELD_NEW_TIME])
+        LogInfo("Seeking to:", seekTo)
+        player.setSeek = seekTo
+    end function
+
+    function HandleSetPlaybackSpeed(_commandId as integer, _commandType as string, commandArgs as object, messagesToSend as object) as void
+        player = m.videoQueueNode.player
+        if player = invalid
+            return
+        end if
+
+        if not player.hasField("playbackSpeed")
+            LogWarn("Video node does not support 'playbackSpeed' field on this device, ignoring setPlaybackSpeed command")
+            return
+        end if
+
+        speed = Val(commandArgs[FIELD_PLAYBACK_SPEED])
+        if speed <= 0
+            speed = 1.0
+        end if
+
+        content = player.content
+        if content <> invalid and content.live = true
+            return
+        end if
+
+        currentSpeed = ValidFloat(player.playbackSpeed)
+
+        if Abs(currentSpeed - speed) < 0.001
+            LogDebug("Playback speed is already close to the requested speed. current:", currentSpeed, "requested:", speed)
+            return
+        end if
+
+        LogInfo("Setting playback speed to:", speed)
+
+        ' Usually playbackSpeed doesn't get applied without pausing and resuming.
+        didPause = false
+        state = player.state
+        if state = "playing"
+            player.control = "pause"
+            didPause = true
+        end if
+
+        player.playbackSpeed = speed
+
+        if didPause
+            player.control = "resume"
+        end if
+
+        messagesToSend.Push(LoungeMessages.OnPlaybackSpeedChanged(speed, true))
+    end function
+
+    function HandleGetPlaybackSpeed(_commandId as integer, _commandType as string, _commandArgs as object, messagesToSend as object) as void
+        player = m.videoQueueNode.player
+        if player = invalid
+            return
+        end if
+
+        if not player.hasField("playbackSpeed")
+            LogWarn("Video node does not support 'playbackSpeed' field on this device, ignoring getPlaybackSpeed command")
+            return
+        end if
+
+        speed = ValidFloat(player.playbackSpeed)
+        if speed <= 0
+            speed = 1.0
+        end if
+
+        messagesToSend.Push(LoungeMessages.OnPlaybackSpeedChanged(speed))
+    end function
+
+    function SendMessages(messages as object) as void
+        if messages.Count() = 0
+            return
+        end if
+        m.pendingOutgoingMessages.Push(m.SendRequest(m, messages, m.backchannel.ackedCommandIndex).SendOn(m.messagePort))
+    end function
+
+    private function SendRequest(loungeData as object, messages as object, ackedCommandIndex as integer) as HttpClient.Request
+        queryParams = m.BindQueryParams(loungeData)
+        queryParams["RID"] = "1337"
+        queryParams["SID"] = loungeData.sessionId
+        queryParams["gsessionid"] = loungeData.gSessionId
+        if ackedCommandIndex >= 0
+            queryParams["AID"] = ackedCommandIndex
+        end if
+
+        postData = [
+            { key: "count", value: messages.Count() }
+            { key: "ofs", value: loungeData.ofs }
+        ]
+
+        loungeData.ofs += messages.Count()
+
+        for i = 0 to messages.Count() - 1
+            message = messages[i]
+            keyPrefix = `req${i}_`
+
+            postData.Push({ key: `${keyPrefix}${FIELD_COMMAND_NAME}`, value: message.commandType })
+
+            commandArgs = message.commandArgs
+            if commandArgs <> invalid
+                for each key in commandArgs
+                    postData.Push({ key: `${keyPrefix}${key}`, value: commandArgs[key] })
+                end for
+            end if
+        end for
+
+        LogDebug("Sending messages:", postData)
+
+        request = HttpClient.Post("https://www.youtube.com/api/lounge/bc/bind")
+        request.QueryParams(queryParams)
+        request.FormBody(postData)
+        return request
+    end function
+
+    private function HandleSends(message as dynamic) as void
+        for i = m.pendingOutgoingMessages.Count() - 1 to 0 step -1
+            response = m.pendingOutgoingMessages[i].Handle(message)
+            if response <> invalid
+                m.pendingOutgoingMessages.Delete(i)
+                if not response.IsSuccess()
+                    m.OnSendFailed(response)
+                end if
+            end if
+        end for
+    end function
+
+    private function OnSendFailed(response as HttpClient.Response) as void
+        status = response.StatusCode()
+        error = response.ErrorMessage()
+        isGone = status = 410
+        unknownSid = status = 400 and error.InStr("Unknown SID") <> -1
+        expiredToken = status = 401 and error.InStr("Expired lounge id token") <> -1
+        if isGone or unknownSid
+            m.sessionGone = true
+        else if expiredToken
+            m.tokenExpired = true
+        end if
+
+        if isGone or unknownSid or expiredToken
+            ' NoTelemetry: the body carries a volatile token; logging it would fragment these.
+            LogErrorNoTelemetry(error)
+            if expiredToken
+                LogTelemetryEvent({
+                    level: "warning"
+                    message: "Lounge id token expired"
+                    fingerprint: "lounge-expired-token"
+                })
+            end if
+        else
+            LogErrorNoTelemetry(error)
+            LogTelemetryEvent({
+                level: "error"
+                message: error
+                fingerprint: ["lounge-send-failure", status]
+            })
+        end if
+    end function
+
+    function SaveCurrentLoungeData() as void
+        loungeData = {
+            "__version": 1
+        }
+        fields = ["screenName", "deviceId", "loungeToken", "sessionId", "gSessionId"]
+        for each field in fields
+            if StringUtils.IsNullOrEmpty(m[field])
+                LogWarn("Lounge data will not be saved. missing field:", field)
+                return
+            end if
+
+            loungeData[field] = m[field]
+        end for
+
+        loungeData = FormatJson(loungeData)
+        RegistryUtils.Write(RegistryUtils.LAST_LOUNGE_DATA, loungeData)
+    end function
+
+    function DisconnectFromLastLounge() as void
+        loungeData = RegistryUtils.Read(RegistryUtils.LAST_LOUNGE_DATA)
+        if loungeData = invalid
+            return
+        end if
+
+        RegistryUtils.Delete(RegistryUtils.LAST_LOUNGE_DATA)
+
+        loungeData = StringUtils.ParseJsonSafe(loungeData)
+        if not IsAssociativeArray(loungeData)
+            LogWarn("Can't disconnect from lounge. Invalid data:", loungeData)
+            return
+        end if
+
+        if ValidInt(loungeData.__version) <> 1
+            LogWarn("Can't disconnect from lounge. Unknown version:", loungeData.__version)
+            return
+        end if
+
+        fields = ["screenName", "deviceId", "loungeToken", "sessionId", "gSessionId"]
+        for each field in fields
+            if StringUtils.IsNullOrEmpty(loungeData[field])
+                LogWarn("Can't disconnect from lounge. Missing field:", field)
+                return
+            end if
+        end for
+
+        messages = [{
+            "commandType": COMMAND_LOUNGE_SCREEN_DISCONNECTED
+        }]
+
+        LogInfo("Disconnecting from last lounge")
+        ' Every time we send messages, we need to increment the ofs.
+        ' This is so that the server recognizes old messages and doesn't process them.
+        ' But we're currently disconnecting from a previous session, and since
+        ' we didn't keep track of the ofs, so we'll just set it to a large number.
+        ' This is the last message we'll be sending to this lounge.
+        loungeData.ofs = 99999999
+        ' Held: dropping it releases its transfer, which aborts the send.
+        m.lastLoungeDisconnect = m.SendRequest(loungeData, messages, -1).Send()
+    end function
+
+end class

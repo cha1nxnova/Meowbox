@@ -1,0 +1,231 @@
+import "pkg:/components/Services/Innertube/Constants.bs"
+import "pkg:/source/utils/OptionUtils.bs"
+import "pkg:/source/utils/StringUtils.bs"
+
+namespace Innertube
+
+    enum ClientType
+        Web = "WEB"
+        IOS = "IOS"
+        Tv = "TV"
+        TvDowngraded = "TV_DOWNGRADED"
+    end enum
+
+    function CreateHeaders(client as Innertube.ClientType) as object
+        if client = ClientType.Web
+            return {
+                "accept": "*/*"
+                "accept-language": "*"
+                "user-agent": INNERTUBE_WEB_USER_AGENT
+                "x-youtube-client-name": INNERTUBE_WEB_CLIENT_NAME
+                "x-youtube-client-version": INNERTUBE_WEB_CLIENT_VERSION
+            }
+        else if client = ClientType.IOS
+            return {
+                "accept": "*/*"
+                "accept-language": "*"
+                "user-agent": INNERTUBE_IOS_USER_AGENT
+                "x-youtube-client-name": INNERTUBE_IOS_CLIENT_NAME
+                "x-youtube-client-version": INNERTUBE_IOS_CLIENT_VERSION
+            }
+        else if client = ClientType.Tv
+            return {
+                "accept": "*/*"
+                "accept-language": "*"
+                "user-agent": INNERTUBE_TV_USER_AGENT
+                "x-youtube-client-name": INNERTUBE_TV_CLIENT_NAME
+                "x-youtube-client-version": INNERTUBE_TV_CLIENT_VERSION
+            }
+        else if client = ClientType.TvDowngraded
+            return {
+                "accept": "*/*"
+                "accept-language": "*"
+                "user-agent": INNERTUBE_TV_USER_AGENT
+                "x-youtube-client-name": INNERTUBE_TV_CLIENT_NAME
+                "x-youtube-client-version": INNERTUBE_TV_CLIENT_VERSION_DOWNGRADED
+            }
+        else
+            throw "Invalid client type"
+        end if
+    end function
+
+    function CreateContext(client as Innertube.ClientType, deviceInfo as object, options = invalid as object) as object
+        contextClient = invalid
+        livingRoomPoTokenId = OptionUtils.Get(options, "livingRoomPoTokenId")
+        if client = ClientType.Web
+            contextClient = CreateContextClientWeb(deviceInfo)
+        else if client = ClientType.IOS
+            contextClient = CreateContextClientIOS(deviceInfo)
+        else if client = ClientType.Tv or client = ClientType.TvDowngraded
+            contextClient = CreateContextClientTv(deviceInfo, client, livingRoomPoTokenId)
+        else
+            throw "Invalid client type"
+        end if
+
+        credentialTransferToken = OptionUtils.Get(options, "credentialTransferToken")
+        visitorData = OptionUtils.Get(options, "visitorData")
+        onBehalfOfUser = OptionUtils.Get(options, "onBehalfOfUser")
+        accessToken = OptionUtils.Get(options, "accessToken")
+        videoId = OptionUtils.Get(options, "videoId")
+
+        useAccessToken = (client = ClientType.Tv or client = ClientType.TvDowngraded) and not StringUtils.IsNullOrEmpty(accessToken)
+        useCtt = (client = ClientType.Tv or client = ClientType.TvDowngraded) and IsAssociativeArray(credentialTransferToken) and not StringUtils.IsNullOrEmpty(videoId)
+
+        context = {
+            "client": contextClient
+            "user": {
+                "enableSafetyMode": false
+                "lockedSafetyMode": false
+            }
+            "request": {
+                "useSsl": true
+                "internalExperimentFlags": []
+            }
+        }
+
+        if useCtt
+            cttCideoId = credentialTransferToken.videoId
+            cttToken = credentialTransferToken.token
+
+            if not StringUtils.IsNullOrEmpty(cttToken) and videoId = cttCideoId
+                context["user"]["credentialTransferTokens"] = [{
+                    "token": cttToken
+                    "scope": "VIDEO"
+                }]
+            end if
+        end if
+
+        if not StringUtils.IsNullOrEmpty(visitorData) and not useAccessToken
+            context["client"]["visitorData"] = visitorData
+        end if
+
+        if not StringUtils.IsNullOrEmpty(onBehalfOfUser) and useAccessToken
+            context["user"]["onBehalfOfUser"] = onBehalfOfUser
+        end if
+
+        return context
+    end function
+
+    function CreateContextClientWeb(deviceInfo as object) as object
+        return {
+            "hl": GetCurrentLocale(deviceInfo)
+            "gl": GetContentRegion(deviceInfo)
+            "remoteHost": ""
+            "screenDensityFloat": 1
+            "screenHeightPoints": 1440
+            "screenPixelDensity": 1
+            "screenWidthPoints": 2560
+            "clientName": "WEB"
+            "clientVersion": INNERTUBE_WEB_CLIENT_VERSION
+            "osName": "Windows"
+            "osVersion": "10.0"
+            "platform": "DESKTOP"
+            "clientFormFactor": "UNKNOWN_FORM_FACTOR"
+            "userInterfaceTheme": "USER_INTERFACE_THEME_LIGHT"
+            "timeZone": deviceInfo.GetTimeZone()
+            "originalUrl": "https://www.youtube.com"
+            "deviceMake": ""
+            "deviceModel": ""
+            "browserName": INNERTUBE_WEB_BROWSER_NAME
+            "browserVersion": INNERTUBE_WEB_BROWSER_VERSION
+            "utcOffsetMinutes": -240
+            "memoryTotalKbytes": "8000000"
+            "mainAppWebInfo": {
+                "graftUrl": "https://www.youtube.com"
+                "pwaInstallabilityStatus": "PWA_INSTALLABILITY_STATUS_UNKNOWN"
+                "webDisplayMode": "WEB_DISPLAY_MODE_BROWSER"
+                "isWebNativeShareAvailable": true
+            }
+        }
+    end function
+
+    function CreateContextClientIOS(deviceInfo as object) as object
+        return {
+            "hl": GetCurrentLocale(deviceInfo)
+            "gl": GetContentRegion(deviceInfo)
+            "remoteHost": ""
+            "screenDensityFloat": 1
+            "screenHeightPoints": 1440
+            "screenPixelDensity": 1
+            "screenWidthPoints": 2560
+            "clientName": "iOS"
+            "clientVersion": INNERTUBE_IOS_CLIENT_VERSION
+            "osName": "iOS"
+            "osVersion": INNERTUBE_IOS_OS_VERSION
+            "platform": "MOBILE"
+            "clientFormFactor": "UNKNOWN_FORM_FACTOR"
+            "userInterfaceTheme": "USER_INTERFACE_THEME_LIGHT"
+            "timeZone": deviceInfo.GetTimeZone()
+            "originalUrl": "https://www.youtube.com"
+            "deviceMake": "Apple"
+            "deviceModel": INNERTUBE_IOS_DEVICE_MODEL
+            "utcOffsetMinutes": -240
+            "memoryTotalKbytes": "8000000"
+        }
+    end function
+
+    function CreateContextClientTv(deviceInfo as object, client as Innertube.ClientType, livingRoomPoTokenId = "" as dynamic) as object
+        tvClientVersion = INNERTUBE_TV_CLIENT_VERSION
+        if client = ClientType.TvDowngraded
+            tvClientVersion = INNERTUBE_TV_CLIENT_VERSION_DOWNGRADED
+        end if
+        contextClient = {
+            "hl": GetCurrentLocale(deviceInfo)
+            "gl": GetContentRegion(deviceInfo)
+            "remoteHost": ""
+            "deviceMake": INNERTUBE_TV_DEVICE_MAKE
+            "deviceModel": INNERTUBE_TV_DEVICE_MODEL
+            "userAgent": INNERTUBE_TV_USER_AGENT
+            "clientName": "TVHTML5"
+            "clientVersion": tvClientVersion
+            "osName": INNERTUBE_TV_OS_NAME
+            "osVersion": INNERTUBE_TV_OS_VERSION
+            "originalUrl": "https://www.youtube.com/tv"
+            "theme": "CLASSIC"
+            "platform": "TV"
+            "clientFormFactor": "UNKNOWN_FORM_FACTOR"
+            "webpSupport": false
+            "tvAppInfo": {
+                ' Merge Shorts with Subscriptions: TV_APP_QUALITY_LIMITED_ANIMATION
+                ' Separate Shorts from Subscriptions: TV_APP_QUALITY_FULL_ANIMATION
+                "appQuality": "TV_APP_QUALITY_FULL_ANIMATION"
+                "useStartPlaybackPreviewCommand": false
+                "voiceCapability": {
+                    "hasSoftMicSupport": false
+                    "hasHardMicSupport": false
+                }
+                "supportsNativeScrolling": false
+            }
+            "browserName": INNERTUBE_TV_BROWSER_NAME
+            "browserVersion": INNERTUBE_TV_BROWSER_VERSION
+            "acceptHeader": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
+            "screenHeightPoints": 1440
+            "screenWidthPoints": 2560
+            "screenPixelDensity": 2
+            "utcOffsetMinutes": -300
+            "playerType": "UNIPLAYER"
+            "connectionType": "CONN_CELLULAR_4G"
+        }
+        if not StringUtils.IsNullOrEmpty(livingRoomPoTokenId)
+            contextClient.tvAppInfo["livingRoomPoTokenId"] = livingRoomPoTokenId
+        end if
+        return contextClient
+    end function
+
+    function GetCurrentLocale(deviceInfo as object) as string
+        currentLocale = deviceInfo.GetCurrentLocale()
+        ' en_CA and en_AU are not valid locales for Innertube
+        if currentLocale = "en_CA" or currentLocale = "en_AU"
+            return "en_US"
+        end if
+        return currentLocale
+    end function
+
+    function GetContentRegion(deviceInfo as object) as string
+        region = deviceInfo.GetUserCountryCode()
+        if region.len() <> 2 or region = "OT"
+            region = "US"
+        end if
+        return region
+    end function
+end namespace

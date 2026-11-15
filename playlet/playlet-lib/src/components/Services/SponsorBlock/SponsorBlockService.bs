@@ -1,0 +1,112 @@
+import "pkg:/components/Services/SponsorBlock/SponsorBlockConfig.bs"
+import "pkg:/components/Services/SponsorBlock/SponsorBlockTimeline.types.bs"
+import "pkg:/source/services/HttpClient.bs"
+import "pkg:/source/utils/CryptoUtils.bs"
+
+namespace SponsorBlock
+    const SKIP_SEGMENT_ENDPOINT = "/api/skipSegments"
+    const VIEWED_SEGMENT_ENDPOINT = "/api/viewedVideoSponsorTime"
+
+    class SponsorBlockService
+        function new(config as SponsorBlock.SponsorBlockConfig)
+            m.config = config
+        end function
+
+        function GetSkipSegmentsForVideo(videoId as string, cancellation = invalid as dynamic) as object
+            serverAddress = m.config.GetServerAddress()
+            if StringUtils.IsNullOrEmpty(serverAddress)
+                return invalid
+            end if
+
+            ' categories = ["sponsor", "selfpromo", "interaction", "intro", "outro", "preview", "hook", "music_offtopic", "poi_highlight", "filler", "exclusive_access"]
+            categories = ["sponsor", "selfpromo", "interaction", "intro", "outro", "preview", "hook", "music_offtopic", "poi_highlight", "filler"]
+            ' actionTypes = ["skip", "mute", "chapter", "full", "poi"]
+            actionTypes = ["skip", "mute", "poi"]
+
+            categoriesJson = FormatJson(categories).EncodeUriComponent()
+            actionTypesJson = FormatJson(actionTypes).EncodeUriComponent()
+
+            ' From SponsorBlock docs: It should be the first 4 - 32 characters (4 is recommended).
+            hashPrefix = CryptoUtils.GetSha256(videoId).Left(4)
+            url = `${serverAddress}${SponsorBlock.SKIP_SEGMENT_ENDPOINT}/${hashPrefix}?categories=${categoriesJson}&actionTypes=${actionTypesJson}`
+            response = HttpClient.Get(url).Cancellation(cancellation).Await()
+            if not response.IsSuccess()
+                if response.IsCancelled()
+                    LogErrorNoTelemetry(response.ErrorMessage())
+                else if response.StatusCode() >= 500
+                    LogErrorNoTelemetry("SponsorBlock server error:", response.StatusCode())
+                else
+                    LogError(response.ErrorMessage())
+                end if
+                return invalid
+            end if
+
+            json = response.Json()
+            if json = invalid
+                return invalid
+            end if
+
+            for each item in json
+                if item.videoId = videoId
+                    return item.segments
+                end if
+            end for
+
+            return invalid
+        end function
+
+        function PostSegmentViewed(segmentId as string, cancellation = invalid as object) as void
+            serverAddress = m.config.GetServerAddress()
+            if StringUtils.IsNullOrEmpty(serverAddress)
+                return
+            end if
+
+            url = `${serverAddress}${SponsorBlock.VIEWED_SEGMENT_ENDPOINT}?UUID=${segmentId}`
+            HttpClient.Post(url).Cancellation(cancellation).Await()
+        end function
+
+        function GenerateProgressBarBackground(segments as object, timeline as SponsorBlockTimeline, lengthSeconds as integer, path as string)
+            ' 1144 = trackbar width, so the bar renders 1:1 without horizontal scaling
+            bar = CreateObject("roBitmap", { width: 1144, height: 20, AlphaEnable: true })
+            bar.Clear(&hFFFFFF80)
+            starts = timeline.starts
+            ends = timeline.ends
+            segmentIndexes = timeline.segmentIndexes
+            for i = 0 to starts.Count() - 1
+                m.DrawSegment(bar, segments[segmentIndexes[i]], starts[i], ends[i], lengthSeconds)
+            end for
+            ' a zero-length segment (a highlight) owns no interval: draw it on top.
+            for each segment in segments
+                if segment.start = segment.end
+                    m.DrawSegment(bar, segment, segment.start, segment.end, lengthSeconds)
+                end if
+            end for
+            bar.Finish()
+            buffer = bar.GetPng(0, 0, bar.GetWidth(), bar.GetHeight())
+            buffer.WriteFile(path)
+        end function
+
+        function DrawSegment(bar as object, segment as object, startSeconds as float, endSeconds as float, lengthSeconds as integer) as void
+            videoDuration = lengthSeconds
+            if videoDuration = 0 or videoDuration = invalid
+                ' We should ignore segment.videoDuration https://github.com/iBicha/playlet/pull/23#issuecomment-1431520676
+                ' But in case where we don't have lengthSeconds from Invidious, it's better than nothing
+                videoDuration = segment.videoDuration
+            end if
+            if videoDuration = 0 or videoDuration = invalid
+                return
+            end if
+
+            ' integer edges, so adjacent intervals meet without a truncation seam.
+            width = bar.GetWidth()
+            pixelStart = Int((startSeconds / videoDuration) * width)
+            pixelEnd = Int((endSeconds / videoDuration) * width)
+            ' highlight's duration is zero, so it is not visble on the bar.
+            ' Add a few pixels to see it
+            if startSeconds = endSeconds
+                pixelEnd += 5
+            end if
+            bar.DrawRect(pixelStart, 0, pixelEnd - pixelStart, bar.GetHeight(), m.config.SegmentColor(segment.category))
+        end function
+    end class
+end namespace

@@ -1,0 +1,357 @@
+import "pkg:/components/Services/Invidious/InvidiousService.bs"
+import "pkg:/components/Services/Invidious/InvidiousToContentNode.bs"
+import "pkg:/source/services/HttpClient.bs"
+import "pkg:/source/utils/ErrorUtils.bs"
+import "pkg:/source/utils/Locale.bs"
+import "pkg:/source/utils/StringUtils.bs"
+
+@job("InvidiousInstanceTestingJob")
+function ExecuteJob() as void
+    input = JobGetInput()
+
+    instance = input.instance
+    listNode = input.listNode
+
+    if JobIsCancelled()
+        JobCancel()
+        return
+    end if
+
+    content = PrepareTests()
+    listNode.content = content
+
+    cancellation = JobGetCancellation()
+    RunTests(instance, content, cancellation)
+end function
+
+function PrepareTests() as object
+    content = CreateObject("roSGNode", "ContentNode")
+    content.AppendChild(CreateTestNode(Tr(Locale.InvidiousTesting.ValidUrl), IsValidUrl))
+    content.AppendChild(CreateTestNode(Tr(Locale.InvidiousTesting.InstanceReachable), IsReachable))
+    content.AppendChild(CreateTestNode(Tr(Locale.InvidiousTesting.FetchVideoDetails), CanFetchVideoDetails))
+    content.AppendChild(CreateTestNode(Tr(Locale.InvidiousTesting.FetchVideoComments), CanFetchVideoComments))
+    content.AppendChild(CreateTestNode(Tr(Locale.InvidiousTesting.FetchVideoCaptions), CanFetchVideoCaptions))
+    content.AppendChild(CreateTestNode(Tr(Locale.InvidiousTesting.FetchVideoThumbnails), CanFetchVideoThumbails))
+    content.AppendChild(CreateTestNode(Tr(Locale.InvidiousTesting.FetchWithCors), CanFetchWithCors))
+    return content
+end function
+
+function CreateTestNode(title as string, func as function) as object
+    testNode = CreateObject("roSGNode", "ContentNode")
+    testNode.title = title
+    testNode.AddFields({
+        func: FuncName(func)
+        state: "loading"
+        details: ""
+        duration: 0
+    })
+    m[testNode.func] = func
+    return testNode
+end function
+
+function RunTests(instance as string, content as object, cancellation as object) as void
+    testNodes = content.getChildren(-1, 0)
+
+    timer = CreateObject("roTimespan")
+
+    for each testNode in testNodes
+        timer.Mark()
+        m[testNode.func](instance, testNode, cancellation)
+
+        testNode.duration = timer.TotalMilliseconds()
+        testNode.title = `${testNode.title} (${testNode.duration}ms)`
+
+        if testNode.state = "failed"
+            LogErrorNoTelemetry(testNode.details)
+        end if
+
+        if CancellationUtils.IsCancelled(cancellation)
+            JobCancel()
+            return
+        end if
+    end for
+end function
+
+function IsValidUrl(instance as string, testNode as object, _cancellation as object) as void
+    try
+        if not instance.StartsWith("http://") and not instance.StartsWith("https://")
+            testNode.state = "failed"
+            testNode.details = Tr(Locale.InvidiousTesting.UrlMustStartWith)
+            return
+        end if
+        if instance.EndsWith("/")
+            testNode.state = "failed"
+            testNode.details = Tr(Locale.InvidiousTesting.UrlMustNotEndWith)
+            return
+        end if
+
+        testNode.state = "passed"
+        testNode.details = Tr(Locale.InvidiousTesting.UrlSeemsValid)
+    catch e
+        testNode.state = "failed"
+        testNode.details = ErrorUtils.Format(e)
+    end try
+end function
+
+function IsReachable(instance as string, testNode as object, cancellation as object) as void
+    try
+        url = `${instance}${Invidious.STATS_ENDPOINT}`
+        response = HttpClient.Get(url).NoCache().Cancellation(cancellation).Await()
+        if not response.IsSuccess()
+            testNode.state = "failed"
+            testNode.details = response.ErrorMessage()
+            return
+        end if
+
+        json = response.Json()
+        if json = invalid
+            testNode.state = "failed"
+            testNode.details = Tr(Locale.InvidiousTesting.InvalidJsonFrom).Replace("%1", url)
+            return
+        end if
+
+        software = json.software
+        if software = invalid
+            testNode.state = "failed"
+            testNode.details = Tr(Locale.InvidiousTesting.InvalidJsonFromCouldntRead).Replace("%1", url).Replace("%2", "$.software")
+            return
+        end if
+
+        name = software.name
+        if not IsString(name)
+            testNode.state = "failed"
+            testNode.details = Tr(Locale.InvidiousTesting.InvalidJsonFromCouldntRead).Replace("%1", url).Replace("%2", "$.software.name")
+            return
+        end if
+
+        version = software.version
+        if not IsString(version)
+            testNode.state = "failed"
+            testNode.details = Tr(Locale.InvidiousTesting.InvalidJsonFromCouldntRead).Replace("%1", url).Replace("%2", "$.software.version")
+            return
+        end if
+
+        testNode.state = "passed"
+        testNode.details = Tr(Locale.InvidiousTesting.TheInstanceIsReachableAndRunning).Replace("%1", name).Replace("%2", version)
+    catch e
+        testNode.state = "failed"
+        testNode.details = ErrorUtils.Format(e)
+    end try
+
+end function
+
+function CanFetchVideoDetails(instance as string, testNode as object, cancellation as object) as void
+    try
+        ' videoId = "jNQXAC9IVRw"
+        videoId = "k85mRPqvMbE"
+        url = `${instance}${Invidious.VIDEOS_ENDPOINT}/${videoId}`
+        response = HttpClient.Get(url).NoCache().Cancellation(cancellation).Await()
+
+        if not response.IsSuccess()
+            testNode.state = "failed"
+            testNode.details = response.ErrorMessage()
+            return
+        end if
+
+        json = response.Json()
+        if json = invalid
+            testNode.state = "failed"
+            testNode.details = Tr(Locale.InvidiousTesting.InvalidJsonFrom).Replace("%1", url)
+            return
+        end if
+
+        title = json.title
+        if not IsString(title)
+            testNode.state = "failed"
+            testNode.details = Tr(Locale.InvidiousTesting.InvalidJsonFromCouldntRead).Replace("%1", url).Replace("%2", "$.title")
+            return
+        end if
+
+        testNode.state = "passed"
+        testNode.details = Tr(Locale.InvidiousTesting.TheInstanceCanFetchVideoDetails).Replace("%1", videoId).Replace("%2", title)
+    catch e
+        testNode.state = "failed"
+        testNode.details = ErrorUtils.Format(e)
+    end try
+end function
+
+function CanFetchVideoComments(instance as string, testNode as object, cancellation as object) as void
+    try
+        ' videoId = "jNQXAC9IVRw"
+        videoId = "k85mRPqvMbE"
+        url = `${instance}/api/v1/comments/${videoId}`
+        response = HttpClient.Get(url).NoCache().Cancellation(cancellation).Await()
+
+        if not response.IsSuccess()
+            testNode.state = "failed"
+            testNode.details = response.ErrorMessage()
+            return
+        end if
+
+        json = response.Json()
+        if json = invalid
+            testNode.state = "failed"
+            testNode.details = Tr(Locale.InvidiousTesting.InvalidJsonFrom).Replace("%1", url)
+            return
+        end if
+
+        commentCount = json.commentCount
+        if not IsInt(commentCount)
+            testNode.state = "failed"
+            testNode.details = Tr(Locale.InvidiousTesting.InvalidJsonFromCouldntRead).Replace("%1", url).Replace("%2", "$.commentCount")
+            return
+        end if
+
+        comments = json.comments
+        if not IsArray(comments)
+            testNode.state = "failed"
+            testNode.details = Tr(Locale.InvidiousTesting.InvalidJsonFromCouldntRead).Replace("%1", url).Replace("%2", "$.comments")
+            return
+        end if
+
+        testNode.state = "passed"
+        testNode.details = Tr(Locale.InvidiousTesting.TheInstanceCanFetchVideoComments).Replace("%1", videoId).Replace("%2", `${commentCount}`)
+    catch e
+        testNode.state = "failed"
+        testNode.details = ErrorUtils.Format(e)
+    end try
+end function
+
+function CanFetchVideoCaptions(instance as string, testNode as object, cancellation as object) as void
+    try
+        ' videoId = "jNQXAC9IVRw"
+        videoId = "k85mRPqvMbE"
+        label = "English"
+        ' expectedText = `All right, so here we are, in front of the\nelephants`
+        expectedText = `Ding ding pch n daa, bam-ba-ba-re-bam`
+
+        url = `${instance}/api/v1/captions/${videoId}?label=${label}`
+        response = HttpClient.Get(url).NoCache().Cancellation(cancellation).Await()
+
+        if not response.IsSuccess()
+            testNode.state = "failed"
+            testNode.details = response.ErrorMessage()
+            return
+        end if
+
+        headers = response.Headers()
+        contentType = headers["Content-Type"]
+        if StringUtils.IsNullOrEmpty(contentType) or not contentType.StartsWith("text/vtt")
+            testNode.state = "failed"
+            testNode.details = Tr(Locale.InvidiousTesting.InvalidCaptionDataContentType).Replace("%1", url)
+            return
+        end if
+
+        text = response.Text()
+        if StringUtils.IsNullOrEmpty(text) or not text.StartsWith("WEBVTT")
+            testNode.state = "failed"
+            testNode.details = Tr(Locale.InvidiousTesting.InvalidCaptionDataNotWebVtt).Replace("%1", url)
+            return
+        end if
+
+        if text.InStr(expectedText) = -1
+            testNode.state = "failed"
+            testNode.details = Tr(Locale.InvidiousTesting.ExpectedTextNotFoundInCaptionData).Replace("%1", url)
+            return
+        end if
+
+        testNode.state = "passed"
+        testNode.details = Tr(Locale.InvidiousTesting.TheInstanceCanFetchVideoCaptions).Replace("%1", label).Replace("%2", videoId)
+    catch e
+        testNode.state = "failed"
+        testNode.details = ErrorUtils.Format(e)
+    end try
+end function
+
+function CanFetchVideoThumbails(instance as string, testNode as object, cancellation as object) as void
+    try
+        ' videoId = "jNQXAC9IVRw"
+        videoId = "k85mRPqvMbE"
+        url = `${instance}${Invidious.VIDEOS_ENDPOINT}/${videoId}`
+        response = HttpClient.Get(url).NoCache().Cancellation(cancellation).Await()
+
+        if not response.IsSuccess()
+            testNode.state = "failed"
+            testNode.details = response.ErrorMessage()
+            return
+        end if
+
+        json = response.Json()
+        if json = invalid
+            testNode.state = "failed"
+            testNode.details = Tr(Locale.InvidiousTesting.InvalidJsonFrom).Replace("%1", url)
+            return
+        end if
+
+        videoThumbnails = json.videoThumbnails
+        if not IsArray(videoThumbnails) or videoThumbnails.Count() = 0
+            testNode.state = "failed"
+            testNode.details = Tr(Locale.InvidiousTesting.NoThumbnailsFoundInJson).Replace("%1", url)
+            return
+        end if
+
+        contentNode = InvidiousContent.ToVideoContentNode(invalid, json, instance)
+        thumbnail = contentNode.thumbnail
+        if StringUtils.IsNullOrEmpty(thumbnail)
+            testNode.state = "failed"
+            testNode.details = Tr(Locale.InvidiousTesting.NoThumbnailsFoundInJson).Replace("%1", url)
+            return
+        end if
+
+        ' Note: we could do a HEAD request, but Invidious returns 200 even for invalid thumbnails
+        ' To make sure we don't get a 200 for an invalid thumbnail, we do a GET request instead
+        response = HttpClient.Get(thumbnail).NoCache().Cancellation(cancellation).Await()
+        if not response.IsSuccess()
+            testNode.state = "failed"
+            testNode.details = Tr(Locale.InvidiousTesting.ThumbnailNotReachable).Replace("%1", thumbnail) + `\n` + response.ErrorMessage()
+            return
+        end if
+
+        contentType = response.Headers()["Content-Type"]
+        if StringUtils.IsNullOrEmpty(contentType) or not contentType.StartsWith("image/")
+            testNode.state = "failed"
+            testNode.details = Tr(Locale.InvidiousTesting.InvalidThumbnailData).Replace("%1", thumbnail)
+            return
+        end if
+
+        testNode.state = "passed"
+        testNode.details = Tr(Locale.InvidiousTesting.TheInstanceCanFetchVideoThumbnails).Replace("%1", videoId).Replace("%2", thumbnail)
+    catch e
+        testNode.state = "failed"
+        testNode.details = ErrorUtils.Format(e)
+    end try
+end function
+
+function CanFetchWithCors(instance as string, testNode as object, cancellation as object) as void
+    try
+        url = `${instance}/api/v1/popular`
+        response = HttpClient.Get(url).NoCache().Cancellation(cancellation).Await()
+
+        if not response.IsSuccess()
+            testNode.state = "failed"
+            testNode.details = response.ErrorMessage()
+            return
+        end if
+
+        json = response.Json()
+        if json = invalid
+            testNode.state = "failed"
+            testNode.details = Tr(Locale.InvidiousTesting.InvalidJsonFrom).Replace("%1", url)
+            return
+        end if
+
+        headers = response.Headers()
+        corsHeader = headers["Access-Control-Allow-Origin"]
+        if not IsString(corsHeader) or corsHeader <> "*"
+            testNode.state = "failed"
+            testNode.details = Tr(Locale.InvidiousTesting.CorsHeaderNotSetCorrectly).Replace("%1", url)
+            return
+        end if
+
+        testNode.state = "passed"
+        testNode.details = Tr(Locale.InvidiousTesting.TheInstanceCanFetchWithCors).Replace("%1", url)
+    catch e
+        testNode.state = "failed"
+        testNode.details = ErrorUtils.Format(e)
+    end try
+end function

@@ -1,0 +1,19 @@
+<component name="WebServer" extends="Task">
+    <interface>
+        <field id="maxConnections" type="integer" value="10" />
+        <field id="maxRequestLength" type="integer" value="2097152" />
+        <field id="packageName" type="string" value="Roku app" />
+        <field id="port" type="integer" value="8888" />
+        <field id="serverName" type="string" value="Roku Server" />
+        <field id="timeoutInMs" type="integer" value="30000" />
+
+        <field id="isRunning" type="boolean" />
+        <function name="StartServer" />
+        <function name="StopServer" />
+
+        <!-- Web sockets disabled until it is implemented in the web app -->
+        <field id="webSocketBroadcast" type="string" alwaysNotify="true" />
+
+        <field id="shouldQuit" type="boolean" alwaysNotify="true" />
+    </interface>
+</component>

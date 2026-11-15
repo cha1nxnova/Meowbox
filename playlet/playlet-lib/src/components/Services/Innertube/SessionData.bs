@@ -1,0 +1,136 @@
+import "pkg:/components/Services/Innertube/Constants.bs"
+import "pkg:/components/Services/Innertube/Context.bs"
+import "pkg:/source/services/HttpClient.bs"
+import "pkg:/source/utils/CancellationUtils.bs"
+import "pkg:/source/utils/Logging.bs"
+import "pkg:/source/utils/RegistryUtils.bs"
+import "pkg:/source/utils/StringUtils.bs"
+import "pkg:/source/utils/TimeUtils.bs"
+
+namespace Innertube
+
+    const SESSION_DATA_VERSION = 1
+    const INNERTUBE_VISITOR_DATA_LIFESPAN_SECONDS = 60 * 60 * 24 * 14 ' 14 days
+    const TV_CLIENT_DATA_MAX_ATTEMPTS = 3
+
+    function IsVisitorDataFresh(sessionData as object) as boolean
+        if sessionData = invalid or not IsInt(sessionData.timestamp)
+            return false
+        end if
+        if StringUtils.IsNullOrEmpty(sessionData.visitorData)
+            return false
+        end if
+        nowSeconds = TimeUtils.Now().AsSeconds()
+        return nowSeconds - sessionData.timestamp <= INNERTUBE_VISITOR_DATA_LIFESPAN_SECONDS
+    end function
+
+    function RequestTvClientData(cancellation = invalid as object) as object
+        visitorData = ""
+        livingRoomPoTokenId = ""
+        visitorDataResponse = ""
+        livingRoomPoTokenIdResponse = ""
+
+        for attempt = 1 to TV_CLIENT_DATA_MAX_ATTEMPTS
+            text = FetchTvClientPage(cancellation)
+            if not StringUtils.IsNullOrEmpty(text)
+                if StringUtils.IsNullOrEmpty(visitorData)
+                    visitorData = ExtractEscapedJsonString(text, "visitorData")
+                    if StringUtils.IsNullOrEmpty(visitorData)
+                        visitorDataResponse = text
+                    end if
+                end if
+                if StringUtils.IsNullOrEmpty(livingRoomPoTokenId)
+                    livingRoomPoTokenId = ExtractEscapedJsonString(text, "LIVING_ROOM_PO_TOKEN_ID")
+                    if StringUtils.IsNullOrEmpty(livingRoomPoTokenId)
+                        livingRoomPoTokenIdResponse = text
+                    end if
+                end if
+                if not StringUtils.IsNullOrEmpty(visitorData) and not StringUtils.IsNullOrEmpty(livingRoomPoTokenId)
+                    exit for
+                end if
+            end if
+            if CancellationUtils.IsCancelled(cancellation)
+                exit for
+            end if
+            if attempt < TV_CLIENT_DATA_MAX_ATTEMPTS
+                sleep(attempt * 1000)
+            end if
+        end for
+
+        if StringUtils.IsNullOrEmpty(visitorData)
+            ReportTvClientDataFailure("Could not extract visitorData from tv client data", visitorDataResponse)
+        end if
+        if StringUtils.IsNullOrEmpty(livingRoomPoTokenId)
+            ReportTvClientDataFailure("Could not extract livingRoomPoTokenId from tv client data", livingRoomPoTokenIdResponse)
+        end if
+        if StringUtils.IsNullOrEmpty(visitorData) and StringUtils.IsNullOrEmpty(livingRoomPoTokenId)
+            return invalid
+        end if
+
+        return {
+            "timestamp": TimeUtils.Now().AsSeconds()
+            "visitorData": visitorData
+            "livingRoomPoTokenId": livingRoomPoTokenId
+        }
+    end function
+
+    function ReportTvClientDataFailure(message as string, responseText as dynamic) as void
+        LogErrorNoTelemetry(message)
+        event = {
+            level: "error"
+            message: message
+        }
+        if not StringUtils.IsNullOrEmpty(responseText)
+            event.attachments = [{
+                filename: "response.html"
+                content_type: "text/html"
+                data: responseText
+            }]
+        end if
+        LogTelemetryEvent(event)
+    end function
+
+    function FetchTvClientPage(cancellation as object) as dynamic
+        request = HttpClient.Get("https://www.youtube.com/tv")
+        headers = Innertube.CreateHeaders(Innertube.ClientType.Tv)
+        headers["Referer"] = "https://www.youtube.com/tv"
+        request.Headers(headers)
+        request.Cancellation(cancellation)
+        request.NoCache()
+
+        response = request.Await()
+        if not response.IsSuccess()
+            LogError("Failed to fetch tv client data:", response.ErrorMessage())
+            return invalid
+        end if
+        return response.Text()
+    end function
+
+    function ExtractEscapedJsonString(text as string, key as string) as string
+        regex = CreateObject("roRegex", `"${key}":"([^"]*)"`, "")
+        match = regex.Match(text)
+        if match.Count() < 2
+            return ""
+        end if
+        decoded = StringUtils.ParseJsonSafe(`["${match[1]}"]`)
+        if not IsArray(decoded) or decoded.Count() <> 1
+            return ""
+        end if
+        return decoded[0]
+    end function
+
+    function SaveSessionDataToRegistry(sessionData as object) as void
+        sessionData.__version = SESSION_DATA_VERSION
+        RegistryUtils.Write(RegistryUtils.INNERTUBE_SESSION_DATA, FormatJson(sessionData))
+    end function
+
+    function ReadSessionDataFromRegistry() as object
+        sessionData = RegistryUtils.Read(RegistryUtils.INNERTUBE_SESSION_DATA)
+        if StringUtils.IsNullOrEmpty(sessionData)
+            return invalid
+        end if
+
+        return StringUtils.ParseJsonSafe(sessionData)
+    end function
+
+end namespace

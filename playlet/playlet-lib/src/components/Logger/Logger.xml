@@ -1,0 +1,6 @@
+<component name="Logger" extends="Task">
+    <interface>
+        <field id="logLevel" type="int" value="2" />
+        <field id="logLine" type="string" alwaysNotify="true" />
+    </interface>
+</component>

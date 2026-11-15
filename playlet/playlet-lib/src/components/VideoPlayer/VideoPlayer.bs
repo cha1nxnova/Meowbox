@@ -1,0 +1,810 @@
+#const DEBUG_LOG_VIDEO_QUALITY = false
+
+import "pkg:/components/ContentNode/ProfileContentAuthTokenUtils.types.bs"
+import "pkg:/components/Dialog/DialogUtils.bs"
+import "pkg:/components/JobSystem/Jobs.bs"
+import "pkg:/components/JobSystem/JobSystem.bs"
+import "pkg:/components/Services/Innertube/Constants.bs"
+import "pkg:/components/Services/Invidious/InvidiousToContentNode.bs"
+import "pkg:/components/VideoPlayer/Lounge.bs"
+import "pkg:/components/VideoPlayer/SponsorBlock.bs"
+import "pkg:/components/VideoPlayer/VideoPlayerStyle.bs"
+import "pkg:/components/VideoQueue/VideoQueueUtils.bs"
+import "pkg:/source/utils/ErrorUtils.bs"
+import "pkg:/source/utils/Logging.bs"
+import "pkg:/source/utils/RemoteKeys.bs"
+
+enum DownloadErrors
+    Unknown = 900
+    TimeoutByCurl = 950
+    TimeoutBySelector = 951
+    Abort = 960
+    AbortByServer = 961
+    AbortBySelector = 962
+    AbortByParallel = 963
+    ParallelFragmentError = 964
+    BadMedia = 970
+end enum
+
+function Init()
+    SetPlayerStyle()
+    SetupAnimation()
+    m.fullScreenHint = m.top.findNode("fullScreenHint")
+    m.fullScreenHintLabel = m.top.findNode("fullScreenHintLabel")
+    m.fullScreenHintTimer = m.top.findNode("fullScreenHintTimer")
+    m.fullScreenHintTimer.ObserveField("fire", FuncName(OnFullScreenHintTimer))
+    m.trickplayUITimer = m.top.findNode("trickplayUITimer")
+    m.trickplayUITimer.ObserveField("fire", FuncName(OnTrickplayUITimer))
+    m.top.notificationInterval = 1
+
+    ' videoPlayingSuccess indicates if we started playing a video successfully
+    ' We use it to detect if we should try another link for a video, or if another error
+    ' occurred (such as a network error)
+    m.videoPlayingSuccess = false
+    ' ignoreNextFinishedState indicates if we should ignore the next finished state
+    ' This is used to prevent the video from playing the next video when we are
+    ' still trying to find a working stream url.
+    ' This is also used to prevent playing the next video when we're still displaying
+    ' an error dialog.
+    m.ignoreNextFinishedState = false
+
+    ' Indicates that we're currently paused and seeking position
+    m.isSeekingPosition = false
+
+    ' Checks if current RokuOS version has showUI field in Video node
+    m.showUIEnabled = m.top.hasField("showUI")
+    LogDebug(`Custom OK handler is ${m.showUIEnabled ? "enabled" : "disabled"}`)
+
+    ' asyncStopSemantics available since Roku OS 12.5
+    ' It is set to true because stopping synchronously causes timeout and crash
+    ' Usually we would need to wait for the video state to move to "stopping" then to "stopped"
+    ' before considering the video node closed, and creating a new one.
+    ' However, since we have a job to load video details, there should be enough time for the
+    ' video node to close before we create a new one.
+    if m.top.hasField("asyncStopSemantics")
+        m.top.asyncStopSemantics = true
+    end if
+
+    httpAgent = m.top.getHttpAgent()
+    ' TODO:P2 user agent should not be hardcoded, it should be part of video metadata
+    httpAgent.AddHeader("User-Agent", VIDEO_PLAYER_USER_AGENT)
+
+    #if DEBUG_LOG_VIDEO_QUALITY
+        m.top.addFields({
+            "_resolution": ""
+            "_audioFormat": ""
+            "_videoFormat": ""
+        })
+
+        m.top.observeField("streamingSegment", FuncName(OnStreamingSegmentChangeDebug))
+
+        m.top.observeField("audioFormat", FuncName(OnFormatChangeDebug))
+        m.top.observeField("videoFormat", FuncName(OnFormatChangeDebug))
+        m.top.observeField("_resolution", FuncName(OnFormatChangeDebug))
+
+        m.top.observeField("_audioFormat", FuncName(OnQualityChangeDebug))
+        m.top.observeField("_videoFormat", FuncName(OnQualityChangeDebug))
+    #end if
+end function
+
+#if DEBUG_LOG_VIDEO_QUALITY
+    function OnStreamingSegmentChangeDebug()
+        segment = m.top.streamingSegment
+        width = segment.width
+        height = segment.height
+        if width > 0 and height > 0
+            m.top._resolution = `${width}x${height}`
+        end if
+    end function
+
+    function OnFormatChangeDebug()
+        audioFormat = m.top.audioFormat
+        videoFormat = m.top.videoFormat
+        resolution = m.top._resolution
+
+        m.top._audioFormat = audioFormat
+        m.top._videoFormat = `${videoFormat} ${resolution}`
+    end function
+
+    function OnQualityChangeDebug()
+        LogDebug("Video format:", m.top._videoFormat, "Audio format:", m.top._audioFormat)
+    end function
+#end if
+
+function OnNodeReady()
+    minRect = m.top.minRect
+    rect = m.container.fullscreen ? m.top.maxRect : minRect
+
+    m.top.width = rect.width
+    m.top.height = rect.height
+    m.top.translation = [rect.x, rect.y]
+
+    m.fullScreenHint.width = minRect.width
+    m.fullScreenHintLabel.width = minRect.width
+    m.fullScreenHint.translation = [0, minRect.height - m.fullScreenHint.height]
+
+    ' TODO:P2 show a loading spinner if video is loading minimized
+    ' Probably only worth doing after the video player is redone
+    m.top.enableUI = m.container.fullscreen
+    m.top.showFullScreenHint = not m.container.fullscreen
+
+    m.container.observeFieldScoped("fullscreen", FuncName(OnFullScreenChange))
+    m.top.ObserveField("state", FuncName(OnVideoPlayerStateChange))
+
+    SponsorBlock.SetupSponsorBlock()
+end function
+
+function PlayWithContent(contentNode as object)
+    videoContentNode = CreateObject("roSGNode", "ContentNode")
+
+    if not StringUtils.IsNullOrEmpty(contentNode.videoId)
+        videoContentNode.AddFields({ videoId: contentNode.videoId })
+    end if
+    if ValidInt(contentNode.timestamp) <> -1
+        videoContentNode.AddFields({ timestamp: contentNode.timestamp })
+    else if contentNode.percentDurationWatched > 0 and contentNode.percentDurationWatched < 100
+        videoContentNode.AddFields({ percentDurationWatched: contentNode.percentDurationWatched })
+    end if
+    if not StringUtils.IsNullOrEmpty(contentNode.title)
+        videoContentNode.title = contentNode.title
+    end if
+    ' NOTE: "_author" not "author". See PlaylistContentNode.xml for explanation.
+    author = contentNode._author
+    if StringUtils.IsNullOrEmpty(author)
+        lines = contentNode.lines
+        if IsArray(lines) and lines.Count() > 0
+            author = lines[0]
+        end if
+    end if
+    if not StringUtils.IsNullOrEmpty(author)
+        videoContentNode.secondaryTitle = author
+    end if
+    metadata = contentNode.metadata
+    if IsAssociativeArray(metadata)
+        videoContentNode.AddFields({ metadata: metadata })
+    end if
+
+    StartVideoContentJob(videoContentNode)
+
+    playbackSpeed = ValidFloat(m.top.playbackSpeed)
+    if playbackSpeed <= 0
+        playbackSpeed = 1.0
+    end if
+    Lounge.SendNowPlayingLoading(contentNode.videoId, playbackSpeed)
+end function
+
+function StartVideoContentJob(videoContentNode as object)
+    if m.videoContentJob <> invalid
+        m.videoContentJob.cancel = true
+    end if
+
+    m.top.content = videoContentNode
+
+
+    input = {
+        content: videoContentNode
+        invidious: m.top.invidious
+        innertube: m.top.innertube
+        preferences: m.top.preferences
+        loungeService: m.top.loungeService
+        playletServerPort: m.top.webServer.port
+        profilesService: m.top.profilesService
+    }
+
+    m.videoContentJob = JobSystem.CreateCallback(OnVideoContentJobDone)
+    JobSystem.QueueJob(m.jobQueue, Jobs.VideoContentJob, input, m.videoContentJob)
+end function
+
+function OnVideoContentJobDone(event as object) as void
+    JobSystem.UnobserveCallback(event.getRoSGNode())
+    m.videoContentJob = invalid
+
+    info = event.getInfo()
+    if info.cancel or m.onCloseCalled = true
+        return
+    end if
+
+    content = m.top.content
+
+    if not info.success
+        videoId = ""
+        if content <> invalid
+            videoId = content.videoId
+        end if
+
+        title = Tr(Locale.VideoPlayer.VideoLoadError)
+        message = Tr(Locale.VideoPlayer.VideoLoadErrorMessage).Replace("%1", videoId) + `\n${info.error}`
+        buttons = [Tr(Locale.Buttons.PlayNextVideo), Tr(Locale.Buttons.Cancel)]
+
+        dialog = DialogUtils.ShowTimedDialogButtons(message, title, buttons, 0, 10, true)
+        if dialog <> invalid
+            dialog.observeFieldScoped("wasClosed", FuncName(OnVideoContentJobErrorDialogResponse))
+        else
+            OnVideoContentJobErrorDialogResponse(invalid)
+        end if
+
+        Lounge.SendOnStateChange()
+        return
+    end if
+
+    metadata = content.metadata
+    SponsorBlock.FetchSponsorBlock(metadata)
+
+    SeekToInitialPosition(content)
+
+    PlayAfterPreviousPlayerHasStopped()
+    MarkVideoWatched(content.videoId, metadata.playbackTrackingUrls, metadata.cpn)
+end function
+
+function SeekToInitialPosition(content as object) as void
+    if content = invalid
+        return
+    end if
+
+    ' For trickplay of live streams, apps should seek to a position of
+    ' 999,999 seconds (for both DASH and HLS streams). The Roku media
+    ' player clips that position to the current availability window and
+    ' provides a robust buffer.
+    ' https://developer.roku.com/en-ca/docs/specs/media/streaming-specifications.md
+    if content.Live = true
+        LogInfo("Seeking to enge of live stream")
+        m.top.seek = 999999
+        return
+    end if
+
+    timestamp = ValidInt(content.timestamp)
+    if timestamp > 0
+        LogInfo("Seeking to timestamp:", timestamp)
+        m.top.seek = content.timestamp
+        return
+    end if
+
+    percentDurationWatched = ValidFloat(content.percentDurationWatched)
+    if percentDurationWatched > 0
+        m.seekToPercent = percentDurationWatched
+        SeekToPercentOfDuration()
+    end if
+end function
+
+function SeekToPercentOfDuration() as void
+    m.top.UnobserveField("duration")
+
+    seekToPercent = m.seekToPercent
+    if seekToPercent = invalid
+        return
+    end if
+
+    duration = m.top.duration
+    if duration = 0
+        ' If the duration is not available, wait for it to be set
+        m.top.ObserveField("duration", FuncName(SeekToPercentOfDuration))
+        return
+    end if
+
+    ' If the stream is less than 30 seconds, it's not worth seeking
+    if duration < 30
+        return
+    end if
+
+    m.seekToPercent = invalid
+    seek = (MathUtils.Clamp(seekToPercent, 0, 100) / 100.0) * duration
+    if seek > 0
+        LogInfo("Seeking to percent duration watched", seek)
+        m.top.seek = seek
+    end if
+end function
+
+function PlayAfterPreviousPlayerHasStopped() as void
+    previousPlayer = m.top.previousPlayer
+    m.top.previousPlayer = invalid
+    ' AutoBind strong-cached the prior player into m.previousPlayer; with only the field cleared, that cache
+    ' chains every closed player alive.
+    m.previousPlayer = invalid
+
+    if previousPlayer = invalid
+        m.top.control = "play"
+        return
+    end if
+
+    previousPlayerState = previousPlayer.state
+    LogInfo("Previous player state:", previousPlayerState)
+
+    if previousPlayerState = "stopping"
+        previousPlayer.observeFieldScoped("state", FuncName(OnPreviousPlayerState))
+        return
+    end if
+
+    m.top.control = "play"
+end function
+
+function OnPreviousPlayerState(event as object) as void
+    previousPlayer = event.getRoSGNode()
+
+    if m.onCloseCalled = true
+        previousPlayer.unobserveFieldScoped("state")
+        return
+    end if
+
+    previousPlayerState = previousPlayer.state
+    LogInfo("Previous player state change:", previousPlayerState)
+
+    if previousPlayerState = "stopped" or previousPlayerState = "error" or previousPlayerState = "finished" or previousPlayerState = "none"
+        previousPlayer.unobserveFieldScoped("state")
+
+        m.top.control = "play"
+    end if
+end function
+
+function OnVideoContentJobErrorDialogResponse(event as object)
+    shouldPlayNext = false
+    if event <> invalid
+        dialog = event.getRoSGNode()
+        if m.errorDialog <> invalid and dialog.isSameNode(m.errorDialog)
+            m.errorDialog = invalid
+        end if
+        dialog.unobserveFieldScoped("wasClosed")
+        shouldPlayNext = dialog.actualButtonSelected = 0
+    end if
+
+    if not shouldPlayNext or not VideoQueueUtils.PlayNext(m.videoQueue, m.invidious, m.preferences)
+        if m.top.isSameNode(m.videoQueue.player)
+            m.videoQueue.closePlayer = true
+        end if
+    end if
+end function
+
+function MarkVideoWatched(videoId as dynamic, playbackTrackingUrls as dynamic, cpn as dynamic) as void
+    if StringUtils.IsNullOrEmpty(videoId)
+        return
+    end if
+
+    profile = m.top.profilesService.currentProfile
+    if profile = invalid
+        return
+    end if
+    if profile.authState = ProfileContentAuthTokenUtils.ProfileAuthState.NeedsReauth
+        return
+    end if
+
+    if m.markVideoWatchedJob <> invalid
+        m.markVideoWatchedJob.cancel = true
+    end if
+
+    input = {
+        videoId: videoId
+        invidious: m.top.invidious
+        profile: profile
+        playbackTrackingUrls: playbackTrackingUrls
+        cpn: cpn
+    }
+
+    m.markVideoWatchedJob = JobSystem.CreateCallback()
+    m.markVideoWatchedJob.addField("watchTime", "float", false)
+    JobSystem.QueueJob(m.jobQueue, Jobs.MarkVideoWatchedJob, input, m.markVideoWatchedJob)
+
+    if profile.type <> "youtube"
+        return
+    end if
+
+    ' Progress reported to Innertube. It is the position in seconds,
+    ' with 20 second steps.
+    m.watchTimeMarker = -1
+    m.top.ObserveFieldScoped("position", FuncName(OnPositionChangeMarkWatchTime))
+end function
+
+function OnPositionChangeMarkWatchTime(event as object) as void
+    if m.markVideoWatchedJob = invalid
+        return
+    end if
+
+    currentPosition = event.getData()
+    currentWatchTimeMarker = m.watchTimeMarker
+    m.watchTimeMarker = (currentPosition \ 20) * 20
+    if currentWatchTimeMarker = currentPosition
+        return
+    end if
+    m.markVideoWatchedJob.watchTime = m.watchTimeMarker
+end function
+
+function OnSetSeek() as void
+    m.top.seek = m.top.setSeek
+end function
+
+function OnClose()
+    m.onCloseCalled = true
+
+    m.top.previousPlayer = invalid
+
+    if m.markVideoWatchedJob <> invalid
+        m.markVideoWatchedJob.cancel = true
+        m.markVideoWatchedJob = invalid
+    end if
+    if m.videoContentJob <> invalid
+        m.videoContentJob.cancel = true
+        m.videoContentJob = invalid
+    end if
+    if m.sponsorBlockSegmentsJob <> invalid
+        m.sponsorBlockSegmentsJob.cancel = true
+        m.sponsorBlockSegmentsJob = invalid
+    end if
+
+    parent = m.top.getParent()
+    if parent <> invalid
+        parent.RemoveChild(m.top)
+    end if
+    SponsorBlock.RemoveNotifcation(m.notifications)
+
+    ' Stopping a video is slow and synchronous, and can lead to execution timeout crashes.
+    try
+        m.top.control = "stop"
+    catch error
+        errorMessage = ErrorUtils.Format(error)
+        LogError("Error stopping video:", errorMessage)
+        DialogUtils.ShowDialogEx({
+            message: errorMessage
+            title: Tr(Locale.VideoPlayer.ErrorClosingVideo)
+            large: true
+        })
+    end try
+
+    m.top.content = invalid
+end function
+
+function OnVideoPlayerStateChange() as void
+    Lounge.SendOnStateChange()
+
+    state = m.top.state
+    content = m.top.content
+
+    ' Reset isSeekingPosition when started to play the video
+    if state = "playing"
+        m.isSeekingPosition = false
+
+        ' If we somehow was able to recover playback after an error dialog, close the dialog
+        errorDialog = m.errorDialog
+        if errorDialog <> invalid
+            m.errorDialog = invalid
+            errorDialog.unobserveFieldScoped("wasClosed")
+            errorDialog.close = true
+        end if
+    end if
+
+    ' If we successfully played the video, then any error that comes later is not due to a 403 (FORBIDDEN).
+    ' This is to reduce false positives, as we do not want retry another link if the first link is working fine.
+    if state = "playing" and not m.videoPlayingSuccess
+        LogInfo(`Now playing video ${content.url}`)
+        m.videoPlayingSuccess = true
+    end if
+
+    errorData = invalid
+    if state = "error"
+        errorInfo = m.top.errorInfo
+        errorData = GetPlayerErrorData(content.videoId, errorInfo)
+
+        LogErrorNoTelemetry(errorData.title, errorData.body)
+
+        if m.videoPlayingSuccess <> true
+            ' http for stream format, mediaerror for DASH
+            if errorInfo.category = "http" or errorInfo.category = "mediaerror"
+                playletStreamUrls = content.playletStreamUrls
+                currentUrlIndex = content.playletStreamUrlIndex
+                nextUrlIndex = currentUrlIndex + 1
+                content.playletStreamUrlIndex = nextUrlIndex
+                if nextUrlIndex < playletStreamUrls.Count()
+                    currentUrl = content.url
+                    nextUrl = playletStreamUrls[nextUrlIndex]
+
+                    if StringUtils.IsNullOrEmpty(nextUrl)
+                        LogError("Next stream URL is empty, cannot try next stream")
+                    end if
+
+                    content.url = nextUrl
+
+                    SeekToInitialPosition(content)
+
+                    ' This video errored, and is about to finish, so don't close the video yet
+                    ' That's why we should ignore the next "finished" event
+                    m.ignoreNextFinishedState = true
+                    m.top.control = "play"
+
+                    timestamp = content.timestamp
+                    hasTimestamp = IsInt(timestamp)
+
+                    if hasTimestamp and timestamp > 0
+                        m.top.seek = content.timestamp
+                    end if
+
+                    msg = `Stream ${currentUrl} failed to play. Trying next stream ${nextUrl}`
+                    LogErrorNoTelemetry(msg)
+
+                    errorData.title = msg + `\n` + errorData.title
+                    ReportVideoError(errorData, currentUrl, playletStreamUrls, currentUrlIndex, false)
+                    return
+                end if
+            end if
+        end if
+    end if
+
+    if state = "finished" and m.ignoreNextFinishedState = true
+        m.ignoreNextFinishedState = false
+        return
+    end if
+
+    if state = "finished"
+        OnVideoFinished()
+        return
+    end if
+
+    if state = "error"
+        LogErrorNoTelemetry(errorData.title, errorData.body)
+        ReportVideoError(errorData, content.url, content.playletStreamUrls, content.playletStreamUrlIndex, true)
+
+        buttons = [Tr(Locale.Buttons.PlayNextVideo), Tr(Locale.Buttons.Cancel)]
+
+        dialog = DialogUtils.ShowTimedDialogButtons(errorData.body, errorData.title, buttons, 0, 10, true)
+        if dialog <> invalid
+            m.errorDialog = dialog
+            dialog.observeFieldScoped("wasClosed", FuncName(OnVideoContentJobErrorDialogResponse))
+        else
+            OnVideoContentJobErrorDialogResponse(invalid)
+        end if
+        m.ignoreNextFinishedState = true
+    end if
+end function
+
+function GetPlayerErrorData(videoId as string, errorInfo as object) as object
+    if errorInfo = invalid
+        return invalid
+    end if
+
+    errorMsg = m.top.errorMsg
+    errorCode = m.top.errorCode
+    errorStr = m.top.errorStr
+
+    title = Tr(Locale.VideoPlayer.ErrorPlayingVideo).Replace("%1", videoId)
+    body = `errorMsg: ${errorMsg}\nerrorCode: ${errorCode}\nerrorStr: ${errorStr}`
+    for each key in errorInfo
+        body += `\n${key}: ${errorInfo[key]}`
+    end for
+
+    fingerprint = [
+        Locale.VideoPlayer.ErrorPlayingVideo
+        errorMsg
+        errorCode
+        errorInfo.source
+        errorInfo.ignored
+        errorInfo.category
+        errorInfo.errcode
+        errorInfo.drmerrcode
+    ]
+
+    return {
+        title: title
+        body: body
+        fingerprint: fingerprint
+    }
+end function
+
+function ReportVideoError(errorData as object, url as dynamic, urls as object, urlIndex as dynamic, shownInDialog as boolean) as void
+    attachments = invalid
+    if errorData.body.Instr("malformed data") <> -1 or errorData.body.Instr("invalid pathname") <> -1
+        lastGeneratedDash = ValidString(ReadAsciiFile("cachefs:/last_generated_dash.xml"))
+        lastGeneratedHls = ValidString(ReadAsciiFile("cachefs:/last_generated_hls.m3u8"))
+        lastPlayerResponse = ValidString(ReadAsciiFile("cachefs:/last_player_response.json"))
+
+        attachments = [{
+            filename: "last_generated_dash.xml"
+            content_type: "plain/text"
+            data: lastGeneratedDash
+        }, {
+            filename: "last_generated_hls.m3u8"
+            content_type: "plain/text"
+            data: lastGeneratedHls
+        }, {
+            filename: "last_player_response.json"
+            content_type: "application/json"
+            data: lastPlayerResponse
+        }]
+    end if
+
+    position = m.top.position
+    duration = m.top.duration
+    videoLoadId = ""
+    content = m.top.content
+    if content <> invalid
+        videoLoadId = ValidString(content.videoLoadId)
+    end if
+    message = [
+        errorData.title
+        errorData.body
+        `Dialog shown: ${shownInDialog}`
+        `Position: ${position}`
+        `Duration: ${duration}`
+        `Url: ${url}`
+        `Urls: ` + ToString(urls)
+        `Url index: ${urlIndex}`
+        `video_load_id: ${videoLoadId}`
+    ].Join(`\n`)
+
+    errorData.fingerprint.push(shownInDialog)
+
+    if shownInDialog
+        level = "error"
+    else
+        level = "warning"
+    end if
+
+    LogTelemetryEvent({
+        level: level
+        message: message
+        fingerprint: errorData.fingerprint
+        attachments: attachments
+    })
+end function
+
+function OnVideoFinished() as void
+    if not VideoQueueUtils.PlayNext(m.videoQueue, m.invidious, m.preferences)
+        m.videoQueue.closePlayer = true
+    end if
+end function
+
+function IsLiveVideo() as boolean
+    content = m.top.content
+    return content <> invalid and content.Live = true
+end function
+
+function ShowUIAndStartTimer()
+    if m.showUIEnabled
+        m.top.showUI = { "show": true, "trickPlaybar": true, "titleAndTime": true, "trickplayBackgroundOverlay": true, "focusTrickplayBar": false }
+        m.trickplayUITimer.control = "start"
+    end if
+end function
+
+function HideUIAndStopTimer()
+    if m.showUIEnabled
+        m.top.showUI = { "show": false, "focusTrickplayBar": false }
+        m.trickplayUITimer.control = "stop"
+    end if
+end function
+
+function HandleOKPress() as boolean
+    if SponsorBlock.ManualSkipSegment()
+        return false
+    end if
+
+    if not m.showUIEnabled
+        return false
+    end if
+
+    handled = false
+    state = m.top.state
+    uiVisible = m.top.trickPlaybar.visible
+    isLive = IsLiveVideo()
+    LogDebug(`Handling OK button: state = ${state}, uiVisible = ${uiVisible} isLive = ${isLive}`)
+    if state = "playing"
+        if not uiVisible
+            ' Video is playing and UI is not visible, show it
+            ShowUIAndStartTimer()
+        else if not isLive
+            ' Trickplay bar is visible and video is currently played, pause it and retain the UI
+            m.trickplayUITimer.control = "stop"
+            m.top.control = "pause"
+            ShowUIAndStartTimer()
+        else
+            HideUIAndStopTimer()
+        end if
+        handled = true
+    else if state = "paused"
+        ' Exit early if we're in seeking mode to avoid messing up internal Video node state
+        if m.isSeekingPosition
+            return false
+        end if
+
+        if not uiVisible
+            ' Video is paused and UI is not visible, show it
+            ShowUIAndStartTimer()
+        else
+            ' Video is currently paused with visible UI, resume it and hide UI
+            HideUIAndStopTimer()
+            m.top.control = "resume"
+        end if
+        handled = true
+    end if
+    return handled
+end function
+
+function OnKeyEvent(key as string, press as boolean) as boolean
+    if press = false
+        return false
+    end if
+    ' Unfortunately, a Video node cannot capture the "options" key (because, Roku...)
+    ' https://community.roku.com/t5/Roku-Developer-Program/Bug-in-10-0-1-Options-key-is-not-being-consumed-by-onKeyEvent-when-Video-node-is-in-focus/m-p/709200/highlight/true#M49312
+    ' Because of that, the button "down" is used to shrink the video for picture in picture mode
+    if key = RemoteKeys.Down
+        if VideoQueueUtils.ToggleVideoPictureInPicture(m.videoQueue)
+            return true
+        end if
+    end if
+
+    if key = RemoteKeys.Back
+        m.videoQueue.closePlayer = true
+        return true
+    end if
+
+    if key = RemoteKeys.Ok
+        return HandleOKPress()
+    end if
+
+    if key = RemoteKeys.Left or key = RemoteKeys.Right or key = RemoteKeys.Rewind or key = RemoteKeys.FastForward
+        ' We're paused and one of the buttons is pressed: left, right ff, rw.
+        ' That means we're seeking position. Check that in HandleOKPress and exit early
+        m.isSeekingPosition = true
+    end if
+
+    ' Always stop UI timer when pressing any button to avoid UI being hidden twice
+    m.trickplayUITimer.control = "stop"
+    return false
+end function
+
+function SetupAnimation()
+    m.minimizeAnimation = m.top.findNode("minimizeAnimation")
+    m.widthInterpolator = m.top.findNode("widthInterpolator")
+    m.heightInterpolator = m.top.findNode("heightInterpolator")
+    m.translationInterpolator = m.top.findNode("translationInterpolator")
+
+    minRect = m.top.minRect
+    maxRect = m.top.maxRect
+
+    m.widthInterpolator.keyValue = [maxRect.width, (maxRect.width + minRect.width) / 2, minRect.width]
+    m.heightInterpolator.keyValue = [maxRect.height, (maxRect.height + minRect.height) / 2, minRect.height]
+    maxTranslation = [maxRect.x, maxRect.y]
+    minTranslation = [minRect.x, minRect.y]
+    midTranslation = [(maxRect.x + minRect.x) / 2, (maxRect.y + minRect.y) / 2]
+    m.translationInterpolator.keyValue = [maxTranslation, midTranslation, minTranslation]
+end function
+
+function OnFullScreenChange()
+    HideUIAndStopTimer()
+
+    m.widthInterpolator.reverse = m.container.fullscreen
+    m.heightInterpolator.reverse = m.container.fullscreen
+    m.translationInterpolator.reverse = m.container.fullscreen
+
+    m.minimizeAnimation.control = "start"
+
+    m.top.enableUI = m.container.fullscreen
+    m.top.showFullScreenHint = not m.container.fullscreen
+
+    SponsorBlock.SetVisible(m.notifications, m.container.fullscreen)
+end function
+
+function OnShowFullScreenHint() as void
+    m.fullScreenHintTimer.control = "stop"
+
+    if m.container.fullscreen
+        m.fullScreenHint.visible = false
+        return
+    end if
+
+    if m.top.showFullScreenHint
+        ' Take 1 second until the shrink animation finishes to show the hint
+        m.fullScreenHintTimer.duration = 1
+    else
+        ' Wait 5 seconds then hide the hint
+        m.fullScreenHintTimer.duration = 5
+    end if
+
+    m.fullScreenHintTimer.control = "start"
+end function
+
+function OnTrickplayUITimer()
+    HideUIAndStopTimer()
+end function
+
+function OnFullScreenHintTimer()
+    showFullScreenHint = m.top.showFullScreenHint
+    m.fullScreenHint.visible = showFullScreenHint
+    if showFullScreenHint
+        m.top.showFullScreenHint = false
+    end if
+end function

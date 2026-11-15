@@ -1,0 +1,103 @@
+import "pkg:/components/Services/Invidious/InvidiousService.bs"
+import "pkg:/source/services/HttpClient.bs"
+import "pkg:/source/utils/Logging.bs"
+import "pkg:/source/utils/ObjectUtils.bs"
+
+@job("InvidiousPublicInstancesJob")
+function ExecuteJob() as void
+    input = JobGetInput()
+
+    listNode = input.listNode
+    fieldWidths = input.fieldWidths
+
+    if JobIsCancelled()
+        JobCancel()
+        return
+    end if
+
+    cancellation = JobGetCancellation()
+    response = HttpClient.Get(Invidious.INSTANCES_API).Cancellation(cancellation).Await()
+    if response.IsCancelled()
+        JobCancel()
+        return
+    end if
+
+    instances = response.Json()
+    if not response.IsSuccess() or instances = invalid
+        JobError(response.ErrorMessage())
+        return
+    end if
+
+    instances = FilterInstances(instances)
+
+    content = CreateObject("roSGNode", "ContentNode")
+
+    for each instance in instances
+        item = CreateListItemContent(instance, fieldWidths)
+        if item = invalid
+            continue for
+        end if
+        content.AppendChild(item)
+    end for
+
+    listNode.content = content
+end function
+
+function FilterInstances(instances as object) as object
+    filtered = []
+
+    for each instance in instances
+        if not IsArray(instance) or instance.Count() < 2
+            LogWarn("Invalid instance:", instance)
+            continue for
+        end if
+
+        flags = instance[1]
+        if flags.type = "https" and flags.api = true and flags.cors = true
+            filtered.Push(instance)
+        end if
+    end for
+
+    return filtered
+end function
+
+function CreateListItemContent(instance as object, fieldWidths as object) as object
+    if not IsArray(instance) or instance.Count() < 2
+        LogWarn("Invalid instance:", instance)
+        return invalid
+    end if
+
+    item = CreateObject("roSGNode", "InvidiousPublicInstancesListItemContent")
+    item.setFields({
+        name: ObjectUtils.DigWithDefault(instance, [0], "")
+        version: ObjectUtils.DigWithDefault(instance, [1, "stats", "software", "version"], "N/A")
+        users: ObjectUtils.DigWithDefault(instance, [1, "stats", "usage", "users", "total"], "N/A")
+        signup: Tr(ValidBool(ObjectUtils.DigWithDefault(instance, [1, "stats", "openRegistrations"], false)) ? "Yes" : "No")
+        ' Leave 5 spaces for the flag, just to simplify the layout
+        location: `     ${ObjectUtils.DigWithDefault(instance, [1, "region"], "N/A")}`
+        flag: GetFlagUrl(ValidString(ObjectUtils.DigWithDefault(instance, [1, "flag"], "")))
+        health: ObjectUtils.DigWithDefault(instance, [1, "monitor", "uptime"], "N/A")
+        uri: ObjectUtils.DigWithDefault(instance, [1, "uri"], "N/A")
+        fieldWidths: fieldWidths
+    })
+
+    return item
+end function
+
+function GetFlagUrl(flag as string) as string
+    if flag = ""
+        return ""
+    end if
+    codePoint = EmojiToCodePoint(flag)
+    return `https://github.githubassets.com/images/icons/emoji/unicode/${codePoint}.png?v8`
+end function
+
+function EmojiToCodePoint(emoji as string) as string
+    codes = []
+    chars = emoji.Split("")
+    for i = 0 to chars.count() - 1
+        c = Asc(chars[i])
+        codes.push(StrI(c, 16))
+    end for
+    return codes.join("-")
+end function

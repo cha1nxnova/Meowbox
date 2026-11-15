@@ -1,0 +1,33 @@
+import "pkg:/source/utils/CancellationUtils.bs"
+import "pkg:/source/utils/Logging.bs"
+
+@job("SimpleTestJob")
+function ExecuteJob() as void
+    input = JobGetInput()
+
+    ' Register before reading: a cancel between the read and the registration would reach no observer
+    cancellation = JobGetCancellation()
+    messagePort = CreateObject("roMessagePort")
+    CancellationUtils.ObserveCancellationScoped(cancellation, messagePort)
+
+    cancelled = CancellationUtils.IsCancelled(cancellation)
+    sleepTimeMs = ValidInt(input.sleep)
+    if not cancelled and sleepTimeMs > 0
+        message = wait(sleepTimeMs, messagePort)
+        cancelled = CancellationUtils.IsCancellationEvent(cancellation, message)
+    end if
+    CancellationUtils.UnobserveCancellationScoped(cancellation)
+
+    if cancelled
+        LogInfo("Simulated job cancellation for testing purposes")
+        JobCancel()
+        return
+    end if
+
+    if not input.success
+        JobError("Simulated job error for testing purposes")
+        return
+    end if
+
+    LogInfo("Simulated job success for testing purposes")
+end function

@@ -1,0 +1,472 @@
+import "pkg:/components/VideoFeed/FeedLoadState.bs"
+import "pkg:/source/utils/Locale.bs"
+import "pkg:/source/utils/LocaleUtils.bs"
+import "pkg:/source/utils/StringUtils.bs"
+import "pkg:/source/utils/TimeUtils.bs"
+
+namespace InvidiousContent
+
+    function ToRowCellContentNode(item as object, instance as dynamic) as object
+        if item.playlistId <> invalid and (item.type = invalid or item.type = "invidiousPlaylist")
+            item.type = "playlist"
+        end if
+
+        if item.videoId <> invalid and (item.type = invalid or item.type = "shortVideo")
+            item.type = "video"
+        end if
+
+        if item.type <> "video" and item.type <> "playlist" and item.type <> "channel"
+            return invalid
+        end if
+
+        if item.type = "video"
+            return ToVideoContentNode(invalid, item, instance)
+        else if item.type = "playlist"
+            return ToPlaylistContentNode(invalid, item, instance)
+        else if item.type = "channel"
+            return ToChannelContentNode(invalid, item)
+        else
+            return invalid
+        end if
+    end function
+
+    function ToVideoContentNode(node as object, item as object, instance as dynamic) as object
+        if node = invalid
+            node = CreateObject("roSGNode", "VideoContentNode")
+        end if
+        node.type = "video"
+
+        ' NOTE: "_author" not "author". See PlaylistContentNode.xml for explanation.
+        SetIfExists(node, "_author", item, "author")
+        SetIfExists(node, "authorId", item, "authorId")
+        SetIfExists(node, "lengthSeconds", item, "lengthSeconds")
+        node.lengthText = VideoGetLengthText(item)
+        node.liveNow = VideoIsLive(item)
+        VideoSetPremiereTimestampText(node, item)
+        node.publishedText = VideoGetPublishedText(item)
+        VideoSetThumbnail(node, item, instance)
+        SetIfExists(node, "title", item, "title")
+        SetIfExists(node, "timestamp", item, "timestamp")
+        SetIfExists(node, "id", item, "videoId")
+        SetIfExists(node, "videoId", item, "videoId")
+        node.viewCountText = VideoGetViewCountText(item)
+        SetIfExists(node, "index", item, "index")
+        SetIfExists(node, "lines", item, "lines")
+        SetIfExists(node, "videoInfo", item, "videoInfo")
+        SetIfExists(node, "percentDurationWatched", item, "percentDurationWatched")
+
+        return node
+    end function
+
+    function ToPlaylistContentNode(node as object, item as object, instance as dynamic) as object
+        if node = invalid
+            node = CreateObject("roSGNode", "PlaylistContentNode")
+            node.loadState = FeedLoadState.None
+        end if
+        node.type = "playlist"
+
+        ' NOTE: "_author" not "author". See PlaylistContentNode.xml for explanation.
+        SetIfExists(node, "_author", item, "author")
+        SetIfExists(node, "authorId", item, "authorId")
+        SetIfExists(node, "description", item, "description")
+        SetIfExists(node, "id", item, "playlistId")
+        SetIfExists(node, "playlistId", item, "playlistId")
+        SetIfExists(node, "videoId", item, "videoId")
+        SetIfExists(node, "title", item, "title")
+        SetIfExists(node, "videoCount", item, "videoCount")
+        SetVideoCountText(item, node)
+        SetIfExists(node, "viewCount", item, "viewCount")
+        node.viewCountText = PlaylistGetViewCountText(item)
+        SetIfExists(node, "updated", item, "updated")
+        node.updatedText = PlaylistGetUpdatedText(item)
+        SetIfExists(node, "statsText", item, "statsText")
+        SetIfExists(node, "lines", item, "lines")
+
+        if IsArray(item.videos) and item.videos.Count() > 0
+            childCount = node.getChildCount()
+
+            ' Innertube's TV client doesn't return the index for videos in playlists.
+            ' So we rely on video ids to detect duplicates.
+            videosHasIndex = IsInt(item.videos[0].index)
+
+            videoIds = invalid
+            if not videosHasIndex
+                videoIds = {}
+                childVideos = node.getChildren(-1, 0)
+                for each child in childVideos
+                    videoIds[child.videoId] = true
+                end for
+            end if
+
+            newNodes = []
+            for each video in item.videos
+                ' Sometimes we're parsing "recommended playlists" that show up
+                ' in the end of the playlist. In this context they are ignored.
+                if ValidString(video.type) = "playlist"
+                    continue for
+                end if
+                video.type = "video"
+                videoNode = ToVideoContentNode(invalid, video, instance)
+                if videoNode <> invalid
+                    if not videosHasIndex
+                        if videoIds[video.videoId] = true
+                            continue for
+                        end if
+                    end if
+
+                    index = video.index
+                    if index <> invalid and index > -1 and index < childCount
+                        node.replaceChild(videoNode, index)
+                    else
+                        newNodes.push(videoNode)
+                    end if
+                end if
+            end for
+
+            if newNodes.Count() > 0
+                node.appendChildren(newNodes)
+            end if
+        end if
+
+        PlaylistSetThumbnail(node, "thumbnail", item, instance)
+        PlaylistSetThumbnail(node, "thumbnailBackground", item, instance, "maxres")
+
+        node.continuation = ValidString(item.continuation)
+
+        return node
+    end function
+
+    function ToChannelContentNode(node as object, item as object) as object
+        if node = invalid
+            node = CreateObject("roSGNode", "ChannelContentNode")
+            node.loadState = FeedLoadState.None
+        end if
+        node.type = "channel"
+
+        ' NOTE: "_author" not "author". See PlaylistContentNode.xml for explanation.
+        SetIfExists(node, "_author", item, "author")
+        SetIfExists(node, "id", item, "authorId")
+        SetIfExists(node, "authorId", item, "authorId")
+        SetIfExists(node, "channelHandle", item, "channelHandle")
+        SetIfExists(node, "description", item, "description")
+        SetIfExists(node, "subCount", item, "subCount")
+        SetIfExists(node, "authorSubTitle", item, "authorSubTitle")
+        node.subCountText = GetChannelSubCountText(item)
+        SetIfExists(node, "videoCount", item, "videoCount")
+        SetVideoCountText(item, node)
+        node.thumbnail = GetChannelThumbnail(item.authorThumbnails)
+        node.banner = GetChannelBanner(item.authorBanners)
+        ' Important: tabsParams should be set first, because settings that tabs triggers the ChannelView to load feeds
+        SetIfExists(node, "tabsParams", item, "tabsParams")
+        SetIfExists(node, "tabsTitles", item, "tabsTitles")
+        SetIfExists(node, "tabs", item, "tabs")
+
+        return node
+    end function
+
+    function SetIfExists(dst as object, dstField as string, src as object, srcField as string)
+        if src.DoesExist(srcField)
+            dst[dstField] = src[srcField]
+        end if
+    end function
+
+    function VideoSetThumbnail(node as object, videoItem as object, instance as dynamic, quality = "medium" as string) as void
+        videoThumbnails = videoItem.videoThumbnails
+        hasValidInstance = not StringUtils.IsNullOrEmpty(instance) and instance.InStr(":8888/playlet-invidious-backend") = -1
+        if videoThumbnails = invalid or videoThumbnails.Count() = 0
+            if hasValidInstance
+                node.thumbnail = `${instance}/vi/${videoItem.videoId}/mqdefault.jpg`
+            else
+                node.thumbnail = `https://i.ytimg.com/vi/${videoItem.videoId}/mqdefault.jpg`
+            end if
+            return
+        end if
+        url = invalid
+        for each thumbnail in videoThumbnails
+            if thumbnail.quality = quality
+                url = thumbnail.url
+                exit for
+            end if
+        end for
+        if url = invalid
+            url = videoThumbnails[0].url
+        end if
+        if url.startsWith("/")
+            if hasValidInstance
+                url = instance + url
+            else
+                url = `https://i.ytimg.com/vi/${videoItem.videoId}/mqdefault.jpg`
+            end if
+        end if
+        node.thumbnail = url
+    end function
+
+    function VideoIsLive(videoItem as object) as boolean
+        if videoItem.liveNow = true
+            return true
+        end if
+        ' TODO:P2 metadata.liveNow is returning false for live videos...
+        return videoItem.lengthSeconds = 0 and videoItem.viewCount = 0
+    end function
+
+    function VideoIsUpcoming(videoItem as object) as boolean
+        return videoItem.isUpcoming = true
+    end function
+
+    function VideoSetPremiereTimestampText(node as object, videoItem as object) as void
+        if VideoIsUpcoming(videoItem)
+            node.isUpcoming = true
+
+            timestamp = videoItem.premiereTimestamp
+            if not IsInt(timestamp)
+                node.premiereTimestampText = ""
+                return
+            end if
+
+            currentTime = TimeUtils.Now().AsSeconds()
+            timeLeft = timestamp - currentTime
+            if timeLeft <= 0
+                node.premiereTimestampText = Tr(Locale.RowCell.PremieringNow)
+                return
+            end if
+
+            if timeLeft < 60
+                if timeLeft = 1
+                    node.premiereTimestampText = Tr(Locale.RowCell.PremieresInOneSecond)
+                else
+                    node.premiereTimestampText = Tr(Locale.RowCell.PremieresInNSeconds).Replace("^n", timeLeft.toStr())
+                end if
+                return
+            end if
+
+            if timeLeft < 3600
+                minutes = timeLeft \ 60
+                if minutes = 1
+                    node.premiereTimestampText = Tr(Locale.RowCell.PremieresInOneMinute)
+                else
+                    node.premiereTimestampText = Tr(Locale.RowCell.PremieresInNMinutes).Replace("^n", minutes.toStr())
+                end if
+                return
+            end if
+
+            if timeLeft < 86400
+                hours = timeLeft \ 3600
+                if hours = 1
+                    node.premiereTimestampText = Tr(Locale.RowCell.PremieresInOneHour)
+                else
+                    node.premiereTimestampText = Tr(Locale.RowCell.PremieresInNHours).Replace("^n", hours.toStr())
+                end if
+                return
+            end if
+
+            days = timeLeft \ 86400
+            if days = 1
+                node.premiereTimestampText = Tr(Locale.RowCell.PremieresInOneDay)
+            else
+                node.premiereTimestampText = Tr(Locale.RowCell.PremieresInNDays).Replace("^n", days.toStr())
+            end if
+        end if
+    end function
+
+    function VideoGetViewCountText(videoItem as object) as string
+        viewCountText = videoItem.viewCountText
+        if not StringUtils.IsNullOrEmpty(viewCountText)
+            return viewCountText
+        end if
+
+        viewCount = videoItem.viewCount
+        if viewCount = invalid
+            return ""
+        end if
+
+        return LocaleUtils.GetFormattedPluralString(viewCount, Locale.RowCell.ZeroViews, Locale.RowCell.OneView, Locale.RowCell.NViews)
+    end function
+
+    function PlaylistSetThumbnail(node as object, nodeField as string, playlistItem as object, instance as dynamic, quality = "medium" as string) as void
+        currentThumbnail = node[nodeField]
+        if currentThumbnail <> "" and currentThumbnail <> "pkg:/images/thumbnail-missing.jpg"
+            return
+        end if
+
+        thumbnail = ""
+        hasValidInstance = not StringUtils.IsNullOrEmpty(instance) and instance.InStr(":8888/playlet-invidious-backend") = -1
+        if IsString(playlistItem.playlistThumbnail)
+            thumbnailUrl = playlistItem.playlistThumbnail
+            if thumbnailUrl.startsWith("/") and hasValidInstance
+                thumbnailUrl = playlistItem.instance + thumbnailUrl
+            end if
+            thumbnail = thumbnailUrl
+        else if playlistItem.videos <> invalid and playlistItem.videos.Count() > 0 and playlistItem.videos[0].index = 0
+            VideoSetThumbnail(node, playlistItem.videos[0], instance, quality)
+            return
+        else if node.getChildCount() > 0
+            thumbnail = node.getChild(0).thumbnail
+        end if
+        if StringUtils.IsNullOrEmpty(thumbnail)
+            thumbnail = "pkg:/images/thumbnail-missing.jpg"
+        end if
+        node[nodeField] = thumbnail
+    end function
+
+    function GetChannelThumbnail(authorThumbnails as object) as string
+        if authorThumbnails = invalid or authorThumbnails.Count() = 0
+            return "pkg:/images/icons/user-200.png"
+        end if
+        url = authorThumbnails[authorThumbnails.Count() - 1].url
+        if url.startsWith("//")
+            url = "https:" + url
+        end if
+        return url
+    end function
+
+    function GetChannelBanner(authorBanners as object) as string
+        if authorBanners = invalid or authorBanners.Count() = 0
+            return ""
+        end if
+        return authorBanners[0].url
+    end function
+
+    function SetVideoCountText(item as object, node as object) as void
+        videoCountText = item.videoCountText
+        if not StringUtils.IsNullOrEmpty(videoCountText)
+            node.videoCountText = videoCountText
+            return
+        end if
+        ' If we already have this information, we should not override it.
+        if not StringUtils.IsNullOrEmpty(node.videoCountText)
+            return
+        end if
+        videoCount = ValidInt(item.videoCount)
+        if videoCount = -1
+            return
+        end if
+        node.videoCountText = LocaleUtils.GetPluralString(videoCount, Locale.RowCell.ZeroVideos, Locale.RowCell.OneVideo, Locale.RowCell.NVideos)
+    end function
+
+    function GetChannelSubCountText(channel as object) as string
+        subCount = ValidInt(channel.subCount)
+        return LocaleUtils.GetFormattedPluralString(subCount, Locale.RowCell.ZeroSubscribers, Locale.RowCell.OneSubscriber, Locale.RowCell.NSubscribers)
+    end function
+
+    function PlaylistGetViewCountText(playlistItem as object) as string
+        return VideoGetViewCountText(playlistItem)
+    end function
+
+    function VideoGetPublishedText(videoItem as object) as string
+        published = ValidInt(videoItem.published)
+        if published = 0
+            return ValidString(videoItem.publishedText)
+        end if
+
+        span = TimeUtils.Now().AsSeconds() - published
+        if span < 1
+            return ValidString(videoItem.publishedText)
+        end if
+
+        total_days = span \ 86400
+        if total_days > 365
+            years = total_days \ 365
+            if years = 1
+                return Tr(Locale.RowCell.OneYearAgo)
+            else
+                return Tr(Locale.RowCell.NYearsAgo).Replace("^n", years.toStr())
+            end if
+        else if total_days > 30
+            months = total_days \ 30
+            if months = 1
+                return Tr(Locale.RowCell.OneMonthAgo)
+            else
+                return Tr(Locale.RowCell.NMonthsAgo).Replace("^n", months.toStr())
+            end if
+        else if total_days > 7
+            weeks = total_days \ 7
+            if weeks = 1
+                return Tr(Locale.RowCell.OneWeekAgo)
+            else
+                return Tr(Locale.RowCell.NWeeksAgo).Replace("^n", weeks.toStr())
+            end if
+        else if total_days > 0
+            if total_days = 1
+                return Tr(Locale.RowCell.OneDayAgo)
+            else
+                return Tr(Locale.RowCell.NDaysAgo).Replace("^n", total_days.toStr())
+            end if
+        else if span > 3600
+            hours = span \ 3600
+            if hours = 1
+                return Tr(Locale.RowCell.OneHourAgo)
+            else
+                return Tr(Locale.RowCell.NHoursAgo).Replace("^n", hours.toStr())
+            end if
+        else if span > 60
+            minutes = span \ 60
+            if minutes = 1
+                return Tr(Locale.RowCell.OneMinuteAgo)
+            else
+                return Tr(Locale.RowCell.NMinutesAgo).Replace("^n", minutes.toStr())
+            end if
+        else
+            return Tr(Locale.RowCell.OneMinuteAgo)
+        end if
+    end function
+
+    function VideoGetLengthText(videoItem as object) as string
+        if not StringUtils.IsNullOrEmpty(videoItem.lengthText)
+            return videoItem.lengthText
+        end if
+        return TimeUtils.GetFormattedTime(videoItem.lengthSeconds)
+    end function
+
+    function PlaylistGetUpdatedText(playlistItem as object) as string
+        updated = playlistItem.updated
+        if not IsInt(updated)
+            return ""
+        end if
+        span = TimeUtils.Now().AsSeconds() - updated
+        if span < 1
+            return ""
+        end if
+
+        total_days = span \ 86400
+        if total_days > 365
+            years = total_days \ 365
+            if years = 1
+                return Tr(Locale.RowCell.UpdatedOneYearAgo)
+            else
+                return Tr(Locale.RowCell.UpdatedNYearsAgo).Replace("^n", years.toStr())
+            end if
+        else if total_days > 30
+            months = total_days \ 30
+            if months = 1
+                return Tr(Locale.RowCell.UpdatedOneMonthAgo)
+            else
+                return Tr(Locale.RowCell.UpdatedNMonthsAgo).Replace("^n", months.toStr())
+            end if
+        else if total_days > 7
+            weeks = total_days \ 7
+            if weeks = 1
+                return Tr(Locale.RowCell.UpdatedOneWeekAgo)
+            else
+                return Tr(Locale.RowCell.UpdatedNWeeksAgo).Replace("^n", weeks.toStr())
+            end if
+        else if total_days > 1
+            return Tr(Locale.RowCell.UpdatedNDaysAgo).Replace("^n", total_days.toStr())
+        else if span > 3600
+            hours = span \ 3600
+            if hours = 1
+                return Tr(Locale.RowCell.UpdatedOneHourAgo)
+            else
+                return Tr(Locale.RowCell.UpdatedNHoursAgo).Replace("^n", hours.toStr())
+            end if
+        else if span > 60
+            minutes = span \ 60
+            if minutes = 1
+                return Tr(Locale.RowCell.UpdatedOneMinuteAgo)
+            else
+                return Tr(Locale.RowCell.UpdatedNMinutesAgo).Replace("^n", minutes.toStr())
+            end if
+        else
+            return Tr(Locale.RowCell.UpdatedOneMinuteAgo)
+        end if
+    end function
+end namespace

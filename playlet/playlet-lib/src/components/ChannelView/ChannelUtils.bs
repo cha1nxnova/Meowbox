@@ -1,0 +1,11 @@
+namespace ChannelUtils
+    function Open(contentNode as object, appController = invalid as object)
+        channelView = CreateObject("roSGNode", "ChannelView")
+        if appController = invalid
+            appController = m.appController
+        end if
+        appController@.PushScreen(channelView)
+        channelView@.BindNode()
+        channelView.content = contentNode
+    end function
+end namespace

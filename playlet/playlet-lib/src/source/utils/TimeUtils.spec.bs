@@ -1,0 +1,22 @@
+namespace Tests
+
+    @suite
+    class TimeUtilsTests extends Rooibos.BaseTestSuite
+
+        @describe("TimeUtils")
+
+        @it("formats the time correctly")
+        @params(invalid, "")
+        @params(-1, "")
+        @params(0, "")
+        @params(7, "0:07")
+        @params(138, "2:18")
+        @params(8285, "2:18:05")
+        @params(1282085, "356:08:05")
+        function _(length as dynamic, formattedString as string)
+            m.assertEqual(TimeUtils.GetFormattedTime(length), formattedString)
+        end function
+
+    end class
+
+end namespace

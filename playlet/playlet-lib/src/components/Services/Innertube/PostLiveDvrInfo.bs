@@ -1,0 +1,63 @@
+import "pkg:/components/Services/Innertube/LiveStreamInfo.bs"
+import "pkg:/source/services/HttpClient.bs"
+import "pkg:/source/utils/StringUtils.bs"
+import "pkg:/source/utils/UrlUtils.bs"
+
+namespace Innertube
+
+    function GetPostLiveDvrInfo(parsedResponse as object, adaptiveFormats as object, cpn as dynamic, cancellation as object) as void
+        if adaptiveFormats.Count() = 0
+            LogWarn("GetPostLiveDvrInfo: No adaptive formats available")
+            return
+        end if
+
+        formatUrl = adaptiveFormats[0]["url"]
+        if StringUtils.IsNullOrEmpty(formatUrl)
+            LogWarn("GetPostLiveDvrInfo: URL is empty")
+            return
+        end if
+
+        ' Query the live edge (no sq): that response is Cache-Control: no-cache, always
+        ' served fresh, so it carries X-Head-*. A finished stream's head is its final
+        ' segment, so X-Head-Seqnum is the total count and X-Head-Time-* the duration.
+        headUrl = GetLiveHeadUrl(formatUrl, cpn)
+        response = FetchLiveHead(headUrl, cancellation)
+
+        if not HasLiveHead(response)
+            ' sq=0 is cacheable, so an edge can return it missing X-Head-*; fall back to it
+            ' only when the live-edge query misses.
+            fallback = FetchLiveHead(UrlUtils.AppendQueryParams(headUrl, { "sq": "0" }), cancellation)
+            diagnostics = PostLiveDvrDiagnostics(parsedResponse["videoId"], headUrl, response, fallback)
+            if not HasLiveHead(fallback)
+                ' Warning, not error: a known transport-failure tail where playback fails regardless.
+                LogTelemetryEvent({
+                    level: "warning"
+                    message: `GetPostLiveDvrInfo: both no-sq and sq=0 missing head\n${diagnostics}`
+                    fingerprint: ["GetPostLiveDvrInfo: both no-sq and sq=0 missing head"]
+                })
+                return
+            end if
+            LogTelemetryEvent({
+                level: "warning"
+                message: `GetPostLiveDvrInfo: no-sq missing head, sq=0 fallback recovered\n${diagnostics}`
+                fingerprint: ["GetPostLiveDvrInfo: sq=0 fallback recovered"]
+            })
+            response = fallback
+        end if
+
+        durationMs = ReadLiveHeadAnyTimeMs(response)
+        segmentCount = ReadLiveHeadSeqnum(response)
+
+        if durationMs > 0
+            parsedResponse["postLiveDvrDurationMs"] = durationMs
+        end if
+        if segmentCount > 0
+            parsedResponse["postLiveDvrSegmentCount"] = segmentCount
+        end if
+    end function
+
+    function PostLiveDvrDiagnostics(videoId as dynamic, headUrl as string, primary as HttpClient.Response, fallback as HttpClient.Response) as string
+        return `VideoID: ${ValidString(videoId)}` + Chr(10) + `URL (no-sq; sq=0 appends &sq=0): ${headUrl}` + Chr(10) + `no-sq HEAD status: ${primary.StatusCode().ToStr()} headers: ${FormatJson(primary.Headers())}` + Chr(10) + `sq=0 HEAD status: ${fallback.StatusCode().ToStr()} headers: ${FormatJson(fallback.Headers())}`
+    end function
+
+end namespace

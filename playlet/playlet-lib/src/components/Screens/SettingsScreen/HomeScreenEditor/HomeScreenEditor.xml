@@ -1,0 +1,56 @@
+<component name="HomeScreenEditor" extends="Group" includes="AutoBind,Focus">
+    <interface>
+        <field id="value" type="array" onChange="OnValueChange" />
+        <field id="save" type="boolean" alwaysNotify="true" />
+        <field id="appController" type="node" bind="/AppController" />
+    </interface>
+    <children>
+        <Rectangle
+            width="1280"
+            height="720"
+            color="#000000"
+            opacity="0.5">
+        </Rectangle>
+        <Rectangle
+            width="960"
+            height="600"
+            translation="[160,60]"
+            color="#242424">
+            <CheckList
+                id="checkList"
+                vertFocusAnimationStyle="floatingFocus"
+                translation="[164,40]">
+
+                <ContentNode role="content" />
+            </CheckList>
+
+            <ButtonEx
+                id="moveUpButton"
+                iconVisible="false"
+                anchor="[0.5,0.5]"
+                text="Move up"
+                minWidth="220"
+                translation="[750,220]" />
+            <ButtonEx
+                id="moveDownButton"
+                iconVisible="false"
+                anchor="[0.5,0.5]"
+                text="Move down"
+                minWidth="220"
+                translation="[750,300]" />
+
+            <ButtonEx
+                id="saveButton"
+                iconVisible="false"
+                text="Save"
+                padding="[30,30]"
+                translation="[340,500]" />
+            <ButtonEx
+                id="closeButton"
+                iconVisible="false"
+                text="Close"
+                padding="[30,30]"
+                translation="[496,500]" />
+        </Rectangle>
+    </children>
+</component>

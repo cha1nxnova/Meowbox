@@ -1,0 +1,71 @@
+import "pkg:/components/Services/LoungeService/LoungeApi.bs"
+import "pkg:/source/services/HttpClient.bs"
+import "pkg:/source/utils/MessagePortUtils.bs"
+import "pkg:/source/utils/StringUtils.bs"
+
+@job("LoungeGenerateManualPairingCodeJob")
+function ExecuteJob() as void
+    input = JobGetInput()
+
+    loungeService = input.loungeService
+
+    if StringUtils.IsNullOrEmpty(input.loungeToken)
+        messagePort = CreateObject("roMessagePort")
+        MessagePortUtils.ObserveFieldScopedExSafe(loungeService, "loungeToken", messagePort)
+        loungeService.join = true
+        message = wait(30000, messagePort)
+        loungeService.unobserveFieldScoped("loungeToken")
+        if message = invalid or StringUtils.IsNullOrEmpty(message.GetData())
+            JobError("Couldn't join lounge")
+            return
+        end if
+
+        input.screenId = loungeService.screenId
+        input.loungeToken = loungeService.loungeToken
+    end if
+
+    form = {
+        "lounge_token": input.loungeToken
+        "screen_id": input.screenId
+        "screen_name": input.screenName
+        "device_id": input.deviceId
+    }
+
+    for each key in form
+        if StringUtils.IsNullOrEmpty(form[key])
+            JobError("Required field " + key + " is empty")
+            return
+        end if
+    end for
+
+    form["access_type"] = "permanent"
+    form["app"] = "Playlet"
+
+    cancellation = JobGetCancellation()
+    request = HttpClient.Post("https://www.youtube.com/api/lounge/pairing/get_pairing_code?ctx=pair")
+    request.FormBody(form)
+    request.Cancellation(cancellation)
+
+    response = request.Await()
+    if not response.IsSuccess()
+        if response.IsCancelled()
+            JobCancel()
+            return
+        end if
+        JobError(response.ErrorMessage())
+        return
+    end if
+
+    code = response.Text()
+
+    if not StringUtils.IsNullOrEmpty(code)
+        ' insert a space every 3 characters.
+        parts = []
+        for i = 0 to code.Len() - 1 step 3
+            parts.Push(code.Mid(i, 3))
+        end for
+        code = parts.Join(" ")
+    end if
+
+    JobSuccessData({ code: code })
+end function

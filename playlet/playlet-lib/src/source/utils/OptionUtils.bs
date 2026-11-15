@@ -1,0 +1,24 @@
+namespace OptionUtils
+
+    function Get(opts as object, key as string) as dynamic
+        if opts = invalid
+            return invalid
+        end if
+
+        return opts[key]
+    end function
+
+    function GetOrDefault(opts as object, key as string, defaultValue as dynamic) as dynamic
+        if opts = invalid or not opts.DoesExist(key)
+            return defaultValue
+        end if
+
+        value = opts[key]
+        if value = invalid
+            return defaultValue
+        end if
+
+        return value
+    end function
+
+end namespace

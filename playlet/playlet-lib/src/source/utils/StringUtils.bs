@@ -1,0 +1,46 @@
+namespace StringUtils
+    function IsNullOrEmpty(obj as dynamic) as boolean
+        return ((obj = invalid) or (GetInterface(obj, "ifString") = invalid) or (Len(obj) = 0))
+    end function
+
+    function PathJoin(path1 as string, path2 as string) as string
+        if path1.EndsWith("/")
+            path1 = path1.left(path1.len() - 1)
+        end if
+        if path2.StartsWith("/")
+            path2 = path2.Mid(1)
+        end if
+        return path1 + "/" + path2
+    end function
+
+    function GetBetween(input as string, startStr as string, endStr as string) as string
+        startIndex = input.InStr(startStr)
+        if startIndex = -1
+            return ""
+        end if
+        startIndex = startIndex + startStr.len()
+        endIndex = input.InStr(startIndex, endStr)
+        if endIndex = -1
+            return ""
+        end if
+        return input.Mid(startIndex, endIndex - startIndex)
+    end function
+
+    function RandomId() as string
+        return StrI(rnd(2147483647), 36)
+    end function
+
+    function ParseJsonSafe(jsonString as dynamic) as dynamic
+        if IsNullOrEmpty(jsonString)
+            return invalid
+        end if
+        ' bs:disable-next-line NO_PARSE_JSON
+        json = ParseJson(jsonString)
+        if json <> invalid
+            return json
+        end if
+        ' bs:disable-next-line NO_PARSE_JSON
+        return ParseJson(jsonString.Replace("\u0000", ""))
+    end function
+end namespace
+

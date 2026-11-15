@@ -1,0 +1,12 @@
+function SetScenePalette(scene as object)
+    palette = CreateObject("roSGNode", "RSGPalette")
+    palette.colors = {
+        DialogBackgroundColor: "#242424FF"
+        DialogFocusColor: "#CECECEFF"
+        DialogFocusItemColor: "#202020FF"
+        DialogSecondaryTextColor: "#EBEBEBFF"
+        DialogSecondaryItemColor: "#FF1C30FF"
+        DialogTextColor: "#EBEBEBFF"
+    }
+    scene.palette = palette
+end function

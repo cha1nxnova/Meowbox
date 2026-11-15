@@ -1,0 +1,92 @@
+import "pkg:/components/Dialog/DialogUtils.bs"
+import "pkg:/components/JobSystem/Jobs.bs"
+import "pkg:/components/JobSystem/JobSystem.bs"
+import "pkg:/components/Screens/ProfileScreen/YouTubeAccountSelectionView/YouTubeAccountSelectionViewUtils.bs"
+import "pkg:/source/utils/ErrorUtils.bs"
+import "pkg:/source/utils/Locale.bs"
+import "pkg:/source/utils/Logging.bs"
+import "pkg:/source/utils/Types.bs"
+
+function Init()
+    m.qrCode = m.top.findNode("QrCodePoster")
+
+    codeLabel = m.top.findNode("codeLabel")
+    if codeLabel <> invalid
+        codeLabel = codeLabel.getChild(0)
+        if codeLabel <> invalid
+            codeFont = m.top.findNode("codeFont")
+            codeLabel.font = codeFont
+        end if
+    end if
+
+    m.top.width = "920"
+    m.top.observeFieldScoped("buttonSelected", FuncName(Close))
+    m.top.observeFieldScoped("wasClosed", FuncName(OnWasClosed))
+    scanLabel = m.top.findNode("scanLabel")
+    scanLabel.text = Tr(Locale.Dialogs.ScanTheQrCode)
+    linkInstructionLabel = m.top.findNode("linkInstructionLabel")
+    linkInstructionLabel.text = Tr(Locale.Dialogs.OpenLinkAndEnterFollowingCode).replace("%1", `'https://yt.be/activate'`)
+end function
+
+function OnNodeReady()
+    input = {
+        dialog: m.top
+        profilesService: m.top.profilesService
+    }
+
+    m.youTubeLoginJob = JobSystem.CreateCallback(OnYouTubeLoginJobDone)
+    JobSystem.QueueJob(m.jobQueue, Jobs.YouTubeLoginJob, input, m.youTubeLoginJob)
+end function
+
+function OnYouTubeLoginJobDone(event as object) as void
+    JobSystem.UnobserveCallback(event.getRoSGNode())
+    m.youTubeLoginJob = invalid
+
+    info = event.getInfo()
+    if info.cancel
+        Close()
+        return
+    end if
+
+    if not info.success
+        DialogUtils.ShowDialogEx({
+            message: info.error
+            title: Tr(Locale.Generic.Error)
+            large: true
+        })
+        return
+    end if
+
+    data = info.data
+    ' if accounts is invalid, we're going to assume a profile is already created.
+    if data = invalid or data.accounts = invalid or data.accessToken = invalid
+        Close()
+        return
+    end if
+
+    ' The accountSelectionView will take over the creation of the profile.
+    accountSelectionView = YouTubeAccountSelectionViewUtils.Open(m.top.appController)
+    accountSelectionView.accessToken = data.accessToken
+    accountSelectionView.accounts = data.accounts
+    Close()
+end function
+
+function OnCodeSet(event as object)
+    code = event.getData()
+    m.qrCode.text = code
+end function
+
+function Close()
+    m.top.close = true
+end function
+
+function OnWasClosed()
+    if m.youTubeLoginJob <> invalid
+        m.youTubeLoginJob.cancel = true
+        m.youTubeLoginJob = invalid
+    end if
+end function
+
+function OnUrlSet()
+    m.qrCode.text = m.top.url
+end function

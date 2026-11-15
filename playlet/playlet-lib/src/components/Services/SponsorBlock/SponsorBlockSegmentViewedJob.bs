@@ -1,0 +1,12 @@
+import "pkg:/components/Services/SponsorBlock/SponsorBlockConfig.bs"
+import "pkg:/components/Services/SponsorBlock/SponsorBlockService.bs"
+
+@job("SponsorBlockSegmentViewedJob")
+function ExecuteJob()
+    input = JobGetInput()
+
+    segmentId = input.segmentId
+    service = new SponsorBlock.SponsorBlockService(new SponsorBlock.SponsorBlockConfig())
+
+    service.PostSegmentViewed(segmentId, m.top.cancellation)
+end function

@@ -1,0 +1,76 @@
+import "pkg:/components/Dialog/DialogUtils.bs"
+import "pkg:/components/Dialog/YouTubeLoginAccountItemUtils.bs"
+import "pkg:/components/Services/Innertube/InnertubeService.bs"
+import "pkg:/source/utils/CancellationUtils.bs"
+import "pkg:/source/utils/Logging.bs"
+
+@job("YouTubeLoginJob")
+function ExecuteJob() as void
+    input = JobGetInput()
+
+    profilesNode = input.profilesService
+    dialogNode = input.dialog
+
+    cancellation = JobGetCancellation()
+    ' TODO:P2 cache client identity
+    authCode = InnertubeService.AuthGetCode(cancellation)
+
+    if CancellationUtils.IsCancelled(cancellation)
+        JobCancel()
+        return
+    end if
+
+    if authCode.error <> invalid
+        JobError(authCode.error)
+        return
+    end if
+
+    url = InnertubeService.AuthGetActivationUrl(authCode)
+
+    LogInfo("Login url:", url)
+
+    dialogNode.url = url
+    dialogNode.code = authCode.userCode
+
+    accessToken = InnertubeService.AuthPollForAccessToken(authCode, cancellation)
+
+    if CancellationUtils.IsCancelled(cancellation)
+        JobCancel()
+        return
+    end if
+
+    if accessToken.error <> invalid
+        JobError(accessToken.error)
+        return
+    end if
+
+    accounts = InnertubeService.AuthListAccounts(accessToken.accessToken, cancellation)
+
+    if CancellationUtils.IsCancelled(cancellation)
+        JobCancel()
+        return
+    end if
+
+    if IsAssociativeArray(accounts) and accounts.error <> invalid
+        JobError(accounts.error)
+        return
+    end if
+
+    if not IsArray(accounts) or accounts.Count() = 0
+        JobError(Tr(Locale.Dialogs.NoValidAccountsFound))
+        return
+    end if
+
+    ' If there is only one account, we can skip the selection screen
+    ' and just create a profile
+    if accounts.Count() = 1
+        profile = YouTubeLoginAccountItemUtils.CreateProfileContentNode(accounts[0], accessToken)
+        profilesNode@.LoginWithProfile(profile)
+        return
+    end if
+
+    JobSuccessData({
+        accounts: accounts
+        accessToken: accessToken
+    })
+end function

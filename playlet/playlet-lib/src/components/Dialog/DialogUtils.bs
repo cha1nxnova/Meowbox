@@ -1,0 +1,205 @@
+import "pkg:/source/utils/Locale.bs"
+import "pkg:/source/utils/RegistryUtils.bs"
+import "pkg:/source/utils/StringUtils.bs"
+import "pkg:/source/utils/Types.bs"
+
+namespace DialogUtils
+
+    ' Very large messages can lead to execution timeout
+    const MESSAGE_LENGTH_LIMIT = 1000
+
+    const ON_SCREEN_CODE_MIN_INTERVAL_MS = 2000
+
+    enum OnScreenCodePurpose
+        ExportRegistry = "ExportRegistry"
+        SetPlayletLibUrls = "SetPlayletLibUrls"
+    end enum
+
+    function ShowDialogEx(options as object) as object
+        currentDialog = m.top.getScene().dialog
+        alwaysOnTop = false
+        if options.DoesExist("alwaysOnTop")
+            alwaysOnTop = options.alwaysOnTop
+        end if
+
+        if currentDialog <> invalid and ValidBool(currentDialog.alwaysOnTop)
+            if not alwaysOnTop
+                return invalid
+            end if
+        end if
+
+        dialog = CreateObject("roSGNode", "SimpleDialog")
+        dialog.alwaysOnTop = alwaysOnTop
+
+        if options.DoesExist("message")
+            message = options.message
+            if IsString(message)
+                if message.Len() > MESSAGE_LENGTH_LIMIT
+                    message = message.Left(MESSAGE_LENGTH_LIMIT) + "..."
+                end if
+                message = message.Tokenize(`\n`).ToArray()
+            end if
+            dialog.message = message
+        end if
+
+        if options.DoesExist("bulletText")
+            bulletText = options.bulletText
+            if IsString(bulletText)
+                bulletText = bulletText.Tokenize(`\n`).ToArray()
+            end if
+            dialog.bulletText = bulletText
+        end if
+
+        if options.DoesExist("bottomMessage")
+            bottomMessage = options.bottomMessage
+            if IsString(bottomMessage)
+                bottomMessage = bottomMessage.Tokenize(`\n`).ToArray()
+            end if
+            dialog.bottomMessage = bottomMessage
+        end if
+
+        if options.DoesExist("title")
+            dialog.title = options.title
+        end if
+
+        if options.DoesExist("buttons")
+            dialog.buttons = options.buttons
+        else
+            dialog.buttons = [Tr(Locale.Buttons.OK)]
+        end if
+
+        if options.DoesExist("large") and options.large
+            if m._deviceDisplayWidth = invalid
+                deviceInfo = CreateObject("roDeviceInfo")
+                displaySize = deviceInfo.GetDisplaySize()
+                m._deviceDisplayWidth = displaySize.w
+            end if
+            dialog.width = m._deviceDisplayWidth - 100
+        else if options.DoesExist("marginWidth")
+            if m._deviceDisplayWidth = invalid
+                deviceInfo = CreateObject("roDeviceInfo")
+                displaySize = deviceInfo.GetDisplaySize()
+                m._deviceDisplayWidth = displaySize.w
+            end if
+            dialog.width = m._deviceDisplayWidth - options.marginWidth
+        end if
+
+        m.top.getScene().dialog = dialog
+        return dialog
+    end function
+
+    function ShowTimedDialogButtons(message as dynamic, title as string, buttons as object, defaultButton as integer, timeoutSeconds as integer, large = false as boolean) as object
+        currentDialog = m.top.getScene().dialog
+        if currentDialog <> invalid and ValidBool(currentDialog.alwaysOnTop)
+            return invalid
+        end if
+
+        dialog = CreateObject("roSGNode", "TimedDialog")
+        if IsString(message)
+            if message.Len() > MESSAGE_LENGTH_LIMIT
+                message = message.Left(MESSAGE_LENGTH_LIMIT) + "..."
+            end if
+            message = message.Tokenize(`\n`).ToArray()
+        end if
+        dialog.message = message
+        dialog.title = title
+        dialog.actualButtons = buttons
+
+        if large
+            if m._deviceDisplayWidth = invalid
+                deviceInfo = CreateObject("roDeviceInfo")
+                displaySize = deviceInfo.GetDisplaySize()
+                m._deviceDisplayWidth = displaySize.w
+            end if
+            dialog.width = m._deviceDisplayWidth - 100
+        end if
+
+        dialog.defaultButtonIndex = defaultButton
+        dialog.defaultActionTimeoutSeconds = timeoutSeconds
+        dialog.startCountdown = true
+
+        m.top.getScene().dialog = dialog
+
+        dialog.focusDefaultButton = true
+
+        return dialog
+    end function
+
+    function ShowOnScreenCodeDialog(purpose as DialogUtils.OnScreenCodePurpose, title as string) as object
+        if m._onScreenCodeShownTimer = invalid
+            m._onScreenCodeShownTimer = CreateObject("roTimespan")
+        else if m._onScreenCodeShownTimer.TotalMilliseconds() < ON_SCREEN_CODE_MIN_INTERVAL_MS
+            return invalid
+        end if
+        m._onScreenCodeShownTimer.Mark()
+
+        dialog = CreateObject("roSGNode", "OnScreenCodeDialog")
+        dialog.purpose = purpose
+        dialog.title = title
+        m.top.getScene().dialog = dialog
+        return dialog
+    end function
+
+    function ConsumeOnScreenCode(purpose as DialogUtils.OnScreenCodePurpose, code as dynamic) as boolean
+        dialog = m.top.getScene().dialog
+        if dialog = invalid or dialog.subtype() <> "OnScreenCodeDialog"
+            return false
+        end if
+        return dialog@.Consume(purpose, code)
+    end function
+
+    function ShowDialogOnce(options as object) as object
+        messageId = ValidString(options.messageId)
+        hasMessageId = messageId <> ""
+
+        if hasMessageId
+            messages = RegistryUtils.Read(RegistryUtils.MESSAGES)
+            if not StringUtils.IsNullOrEmpty(messages)
+                messages = StringUtils.ParseJsonSafe(messages)
+                if IsAssociativeArray(messages)
+                    savedMessageId = ValidString(messages["messageId"])
+                    if savedMessageId = messageId
+                        return invalid
+                    end if
+                end if
+            end if
+        end if
+
+        options.buttons = [
+            Tr(Locale.Buttons.OK)
+            `${Tr(Locale.Buttons.OK)} - ${Tr(Locale.Buttons.DotNotShowAgain)}`
+        ]
+
+        dialog = ShowDialogEx(options)
+        if dialog = invalid
+            return invalid
+        end if
+
+        dialog.AddFields({
+            "messageId": messageId
+        })
+
+        dialog.ObserveField("buttonSelected", FuncName(OnShowDialogOnceButtonSelected))
+        return dialog
+    end function
+
+    function OnShowDialogOnceButtonSelected(event as object) as void
+        buttonSelected = event.getData()
+        if buttonSelected <> 1
+            return
+        end if
+
+        dialog = event.GetRoSGNode()
+        messageId = dialog.messageId
+        if messageId = ""
+            return
+        end if
+
+        messages = {
+            "messageId": messageId
+        }
+
+        RegistryUtils.Write(RegistryUtils.MESSAGES, FormatJson(messages))
+    end function
+
+end namespace

@@ -1,0 +1,45 @@
+import "pkg:/components/Dialog/DialogUtils.bs"
+import "pkg:/components/JobSystem/Jobs.bs"
+import "pkg:/components/JobSystem/JobSystem.bs"
+import "pkg:/components/VideoFeed/FeedLoadState.bs"
+import "pkg:/source/utils/ErrorUtils.bs"
+import "pkg:/source/utils/Locale.bs"
+import "pkg:/source/utils/Logging.bs"
+
+function LoadChannel(invidiousNode as object, jobQueue as object) as void
+    loadState = m.top.loadState
+    if loadState = FeedLoadState.Loading or loadState = FeedLoadState.Loaded or loadState = FeedLoadState.Error
+        return
+    end if
+
+    if m.channelContentJob <> invalid
+        m.channelContentJob.cancel = true
+    end if
+
+    m.top.loadState = FeedLoadState.Loading
+
+    input = {
+        content: m.top
+        invidious: invidiousNode
+    }
+
+    m.channelContentJob = JobSystem.CreateCallback(OnChannelContentJobDone)
+    JobSystem.QueueJob(jobQueue, Jobs.ChannelContentJob, input, m.channelContentJob)
+end function
+
+function OnChannelContentJobDone(event as object) as void
+    callback = event.getRoSGNode()
+    JobSystem.UnobserveCallback(callback)
+    m.channelContentJob = invalid
+
+    if callback.cancel or callback.success
+        return
+    end if
+
+    message = Tr(Locale.Dialogs.FailedToLoadChannel).Replace("%1", m.top.authorId) + `\n${callback.error}`
+    DialogUtils.ShowDialogEx({
+        message: message
+        title: Tr(Locale.Dialogs.ChannelLoadError)
+        large: true
+    })
+end function

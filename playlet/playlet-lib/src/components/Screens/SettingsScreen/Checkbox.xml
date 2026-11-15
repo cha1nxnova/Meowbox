@@ -1,0 +1,11 @@
+<component name="Checkbox" extends="CheckList">
+    <interface>
+        <field id="title" type="string" alias="checkboxNode.title" onChange="OnTitleChange" />
+        <field id="value" type="boolean" onChange="OnValueChange" />
+    </interface>
+    <children>
+        <ContentNode role="content">
+            <ContentNode id="checkboxNode" title="" />
+        </ContentNode>
+    </children>
+</component>

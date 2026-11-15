@@ -1,0 +1,151 @@
+import "pkg:/source/utils/FocusManagement.bs"
+import "pkg:/source/utils/RemoteKeys.bs"
+import "pkg:/source/utils/Types.bs"
+
+function Init()
+    m.lastIsInFocusChain = false
+    m.top.focusable = true
+    m.sideBar = m.top.findNode("SideBar")
+    m.background = m.top.findNode("Background")
+    m.itemsList = m.top.findNode("ItemsList")
+
+    m.fadeAnimation = m.top.findNode("FadeAnimation")
+    m.sideBarFadeInterpolator = m.top.findNode("SideBarFadeInterpolator")
+    m.logoBarFadeInterpolator = m.top.findNode("LogoFadeInterpolator")
+    m.backgroundFadeInterpolator = m.top.findNode("BackgroundFadeInterpolator")
+end function
+
+function OnNodeReady()
+    m.lastItemFocused = m.itemsList.itemFocused
+    m.itemsList.observeField("focusedChild", FuncName(OnListFirstFocus))
+
+    ' NavBar should be resized after the content is changed.
+    ' Since we don't expect it change after initial setup, resize on node ready once.
+    ResizeNavBar()
+end function
+
+function ResizeNavBar() as void
+    content = m.top.content
+    if content = invalid
+        return
+    end if
+
+    component = CreateObject("roSGNode", m.itemsList.itemComponentName)
+    itemSize = m.itemsList.itemSize
+    minWidth = itemSize[0]
+    items = content.getChildren(-1, 0)
+    for each item in items
+        component.itemContent = item
+        rect = component.boundingRect()
+        ' Add 35 to account for padding
+        width = rect.width + 35
+        if width > minWidth
+            minWidth = width
+        end if
+    end for
+    m.itemsList.itemSize = [minWidth, itemSize[1]]
+    offset = minWidth - m.background.width + 30
+    m.top.screenOffset = offset
+    m.sideBar.width = offset
+end function
+
+function OnListFirstFocus() as void
+    if not m.itemsList.hasFocus()
+        return
+    end if
+
+    m.itemsList.unobserveField("focusedChild")
+    initialFocus = m.top.initialFocus
+    if initialFocus > -1
+        m.itemsList.jumpToItem = initialFocus
+    end if
+    m.itemsList.observeField("itemFocused", FuncName(OnItemFocused))
+    m.top.observeField("focusedChild", FuncName(OnFocusedChildChange))
+end function
+
+function OnFocusedChildChange() as void
+    isInFocusChain = m.top.isInFocusChain()
+    if m.lastIsInFocusChain = isInFocusChain
+        return
+    end if
+
+    m.lastIsInFocusChain = isInFocusChain
+
+    m.sideBar.visible = isInFocusChain
+
+    if isInFocusChain
+        m.screensContainer.animateToPosition = m.top.screenOffset
+    else
+        m.screensContainer.animateToPosition = 0
+    end if
+
+    m.fadeAnimation.control = "stop"
+    m.sideBarFadeInterpolator.reverse = not isInFocusChain
+    m.logoBarFadeInterpolator.reverse = not isInFocusChain
+    m.backgroundFadeInterpolator.reverse = not isInFocusChain
+    m.fadeAnimation.control = "start"
+end function
+
+function OnFocusChange() as void
+    if not m.top.focus
+        return
+    end if
+    NodeSetFocus(m.itemsList, true)
+end function
+
+function OnItemFocused() as void
+    index = m.itemsList.itemFocused
+    item = GetItem(index)
+    if item = invalid
+        return
+    end if
+
+    if m.lastItemFocused <> index
+        UnfocusItem(m.lastItemFocused)
+    end if
+    m.lastItemFocused = index
+
+    m.appController@.ShowRootScreen(item.screen)
+end function
+
+function UnfocusItem(index as integer) as void
+    item = GetItem(index)
+    if item = invalid
+        return
+    end if
+
+    m.appController@.HideRootScreen(item.screen)
+end function
+
+function OnKeyEvent(key as string, press as boolean) as boolean
+    if key <> RemoteKeys.Right or not press
+        return false
+    end if
+
+    item = GetItem(m.itemsList.itemFocused)
+    if item = invalid
+        return false
+    end if
+
+    screen = m.appController@.GetRootScreen(item.screen)
+    if screen = invalid or not screen.focusable
+        return false
+    end if
+
+    NodeSetFocus(screen, true)
+    return true
+end function
+
+function GetItem(index as integer) as dynamic
+    content = m.itemsList.content
+    if content = invalid
+        return invalid
+    end if
+
+    childCount = content.getChildCount()
+    if childCount = 0 or index < 0 or index >= childCount
+        return invalid
+    end if
+
+    return content.getChild(index)
+end function
