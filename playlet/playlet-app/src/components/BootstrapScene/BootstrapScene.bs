@@ -27,6 +27,8 @@ function Init() as void
         return
     end if
     m.loadingIndicator.visible = false
+    ' it is in the scene now, so it can take the remote
+    m.hub.active = true
     ' bs:disable-next-line NO_OBSERVE_STRING_CALLBACK
     m.hub.observeField("choice", "OnHubChoice")
     ' A launch or a cast that names a video is meant for Playlet: skip the front door.
