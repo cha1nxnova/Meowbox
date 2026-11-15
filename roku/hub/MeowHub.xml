@@ -51,6 +51,10 @@
         </Label>
       </Group>
 
+      <!-- build.sh writes the time of the build here, so it is plain which package is installed -->
+      <Label translation="[916, 60]" width="300" horizAlign="right" text="@BUILD@" color="0x3A3157FF">
+        <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="22" />
+      </Label>
       <Label translation="[0, 640]" width="1280" horizAlign="center" text="LEFT / RIGHT  choose        OK  open        BACK  leave" color="0x7D7396FF">
         <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="22" />
       </Label>

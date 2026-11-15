@@ -35,6 +35,7 @@ for c in BroadcastTask CaptionTask MeowRow MeowTV PixelLogo; do
 done
 mkdir -p "$stage/components/meowbox" "$stage/fonts"
 cp roku/hub/MeowHub.xml roku/hub/MeowHub.brs "$stage/components/meowbox/"
+sed -i "s|@BUILD@|built $(date -u '+%b %-d, %H:%M') UTC|" "$stage/components/meowbox/MeowHub.xml"
 cp roku/fonts/* "$stage/fonts/"
 cp roku/images/*.png "$stage/images/"
 
