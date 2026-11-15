@@ -1,11 +1,12 @@
 function SetScenePalette(scene as object)
     palette = CreateObject("roSGNode", "RSGPalette")
+    ' Meowbox fork: SmartTube's greys, with white for whatever has focus
     palette.colors = {
-        DialogBackgroundColor: "#242424FF"
-        DialogFocusColor: "#CECECEFF"
-        DialogFocusItemColor: "#202020FF"
-        DialogSecondaryTextColor: "#EBEBEBFF"
-        DialogSecondaryItemColor: "#FF1C30FF"
+        DialogBackgroundColor: "#282828FF"
+        DialogFocusColor: "#EBEBEBFF"
+        DialogFocusItemColor: "#161616FF"
+        DialogSecondaryTextColor: "#E4E4E4FF"
+        DialogSecondaryItemColor: "#0096A6FF"
         DialogTextColor: "#EBEBEBFF"
     }
     scene.palette = palette

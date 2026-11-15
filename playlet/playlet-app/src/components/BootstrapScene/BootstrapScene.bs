@@ -6,7 +6,7 @@ import "pkg:/source/Registry.bs"
 
 function Init() as void
     m.scene = m.top.getScene()
-    m.top.backgroundColor = "#242424FF"
+    m.top.backgroundColor = "#161616FF"
     m.top.backgroundURI = ""
 
     m.loadingIndicator = m.top.findNode("LoadingIndicator")
@@ -14,12 +14,60 @@ function Init() as void
         loadingIndicator: m.loadingIndicator
     })
 
-    m.loadingIndicator.visible = true
-    m.loadingIndicator.message = GetLoadingMessage()
-
     m.playletLibUrls = GetPlayletLibUrls()
     m.playletLibUrlIndex = 0
+    m.playletStarted = false
 
+    ' Meowbox fork: when this package also carries the Meowbox television, its
+    ' front door (MeowHub) comes up first and Playlet waits to be chosen. Built
+    ' on its own, there is no MeowHub and Playlet starts as it always did.
+    m.hub = m.scene.findNode("MainSceneContainer").createChild("MeowHub")
+    if m.hub = invalid
+        StartPlaylet()
+        return
+    end if
+    m.loadingIndicator.visible = false
+    ' bs:disable-next-line NO_OBSERVE_STRING_CALLBACK
+    m.hub.observeField("choice", "OnHubChoice")
+    ' A launch or a cast that names a video is meant for Playlet: skip the front door.
+    ' bs:disable-next-line NO_OBSERVE_STRING_CALLBACK
+    m.scene.observeField("launchArgs", "OnArgsWhileAtHub")
+    ' bs:disable-next-line NO_OBSERVE_STRING_CALLBACK
+    m.scene.observeField("inputArgs", "OnArgsWhileAtHub")
+end function
+
+function OnHubChoice() as void
+    if m.hub <> invalid and m.hub.choice = "youtube"
+        StartPlaylet()
+    end if
+end function
+
+function OnArgsWhileAtHub(event as object) as void
+    args = event.getData()
+    if m.playletStarted or args = invalid or args.contentId = invalid
+        return
+    end if
+    ' Playlet reads launchArgs when it starts
+    if event.getField() = "inputArgs"
+        m.scene.launchArgs = args
+    end if
+    StartPlaylet()
+end function
+
+function StartPlaylet() as void
+    if m.playletStarted
+        return
+    end if
+    m.playletStarted = true
+    if m.hub <> invalid
+        m.scene.unobserveField("launchArgs")
+        m.scene.unobserveField("inputArgs")
+        m.hub.unobserveField("choice")
+        m.scene.findNode("MainSceneContainer").removeChild(m.hub)
+        m.hub = invalid
+    end if
+    m.loadingIndicator.visible = true
+    m.loadingIndicator.message = GetLoadingMessage()
     LoadPlayletLib()
 end function
 
@@ -39,10 +87,11 @@ function GetPlayletLibUrls() as object
             return savedUrls
         end if
 
-        githubSquashFs = { type: "github-squashfs", link: Manifest.ReadValue("playlet_lib_squashfs_remote_url") }
-        githubZip = { type: "github-zip", link: Manifest.ReadValue("playlet_lib_zip_remote_url") }
+        ' Meowbox fork: upstream fetches its newest library from GitHub first, which
+        ' would swap this fork's changes for upstream's. Use the one in the package.
+        ' (A version picked by hand in Settings > Developer still wins, above.)
         embedded = { type: "embedded-zip", link: Manifest.ReadValue("playlet_lib_zip_embedded_url") }
-        return [githubSquashFs, githubZip, embedded]
+        return [embedded]
     #end if
 end function
 
