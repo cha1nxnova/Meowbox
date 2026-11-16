@@ -6,7 +6,7 @@ Agitation and procedural sedation are essentially the same job from two directio
 
 ## Recognizing and grading agitation
 
-Agitation is "an extreme form of arousal that is associated with increased verbal and motor activity" \[2\], and **new-onset agitation is medical until proven otherwise** (Project BETA consensus, ungraded) \[2\]. It was present in 2.6% of visits at one urban county ER, and about a quarter of those patients had features of delirium \[7\].
+Agitation is "an extreme form of arousal that is associated with increased verbal and motor activity" \[2\], and **new-onset agitation is medical until proven otherwise** (Project BETA consensus, ungraded) \[2\]. It was present in 2.6% of visits at one urban county ER, and 23% of those patients had features of delirium \[7\].
 
 **The 60-second screen for every agitated patient** \[2\]
 
@@ -38,12 +38,12 @@ The trials do not share a scale, so "adequately sedated" means something differe
 
 | Scale | Range | Calm | Severe | Where it is used |
 | --- | --- | --- | --- | --- |
-| AMSS (Altered Mental Status Scale) | -4 to +4 | 0. Trials call 0 or less "adequate sedation" | +3 to +4 | The Hennepin trials: Klein 2018, Martel 2021, Cole 2021 \[18\], \[19\], \[20\] |
+| AMSS (Altered Mental Status Scale) | -4 to +4 | 0. Trials call 0 or less "adequate sedation" | +4 is the most agitated | The Hennepin trials: Klein 2018, Martel 2021, Cole 2021 \[18\], \[19\], \[20\] |
 | SAT (Sedation Assessment Tool) | -3 to +3 | 0 | +2 to +3 ("combative, violent, out of control" is +3) | Australian trials and the UK guideline \[12\] |
 | RASS† | -5 to +4 | 0 | +3 to +4 | Built for the ICU. Barbic 2021 enrolled at +3 or more and called -1 or less sedated \[23\] |
 | BARS | 1 to 7 | 4 | 7 (violent, requires restraint)† | Triage tool favored by Project BETA. "Any score other than a 4 should trigger an evaluation by a clinician" \[3\] |
 
-**Hyperactive delirium with severe agitation.** ACEP replaced "excited delirium" with this descriptive term in a 2021 task force report and withdrew its 2009 white paper in October 2023† \[11\]. The AMA (2021) and ACMT (2023) reject "excited delirium" as a diagnosis as well \[16\], \[17\]. Essentially it is a presentation and not a diagnosis: altered mental status, extreme agitation, and a hyperadrenergic state with fever and acidosis. We treat it as a resuscitation, as continued struggling under restraint drives the hyperthermia and acidosis that kill \[12\].
+**Hyperactive delirium with severe agitation.** ACEP replaced "excited delirium" with this descriptive term in a 2021 task force report and withdrew its 2009 white paper in October 2023† \[11\]. The AMA (2021) and ACMT (2023) reject "excited delirium" as a diagnosis as well \[16\], \[17\]. Essentially it is a presentation and not a diagnosis: altered mental status, extreme agitation, and a hyperadrenergic state with fever and acidosis†. We treat it as a resuscitation, as continued struggling under restraint drives the hyperthermia and acidosis that kill \[12\].
 
 ## Acute agitation: ER algorithm
 
@@ -79,22 +79,22 @@ The ACEP clinical policy (approved October 2023, published January 2024) is the 
 | B | If a single agent must be given, "use droperidol or an atypical antipsychotic due to the adverse effect profile of midazolam alone" |
 | B | For efficacious treatment, haloperidol alone or in combination with lorazepam |
 | C (consensus) | Where safety of the patient, bystanders or staff is a concern, "consider ketamine (intravenous or intramuscular)" |
-| None | No recommendation for or against any agent out of hospital, and none specific to patients over 65 |
+| None | No recommendation for or against any agent out of hospital (consensus statement). None specific to patients over 65 |
 
-Oral or sublingual medication comes first whenever the patient will take it (Project BETA consensus) \[4\]. In 2025 a Hennepin cohort found oral and IM first doses reached adequate sedation in the same median 15 minutes, with rescue in 31.8% vs 28.4% \[55\].
+Oral medication comes first whenever the patient will take it (Project BETA consensus) \[4\]. In 2025 a Hennepin cohort found oral and IM first doses reached adequate sedation in the same median 15 minutes, with rescue in 31.8% vs 28.4% \[55\].
 
 **Parenteral agents**
 
 | Drug | ER dose | Time to sedation | Lasts | Watch for |
 | --- | --- | --- | --- | --- |
-| Droperidol | 5 mg IM, or 10 mg IM or IV. Repeat at 15 min. Start at 5 mg in older adults \[20\], \[22\], \[57\] | Median 16 to 20 min IM \[20\], \[22\] | 2 to 4 h \[59\] | Boxed QT warning, and the label maximum is 2.5 mg \[59\]. Dystonia or akathisia about 1% to 3% \[20\], \[75\] |
-| Olanzapine | 10 mg IM. 5 mg geriatric, 2.5 mg if debilitated \[60\]. 2.5 to 5 mg IV is off label \[68\] | Median 11.5 to 17.5 min IM \[20\], \[26\] |  | Orthostatic hypotension. Label says a parenteral benzodiazepine alongside "is not recommended" \[60\]. Maximum 30 mg per day |
+| Droperidol | 5 mg IM, or 10 mg IM or IV. Repeat at 15 min. Start at 5 mg in older adults† \[20\], \[22\], \[57\] | Median 16 to 20 min IM \[20\], \[22\] | 2 to 4 h \[59\] | Boxed QT warning, and the label maximum initial dose is 2.5 mg, for nausea only \[59\]. EPS 1%, akathisia 2.9% \[20\], \[75\] |
+| Olanzapine | 10 mg IM. 5 mg geriatric, 2.5 mg if debilitated \[60\]. 2.5 to 5 mg IV is off label \[68\], and the label says not to give it IV \[60\] | Median 11.5 to 17.5 min IM \[20\], \[26\] |  | Orthostatic hypotension. Label says a parenteral benzodiazepine alongside "is not recommended" \[60\]. Repeat no sooner than 2 h after the first dose and 4 h after the second, maximum 30 mg per day |
 | Haloperidol | 5 to 10 mg IM. Label 2 to 5 mg, maximum 20 mg per day \[61\] | Median 17 to 23 min, mean 28 min \[25\], \[26\], \[27\] | About 2 h to arousal \[27\] | "Not approved for intravenous administration". Contraindicated in Parkinson disease and Lewy body dementia \[61\] |
-| Ziprasidone | 10 mg IM every 2 h or 20 mg every 4 h, maximum 40 mg per day \[62\] | Only 25% to 35% sedated at 15 min \[19\] | Half-life 2 to 5 h | The slowest antipsychotic. QTc prolongation. Cyclodextrin vehicle in renal impairment \[62\] |
-| Midazolam | 5 mg IM, or 2.5 to 5 mg IV \[18\], \[69\] | Median 8.5 min IM, mean 18 min \[26\], \[27\] | About 80 min \[27\] | Respiratory depression. Wears off first, so rescue doses are common |
-| Lorazepam | 2 mg IM or IV \[19\] | Mean 32 min. 29% sedated at 15 min \[19\], \[27\] | 6 to 8 h | Slowest and longest. On a US shortage list in October 2026† |
-| Ketamine | 4 to 5 mg/kg IM, or 1 mg/kg IV over 60 seconds \[23\], \[24\] | Median about 5 min IM \[23\], \[25\] | 12 to 25 min after IM \[65\] | Intubation, laryngospasm, hypersalivation, emergence, vomiting, hypertension. Needs resuscitation-level monitoring |
-| Droperidol plus midazolam | 5 mg plus 5 mg, IM or IV \[21\], \[53\] | Median 10 min IM. 6 min faster than either drug alone IV \[21\], \[53\] |  | More oxygen use than haloperidol plus lorazepam (25.6% vs 9.3%) \[53\] |
+| Ziprasidone | 10 mg IM every 2 h or 20 mg every 4 h, maximum 40 mg per day \[62\] | Only 25% to 35% sedated at 15 min \[19\] | Half-life 2 to 5 h | Slower than droperidol, olanzapine and midazolam. QTc prolongation. Cyclodextrin vehicle in renal impairment \[62\] |
+| Midazolam | 5 mg IM, or 2.5 to 5 mg IV \[18\], \[81\] | Median 8.5 min IM, mean 18 min \[26\], \[27\] | About 80 min \[27\] | Respiratory depression. Wears off first, so rescue doses are common |
+| Lorazepam | 2 mg IM or IV \[19\] | Mean 32 min. 29% sedated at 15 min \[19\], \[27\] | 6 to 8 h | Slowest and longest. In FDA shortage since 2018 \[113\] |
+| Ketamine | 4 to 5 mg/kg IM, or 1 mg/kg IV over 60 seconds \[23\], \[24\] | Median about 5 min IM \[23\], \[25\] | Label: 12 to 25 min after 9 to 13 mg/kg IM. Not measured at 4 to 5 mg/kg \[65\] | Intubation, laryngospasm, hypersalivation, emergence, vomiting, hypertension. Needs resuscitation-level monitoring. The 2011 sedation guideline lists known or suspected schizophrenia as a contraindication†, so prefer droperidol-based options in known psychosis |
+| Droperidol plus midazolam | 5 mg plus 5 mg, IM or IV \[21\], \[53\] | Median 10 min IM \[53\]. IV: 6 min faster than droperidol 10 mg or olanzapine 10 mg alone \[21\] |  | More oxygen use than haloperidol plus lorazepam (25.6% vs 9.3%) \[53\] |
 | Haloperidol plus lorazepam | 5 mg plus 2 mg IM | Median 30 to 36 min \[24\], \[53\] |  | Adding diphenhydramine ("B52") did not reduce rescue doses (14% vs 20%, P=0.11) and came with more hypotension and desaturation \[29\] |
 
 **Non-injectable options for the patient who will cooperate**
@@ -107,7 +107,7 @@ Oral or sublingual medication comes first whenever the patient will take it (Pro
 | Dexmedetomidine sublingual film (Igalmi) | 180 mcg, or 120 mcg if mild to moderate or age 65 or older. Up to 2 more half doses at least 2 h apart \[63\] | Labeled only for schizophrenia or bipolar agitation, under supervision. Onset 20 to 30 min. Orthostatic hypotension 18% vs 9% with placebo. Prolongs QT |
 | Loxapine inhaled (Adasuve) | 10 mg once in 24 h \[64\] | REMS, certified sites only. Boxed warning for bronchospasm. Contraindicated in asthma and COPD |
 
-Short-acting aripiprazole injection has no current US label, so it is essentially off the market \[59\].
+Short-acting aripiprazole injection has no current US label, so it is essentially off the market (DailyMed listing search, November 16, 2026).
 
 **Key trials**
 
@@ -127,7 +127,7 @@ Short-acting aripiprazole injection has no current US label, so it is essentiall
 
 Overall the pattern is that midazolam and droperidol are the fast single agents, the droperidol plus midazolam combination is faster still, ketamine is fastest and riskiest, and ziprasidone, lorazepam and haloperidol alone are slow.
 
-A 2026 network meta-analysis of individual patient data (18 trials, n=3,411) points the same way: an antipsychotic with a benzodiazepine beat haloperidol alone for sedation within 15 to 30 minutes (OR 4.86 in severe agitation, 12.93 in moderate), with very low confidence \[121\].
+A 2026 network meta-analysis of individual patient data (18 trials, n=3,411) points the same way: an antipsychotic with a benzodiazepine beat haloperidol alone for sedation within 15 to 30 minutes (OR 4.86 in severe agitation, 12.93 in moderate), with very low confidence and more hypotension with benzodiazepines \[121\]. The 2026 toxicology review dissents and advises against combinations in general \[57\]. Much of the Hennepin data also comes from a mostly alcohol-intoxicated population, so it may not travel to every ER.
 
 ## Matching the drug to the cause
 
@@ -135,16 +135,16 @@ Project BETA's rule is to treat the most likely cause, and "medication should be
 
 | Likely cause | First choice | Avoid | Source |
 | --- | --- | --- | --- |
-| Alcohol intoxication | Use medication "sparingly if at all". An antipsychotic if needed (droperidol, olanzapine or haloperidol) | Benzodiazepines, as they compound respiratory depression | BETA \[4\]. Droperidol gave the shortest stay in 11,787 intoxicated patients \[78\] |
+| Alcohol intoxication | Use medication "sparingly if at all". An antipsychotic if needed (BETA names haloperidol or olanzapine, and droperidol now has cohort support) | Benzodiazepines, as they compound respiratory depression | BETA \[4\]. Droperidol gave the shortest stay in 11,787 intoxicated patients \[78\] |
 | Alcohol or benzodiazepine withdrawal | "A benzodiazepine is the agent of choice" | Antipsychotic alone | BETA \[4\] |
 | Stimulants (methamphetamine, cocaine) | Benzodiazepine first by tradition. Droperidol or olanzapine performed as well as midazolam in methamphetamine agitation | Lorazepam IM when speed matters (29 min, 46% rescue) | BETA \[4\], \[54\], \[71\] |
-| Psychosis with known psychiatric illness | Antipsychotic, oral first. IM olanzapine or ziprasidone if not cooperative | A second antipsychotic dose before trying an added benzodiazepine | BETA \[4\] |
+| Psychosis with known psychiatric illness | Antipsychotic, oral first. IM olanzapine or ziprasidone if not cooperative | A second antipsychotic dose before trying an added benzodiazepine (BETA excepts olanzapine) | BETA \[4\] |
 | Undifferentiated, severe | Droperidol plus midazolam, or an atypical antipsychotic plus midazolam | Midazolam alone | ACEP Level B† \[1\] |
 | Immediate danger, or hyperactive delirium with severe agitation | Ketamine 4 to 5 mg/kg IM, with cooling, fluids and full monitoring | Prolonged physical struggle | ACEP Level C† \[1\], \[12\] |
 | Delirium from a medical cause | Fix the cause. Low-dose second-generation antipsychotic or low-dose haloperidol | Benzodiazepines, as "they can exacerbate the delirium" | BETA \[4\] |
 | Anticholinergic delirium | Benzodiazepine. Rivastigmine 3 mg oral every 2 h to a maximum of 12 mg, or a patch† | Antipsychotics, benztropine, diphenhydramine | \[66\], \[67\] |
 
-**Physostigmine is essentially gone.** The only US maker closed in February 2023†. The imported product (Anticholium 2 mg/5 mL, not FDA approved) was reported down to one lot expiring May 2026†. Its label dose is 0.04 mg/kg slow IV at about 1 mg/min, maximum 2 mg per dose \[66\]. We should check our own stock before listing it anywhere.
+**Physostigmine is essentially gone.** The only US maker closed in February 2023†. The imported product (Anticholium 2 mg/5 mL, not FDA approved) was reported down to one lot expiring May 2026†. Its label dose is 0.04 mg/kg slow IV at about 1 mg/min, maximum 2 mg per dose, repeated no sooner than 5 to 20 minutes \[66\]. A wide QRS should be narrowed with bicarbonate first, with atropine at the bedside† \[67\]. We should check our own stock before listing it anywhere.
 
 **Special populations**
 
@@ -153,7 +153,7 @@ Project BETA's rule is to treat the most likely cause, and "medication should be
 | Older adults | Olanzapine 5 mg IM (2.5 mg if debilitated). Droperidol 5 mg start. Haloperidol 0.5 to 1 mg†. Midazolam carried adverse events in 53% of older adults in a 2025 review (OR 5.25 vs haloperidol) | \[60\], \[56\] |
 | Dementia | Every antipsychotic carries a boxed warning for mortality in dementia-related psychosis (1.6 to 1.7 times placebo). Use the lowest dose for the shortest time | \[61\] |
 | Parkinson disease, Lewy body dementia | Haloperidol is contraindicated. Quetiapine 12.5 to 25 mg oral is the usual choice†. Benzodiazepine if parenteral is needed† | \[61\] |
-| Known long QT or QT drugs on board | Droperidol label: contraindicated above 440 ms (men) or 450 ms (women). Igalmi, ziprasidone and haloperidol also prolong QT. A benzodiazepine is the QT-neutral option | \[59\], \[62\], \[63\] |
+| Known long QT or QT drugs on board | Droperidol label: contraindicated above 440 ms (men) or 450 ms (women). Igalmi, ziprasidone and haloperidol also prolong QT. A benzodiazepine is the QT-neutral option† | \[59\], \[62\], \[63\] |
 | Pregnancy | No ER trial data. Haloperidol has the longest experience†. Left lateral position in late pregnancy† |  |
 | Children and teens | Cause-driven. Unknown cause, moderate: lorazepam, diphenhydramine or olanzapine. No benzodiazepine within 1 hour of olanzapine. "Ketamine and barbiturates are not recommended". Avoid IM in autism unless essential | AAEP pediatric consensus 2019† \[15\] |
 | Children, oral option | Oral olanzapine vs oral diazepam: 61% vs 57% sedated at 1 hour | PEAChY-O 2025 \[77\] |
@@ -168,7 +168,7 @@ A sedated agitated patient is a sedation patient, so the monitoring should look 
 
 | What | When | Why |
 | --- | --- | --- |
-| Pulse oximetry, respiratory rate, sedation score | Continuous or every 5 to 15 min until calm and rousable, per hospital policy | Respiratory depression by capnography or saturation criteria reached 36% to 48% across arms in one IM trial \[19\] |
+| Pulse oximetry, respiratory rate, sedation score | Continuous or every 5 to 15 min until calm and rousable, per hospital policy | Respiratory depression by capnography or saturation criteria was 12% with droperidol and 36% to 48% with ziprasidone and lorazepam in one IM trial \[19\] |
 | Capnography | With ketamine, with any combination, and with alcohol on board, where available | Recommended in the 2026 toxicology review for ketamine \[57\] |
 | ECG | As soon as the patient allows it. Sooner with known QT risk | The droperidol label asks for one before the dose, which is rarely possible. One torsades in 16,546 \[52\], \[59\] |
 | Temperature, glucose, CK, potassium, blood gas | Severe agitation or delirium features | Hyperthermia, rhabdomyolysis and acidosis are the lethal pathway \[12\] |
@@ -178,13 +178,13 @@ A sedated agitated patient is a sedation patient, so the monitoring should look 
 
 | Problem | How often | Fix |
 | --- | --- | --- |
-| Acute dystonia | 5 in 15,918 (0.03%) across IM droperidol, olanzapine and haloperidol in one ER cohort. Chart review undercounts delayed cases \[72\] | Benztropine 1 to 2 mg IM or IV \[74\], or diphenhydramine 25 to 50 mg† |
+| Acute dystonia | 5 in 15,918 (0.03%) across IM droperidol, olanzapine and haloperidol in one ER cohort. Chart review undercounts delayed cases \[72\] | Benztropine 1 to 2 mL (1 mg/mL) IM or IV \[74\], or diphenhydramine 25 to 50 mg† |
 | Akathisia | 2.9% with droperidol in 6,353 visits \[75\] | Diphenhydramine or a benzodiazepine† |
 | QT prolongation and torsades | Abnormal QT 1.3% after droperidol 10 mg. No torsades in 1,009 \[22\] | Correct potassium and magnesium, avoid stacking QT drugs |
-| Respiratory depression | Highest with midazolam, with IV dosing and with alcohol. IV olanzapine: hypoxia 10.4%, major airway events 2.1% \[68\] | Reposition, oxygen, bag-mask. Flumazenil is rarely the answer |
+| Respiratory depression | Highest with midazolam, with IV dosing and with alcohol. IV olanzapine: hypoxia 10.4%, major airway events 2.1% \[68\] | Reposition, oxygen, bag-mask. Flumazenil is rarely the answer† |
 | Hypotension | Olanzapine (orthostatic), droperidol, combinations | Fluids, supine |
-| Ketamine: intubation | 39% to 63% in prehospital cohorts. 1.8% pooled when given in the ER \[28\] | Airway equipment and a physician at the bedside before the dose |
-| Ketamine: other | Hypersalivation 18% to 38%, laryngospasm up to 5%, emergence 4% to 10%, vomiting 6% to 9% in prehospital series \[25\] | Suction, bag-mask, midazolam for emergence |
+| Ketamine: intubation | 39% in one prehospital study \[25\] and up to 63% in other prehospital series†. 1.8% pooled when given in the ER \[28\] | Airway equipment and a physician at the bedside before the dose |
+| Ketamine: other | Hypersalivation 18% to 38%, laryngospasm up to 5%, emergence 4% to 10%, vomiting 6% to 9% across two prehospital series† \[25\] | Suction, bag-mask, midazolam for emergence |
 | Neuroleptic malignant syndrome | Rare. Fever, rigidity, altered mental status, autonomic instability \[62\] | Stop the antipsychotic, cool, benzodiazepines† |
 
 **Olanzapine with a benzodiazepine.** The US label says the pairing "is not recommended" \[60\], the European label separates them by 60 minutes, and ACEP recommends an atypical antipsychotic with midazolam (Level B†) \[1\]. The largest ER comparison found no difference in intubation, hypoxemia or hypotension, yet its interval allows up to 3.7 points more intubation \[10\]. Caution is still most defensible in the heavily alcohol-intoxicated and the older patient.
@@ -232,7 +232,7 @@ ACEP published a new two-part unscheduled procedural sedation guideline in Septe
 | Ketamine plus propofol | Level B | Level B |
 | Alfentanil | Level C | No recommendation |
 
-**The sedation continuum** (ASA statement, amended October 2024 \[33\]; dissociative row from ACEP 2026 \[31\])
+**The sedation continuum** (ASA statement, amended October 2024 \[33\], with the dissociative row from ACEP 2026 \[31\])
 
 | Depth | Responsiveness | Airway | Spontaneous ventilation | Circulation |
 | --- | --- | --- | --- | --- |
@@ -242,7 +242,7 @@ ACEP published a new two-part unscheduled procedural sedation guideline in Septe
 | General anesthesia | Unarousable | Intervention often required | Frequently inadequate | May be impaired |
 | Dissociative (ketamine) | Trance-like, profound analgesia and amnesia | "May require repositioning" | "Essentially always maintained" | Stable |
 
-The working rule is that whoever gives one depth must be able to rescue from the next one down \[33\]. ACEP 2026 adds that practice "should focus on ventilatory adequacy for safety" and not on the depth label \[31\]. ASA (2018) and ACEP (2026) disagree on whether propofol, ketamine and etomidate need anesthesia-level care, and ASA is not among the endorsers of the 2026 guideline \[30\], \[34\].
+The working rule is that whoever gives one depth must be able to rescue a patient who slips one level deeper \[33\]. ACEP 2026 adds that practice "should focus on ventilatory adequacy for safety" and not on the depth label \[31\]. ASA (2018) and ACEP (2026) disagree on whether propofol, ketamine and etomidate need anesthesia-level care†, and ASA is not among the endorsers of the 2026 guideline \[30\], \[34\].
 
 **Pre-sedation assessment** \[31\]
 
@@ -284,7 +284,7 @@ A great way to remember the danger window is that events cluster at induction an
 
 &#91;embedded content: procedural sedation · ER algorithm, 7 steps\]
 
-The sequence is a synthesis of the ACEP 2026 guideline \[30\], \[31\], not a published algorithm. Most rescues are repositioning and bag-mask ventilation, so step 3 is essentially where the safety comes from. Hematoma and nerve blocks can remove the need to sedate at all \[49\].
+The sequence is a synthesis of the ACEP 2026 guideline \[30\], \[31\], not a published algorithm. Most rescues are repositioning and bag-mask ventilation, so step 3 is essentially where the safety comes from. Hematoma and nerve blocks are options that reduce the risks of sedation† \[49\].
 
 ## Procedural sedation drug chart
 
@@ -294,12 +294,12 @@ The sequence is a synthesis of the ACEP 2026 guideline \[30\], \[31\], not a pub
 
 | Drug | ER dose (adult) | Onset and duration† | Analgesia | Watch for |
 | --- | --- | --- | --- | --- |
-| Propofol | 0.5 to 1 mg/kg IV, then 0.5 mg/kg every 2 to 3 min \[88\]. Label: about 0.5 mg/kg slowly over 3 to 5 min \[80\] | 30 to 60 s. 5 to 10 min | None | Hypotension 3.5% to 8%, desaturation 7.7%, bag-mask 3.9% \[91\], \[93\]. Injection pain |
+| Propofol | 0.5 to 1 mg/kg IV, then 0.5 mg/kg every 3 min \[88\]. Label: about 0.5 mg/kg slowly over 3 to 5 min \[80\] | 30 to 60 s. 5 to 10 min | None | Hypotension 3.5% to 8%, desaturation 7.7%, bag-mask 3.9% \[91\], \[93\]. Injection pain |
 | Ketamine | 1 to 1.5 mg/kg IV over 60 s (1.5 to 2 mg/kg in children), or 4 to 5 mg/kg IM. Repeat 0.5 to 1 mg/kg IV \[31\], \[47\] | 1 min IV, 5 min IM. 10 to 15 min IV, 15 to 30 min IM | Yes | Recovery agitation, vomiting, laryngospasm, hypertension. More drug past the dissociative threshold "does not enhance or deepen sedation" \[31\] |
-| Ketamine plus propofol | 0.5 mg/kg of each (1:1 in one syringe), then titrate \[90\], \[91\] | About 1 min. 10 to 15 min | Yes | Hypotension 1% vs 8% with propofol alone, yet severe emergence delirium 5% vs 2% \[91\] |
+| Ketamine plus propofol | 1:1 in one syringe \[90\], \[91\]. Customary start 0.5 mg/kg of each†, then titrate | About 1 min. 10 to 15 min | Yes | Hypotension 1% vs 8% with propofol alone, yet severe emergence delirium 5% vs 2% \[91\] |
 | Etomidate | 0.1 to 0.15 mg/kg IV†. Reported range 0.15 to 0.22 mg/kg \[107\] | Under 1 min. 5 to 10 min | None | Myoclonus 20% to 45%, lower procedural success than propofol (88.6% vs 97.2%) \[89\], \[107\]. In shortage since October 2022 \[113\] |
-| Midazolam with fentanyl | Midazolam up to 2.5 mg over 2 min, repeat after 2 min. Fentanyl 0.5 to 1 mcg/kg† \[84\] | 2 to 3 min. 30 to 60 min | Fentanyl only | Slowest recovery and the least predictable. ACEP 2026 favors fentanyl with propofol, or ketamine, for very painful procedures \[31\]. Both drugs in shortage \[113\] |
-| Remimazolam (Byfavo) | 5 mg IV over 1 min, then 2.5 mg over 15 s at least 2 min apart. Fixed dose, not weight based \[83\] | Peak 3 to 3.5 min | None | Only labeled for procedures of 30 minutes or less. No ER randomized trial yet, only Danish cohorts (n=68 to 540) \[104\]. Reconstitute 20 mg with 8.2 mL saline, good for 8 h |
+| Midazolam with fentanyl | Midazolam up to 2.5 mg over 2 min, repeat after 2 min. About 30% less after an opioid, and more than 5 mg total is rarely needed. Fentanyl 0.5 to 1 mcg/kg† \[84\] | 2 to 3 min. 30 to 60 min | Fentanyl only | Slowest recovery and the least predictable. ACEP 2026 favors fentanyl with propofol, or ketamine, for very painful procedures \[31\]. Both drugs in shortage \[113\] |
+| Remimazolam (Byfavo) | 5 mg IV over 1 min, then 2.5 mg over 15 s at least 2 min apart. Fixed dose, not weight based \[83\] | Peak 3 to 3.5 min | None | Only labeled for procedures of 30 minutes or less. No ER randomized trial yet, only Danish cohorts (n=183 in the nurse-administered series) \[104\]. Reconstitute 20 mg with 8.2 mL saline, good for 8 h |
 | Dexmedetomidine | 1 mcg/kg IV over 10 min (0.5 mcg/kg over age 65), then 0.6 mcg/kg/h \[85\]. Intranasal 3 to 3.9 mcg/kg in children for imaging \[99\] | 10 to 15 min IV. About 32 min intranasal | Weak | Bradycardia and sinus arrest with a fast bolus. Too slow for most ER procedures |
 | Nitrous oxide 50% to 70% | Self-administered or continuous flow | 2 to 5 min, off in 5 min | Mild to moderate | Vomiting 5.7%, serious events 0.2% in 762 children \[100\]. Avoid with trapped gas (pneumothorax, bowel obstruction)† |
 
@@ -311,9 +311,9 @@ The sequence is a synthesis of the ACEP 2026 guideline \[30\], \[31\], not a pub
 | Age 60 or older | Midazolam: no more than 1.5 mg over 2 min, then 1 mg steps. A total above 3.5 mg is rarely needed | Label \[84\] |
 | Obesity | "Most drug doses should be adjusted based on ideal body weight". Propofol by lean body weight matched lean controls in BMI 40 or more | \[31\], \[111\] |
 | Hypotension or shock | Ketamine, or ketamine plus propofol, over propofol alone. Etomidate caused a smaller pressure fall than propofol (3.8% vs 7.9%) | \[89\], \[91\] |
-| Opioid given in the last 30 minutes | Smaller sedative doses, closer watch | \[31\] |
-| Egg or soy allergy | Label contraindicates propofol only with prior anaphylaxis to egg or soy. AAAAI says these patients "can receive propofol without any special precautions" (0 reactions in 5,446 allergic patients) | \[80\], \[105\] |
-| Head or eye injury | Ketamine did not worsen ICP or outcomes in a review of 953 intubated patients. Eye pressure rose 1 to 3 mm Hg in healthy eyes, injured eyes not studied | \[109\] |
+| Opioid given in the last 30 minutes | Closer watch for cardiopulmonary depression | \[31\] |
+| Egg or soy allergy | Label contraindicates propofol only with prior anaphylaxis to egg or soy. AAAAI says these patients "can receive propofol without any special precautions" (0 proven anaphylaxis in 5,446 allergic patients in one series†) | \[80\], \[105\] |
+| Head or eye injury | ICP findings were mixed (2 of 8 studies up, 2 down) with no difference in perfusion pressure or outcomes in 953 intubated patients. Eye pressure rose about 1 to 3 mm Hg in children with healthy eyes†, and injured eyes were not studied | \[109\] |
 
 **Ketamine myths the evidence has retired**
 
@@ -331,8 +331,8 @@ Ketamine is contraindicated under 3 months of age and in known or suspected schi
 
 | Agent | Adult dose | Child dose | Caution |
 | --- | --- | --- | --- |
-| Naloxone | 0.1 to 0.2 mg IV every 2 to 3 min to effect \[87\]. Many start at 0.04 mg† | 0.005 to 0.01 mg/kg IV every 2 to 3 min \[87\] | Titrate so the analgesia survives. Outlasted by long-acting opioids |
-| Flumazenil | 0.2 mg IV over 15 s, repeat every 60 s to 1 mg total \[86\] | 0.01 mg/kg (maximum 0.2 mg) every 60 s, to 0.05 mg/kg or 1 mg total \[86\] | Seizures in benzodiazepine-dependent patients. Resedation in 3% to 9%, so keep monitoring |
+| Naloxone | 0.1 to 0.2 mg IV every 2 to 3 min to effect \[87\]. Many start at 0.04 mg† | 0.005 to 0.01 mg IV increments every 2 to 3 min (label, postoperative) \[87\]. Weight-based 0.01 mg/kg is common practice† | Titrate so the analgesia survives. Outlasted by long-acting opioids |
+| Flumazenil | 0.2 mg IV over 15 s, repeat every 60 s to 1 mg total \[86\] | 0.01 mg/kg (maximum 0.2 mg) every 60 s, to 0.05 mg/kg or 1 mg total, whichever is lower \[86\] | Seizures in benzodiazepine-dependent patients. Resedation in 3% to 9%, so keep monitoring |
 
 Propofol, ketamine, etomidate and dexmedetomidine have no reversal agent†.
 
@@ -356,7 +356,7 @@ Propofol, ketamine, etomidate and dexmedetomidine have no reversal agent†.
 
 | Procedure | Reasonable first choice | Why |
 | --- | --- | --- |
-| Cardioversion | Propofol | Propofol, etomidate and methohexital recover equally fast. Midazolam and fentanyl carried more adverse events \[101\] |
+| Cardioversion | Propofol | Propofol, etomidate and methohexital recovered equally fast in one retrospective study†. Midazolam and fentanyl carried more adverse events \[101\] |
 | Fracture or dislocation reduction | Propofol with pain treated beforehand, or ketamine, or the 1:1 mix | Etomidate succeeds less often. An opioid pushed with propofol adds respiratory events without less pain \[89\], \[95\] |
 | Painful procedure in a child | Ketamine alone | Lowest serious event rate of any regimen (0.4%) \[42\] |
 | Child, laceration or anxiety | Intranasal midazolam 0.4 to 0.5 mg/kg, or nitrous oxide | No IV needed \[98\], \[100\] |
@@ -376,7 +376,7 @@ Serious events are rare, and "the most common and important rescue interventions
 | Hypotension | 15.2 |  |
 | Apnea | 12.4† (51.4 with midazolam) | 7.1 |
 | Recovery agitation | 9.8† (164.1 with ketamine) | 17.9 |
-| Laryngospasm | 4.2 (1 case in 883) | 2.9 (33 of 34 cases with ketamine) |
+| Laryngospasm | 4.2 (pooled estimate from one event) | 2.9 (33 of 34 cases with ketamine) |
 | Intubation | 1.6 (2 in 3,636) | 4 cases in 9,136 |
 | Aspiration | 1.2 (1 in 2,370) | 0 in 3,326 |
 
@@ -431,8 +431,8 @@ Both topics run on verbal orders and cabinet overrides, and that is exactly wher
 | Olanzapine IM | 10 mg vial plus 2.1 mL sterile water gives about 5 mg/mL. Use within 1 hour. Its own syringe \[60\] | Mixed in a syringe with lorazepam or haloperidol. Third dose inside the label interval. No orthostatic check |
 | Ziprasidone IM | 1.2 mL sterile water gives 20 mg/mL \[62\] | Picked when speed matters |
 | Haloperidol | Lactate for acute use, IM | Decanoate pulled by mistake. IV push with no monitor. Given in Parkinson disease |
-| Ketamine | The right vial: 10, 50 and 100 mg/mL exist. 100 mg/mL for IM, and it "must be diluted" for IV \[65\]. Weight estimated, volume double checked | Tenfold errors. Nine pediatric ER overdoses of 5 to 100 times the dose came from vial mix-ups \[106\]. The IM dose given IV |
-| Propofol | Drawn up aseptically, labeled with the time. Label allows 12 hours from spiking, including in a syringe \[80\] | Reused vial. Unlabeled white syringe (looks the same as liposomal bupivacaine and lipid emulsion†) |
+| Ketamine | The right vial: 10, 50 and 100 mg/mL exist. 100 mg/mL for IM, and it "must be diluted" for IV \[65\]. Weight estimated, volume double checked | Tenfold errors. Nine inadvertent pediatric ER overdoses were 5 to 100 times the intended dose \[106\]. The IM dose given IV |
+| Propofol | Drawn up aseptically, labeled with the time. Label allows 12 hours from spiking, including in a syringe \[80\] | Reused vial. Unlabeled white syringe (looks the same as liposomal bupivacaine and clevidipine†) |
 | Ketamine plus propofol in one syringe | Counts as immediate-use compounding. Start within 4 hours†, sooner by local policy | Mixing ratio not stated. No label |
 | Any sedation | Weight-based doses pre-calculated, including the rescue drugs. Naloxone, flumazenil, ondansetron, succinylcholine at the bedside | Reversal agents still in the cabinet. Full adult doses in the 85-year-old |
 | Restraint | Medication ordered alongside. Standard dose for the cause, documented as treatment | PRN or standing chemical restraint orders, which CMS prohibits \[8\] |
@@ -445,7 +445,7 @@ Haloperidol, lorazepam and diphenhydramine were physically compatible in one syr
 | --- | --- |
 | In shortage | Lorazepam injection (since 2018), midazolam (since 2020), etomidate (since October 2022), dexmedetomidine, fentanyl, rocuronium |
 | No FDA shortage entry | Ketamine, droperidol, propofol, olanzapine, ziprasidone. ASHP may list ketamine and propofol† |
-| Discontinued presentations in 2026† | Benztropine injection (Fresenius Kabi, January), haloperidol decanoate 50 mg/mL (Fresenius Kabi, January) |
+| To be discontinued (FDA, 2026) | Benztropine injection (Fresenius Kabi, January), haloperidol decanoate 50 mg/mL (Fresenius Kabi, January), one succinylcholine presentation (Fresenius Kabi, July) |
 | Effectively unavailable | Physostigmine. Short-acting aripiprazole injection |
 
 **Does a pharmacist at the bedside matter?**
@@ -478,7 +478,7 @@ No study isolates pharmacist impact on ER procedural sedation or adult agitation
 - **Monitoring after agitation sedation.** No guideline sets intervals. The table is a synthesis of labels, trial adverse event rates and the UK guideline.
 - **Physostigmine, shortages and discontinuations.** FDA database entries were read on November 13 to 16, 2026. ASHP pages could not be opened, so ASHP status and the physostigmine stock report are second hand. The rivastigmine regimen is from a poison center page.
 - **Igalmi.** An at-home use decision was due from FDA on November 14, 2026, and no outcome had been reported when this was written. The current label still requires supervised use.
-- **De-escalation table.** Domain names are verbatim from Project BETA. The "in practice" column is a paraphrase.
+- **De-escalation table.** Domain names are shortened from Project BETA. The "in practice" column is a paraphrase.
 - **Immediate-use compounding (4 hours)** is from secondary summaries of USP 797, not the chapter text.
 
 * **Checked against PubMed abstracts on November 16.** Headline numbers for Klein 2018, Martel 2021, Cole 2021, Taylor 2017, Calver 2015, Cole 2020, Barbic 2021, Lin 2021, Cole 2016, Cole 2024, Cole 2026, Jeffers 2022, Miner 2007, 2009, 2010 and 2015, Andolfatto 2012, Ferguson 2016, Green 2009, Bhatt 2017 and 2018, both Bellolio 2016 reviews, Deitch 2010 and 2011, Sener 2011, Langston 2008 and Stiell 2021 match their abstracts. Full texts were not read.
@@ -487,7 +487,7 @@ No study isolates pharmacist impact on ER procedural sedation or adult agitation
 
 ## References
 
-Titles are shortened. References 45, 46, 48, 50, 51, 58, 70, 76, 81, 82, 110 and 112 are background sources that support the charts without a bracketed citation.
+Journal citations were checked against PubMed on November 16, 2026, and some subtitles are shortened. References 13, 45, 46, 48, 50, 51, 58, 70, 76, 81, 82, 110 and 112 are background sources that support the charts without a bracketed citation.
 
 1. Thiessen MEW, Godwin SA, Hatten BW, et al; ACEP Clinical Policies Subcommittee on Severe Agitation. Clinical policy: critical issues in the evaluation and management of adult out-of-hospital or emergency department patients presenting with severe agitation. Ann Emerg Med. 2024;83(1):e1-e30. doi:10.1016/j.annemergmed.2023.09.010
 2. Nordstrom K, Zun LS, Wilson MP, et al. Medical evaluation and triage of the agitated patient: consensus statement of the AAEP Project BETA Medical Evaluation Workgroup. West J Emerg Med. 2012;13(1):3-10. doi:10.5811/westjem.2011.9.6863
@@ -498,10 +498,10 @@ Titles are shortened. References 45, 46, 48, 50, 51, 58, 70, 76, 81, 82, 110 and
 7. Miner JR, Klein LR, Cole JB, Driver BE, Moore JC, Ho JD. The characteristics and prevalence of agitation in an urban county emergency department. Ann Emerg Med. 2018;72(4):361-370. doi:10.1016/j.annemergmed.2018.06.001
 8. Centers for Medicare and Medicaid Services. Condition of participation: patient's rights. 42 CFR 482.13(e) to (g). eCFR version January 1, 2026.
 9. Thiessen MEW. ACEP's new clinical policy on severe agitation. ACEP Now. February 12, 2024.
-10. Cole JB, Stang JL, Collins JD, et al. Olanzapine with and without benzodiazepines for agitation in the emergency department. Ann Emerg Med. 2024;84(6):658-667. doi:10.1016/j.annemergmed.2024.05.006
+10. Cole JB, Stang JL, Collins JD, et al. Comparing intubation rates in patients receiving parenteral olanzapine with and without a parenteral benzodiazepine in the emergency department. Ann Emerg Med. 2024;84(6):658-667. doi:10.1016/j.annemergmed.2024.05.006
 11. American College of Emergency Physicians. Task force report on hyperactive delirium with severe agitation in emergency settings. Approved June 23, 2021. Position reaffirmed October 12, 2023.
 12. Royal College of Emergency Medicine. Acute behavioural disturbance in emergency departments. Best practice guideline, version 4. April 2025, edited April 2026.
-13. Boes SA, Cole JB, Puskarich MA, et al. Assault in agitated emergency department encounters. Acad Emerg Med. 2025;32(10):1054-1064. doi:10.1111/acem.70045
+13. Boes SA, Cole JB, Puskarich MA, et al. Prevalence of violence against health care workers among agitated patients in an urban emergency department. Acad Emerg Med. 2025;32(10):1054-1064. doi:10.1111/acem.70045
 14. Wong AH, Taylor RA, Ray JM, Bernstein SL. Physical restraint use in adult patients presenting to a general emergency department. Ann Emerg Med. 2019;73(2):183-192. doi:10.1016/j.annemergmed.2018.06.020
 15. Gerson R, Malas N, Feuer V, Silver GH, Prasad R, Mroczkowski MM. Best practices for evaluation and treatment of agitated children and adolescents (BETA) in the emergency department. West J Emerg Med. 2019;20(2):409-418. doi:10.5811/westjem.2019.1.41344
 16. American Medical Association. New AMA policy opposes "excited delirium" diagnosis. Press release, June 14, 2021.
@@ -542,10 +542,10 @@ Titles are shortened. References 45, 46, 48, 50, 51, 58, 70, 76, 81, 82, 110 and
 51. Green SM, Mason KP, Krauss BS. Pulmonary aspiration during procedural sedation: a comprehensive systematic review. Br J Anaesth. 2017;118(3):344-354. doi:10.1093/bja/aex004
 52. Cole JB, Lee SC, Martel ML, Smith SW, Biros MH, Miner JR. The incidence of QT prolongation and torsades des pointes in patients receiving droperidol in an urban emergency department. West J Emerg Med. 2020;21(4):728-736. doi:10.5811/westjem.2020.4.47036
 53. Thiemann P, Roy D, Huecker M, et al. Prospective study of haloperidol plus lorazepam versus droperidol plus midazolam for the treatment of acute agitation in the emergency department. Am J Emerg Med. 2022;55:76-81. doi:10.1016/j.ajem.2022.02.042
-54. Cole JB, DeVries PA, O'Flaherty JL, et al. Intramuscular sedatives for methamphetamine-associated agitation in the emergency department. Am J Emerg Med. 2026;104:1-9. doi:10.1016/j.ajem.2026.02.027
-55. Cole JB, Hurreh KM, Taghizadeh LA, et al. Oral vs intramuscular first-dose medication for agitation in the emergency department. JAMA Netw Open. 2025;8(12):e2551683. doi:10.1001/jamanetworkopen.2025.51683
-56. Casey MF, et al. Safety of medications for agitation in older adults in the emergency department: a systematic review. J Am Geriatr Soc. 2025. doi:10.1111/jgs.19485
-57. Isoardi KZ, Cole JB, Hoffman RS, Isbister GK. Pharmacological management of acute behavioural disturbance. Clin Toxicol (Phila). 2026;64(2):79-85. doi:10.1080/15563650.2025.2591356
+54. Cole JB, DeVries PA, O'Flaherty JL, et al. Intramuscular droperidol, olanzapine, midazolam, or lorazepam to treat methamphetamine intoxication in the emergency department. Am J Emerg Med. 2026;104:1-9. doi:10.1016/j.ajem.2026.02.027
+55. Cole JB, Hurreh KM, Taghizadeh LA, et al. Oral medications for treating agitation in a safety net emergency department. JAMA Netw Open. 2025;8(12):e2551683. doi:10.1001/jamanetworkopen.2025.51683
+56. Casey MF, Elder NM, Fenn A, et al. Comparative safety of medications for severe agitation: a Geriatric Emergency Department Guidelines 2.0 systematic review. J Am Geriatr Soc. 2025;73(9):2893-2904. doi:10.1111/jgs.19485
+57. Isoardi KZ, Cole JB, Hoffman RS, Isbister GK. What is the best approach for parenteral sedation to manage severe acute behavioral disturbance in the emergency department? Clin Toxicol (Phila). 2026;64(2):79-85. doi:10.1080/15563650.2025.2591356
 58. Isbister GK, Calver LA, Downes MA, Page CB. Ketamine as rescue treatment for difficult-to-sedate severe acute behavioral disturbance in the emergency department. Ann Emerg Med. 2016;67(5):581-587. doi:10.1016/j.annemergmed.2015.11.028
 59. Droperidol injection. Prescribing information. DailyMed, National Library of Medicine. Accessed November 16, 2026.
 60. Zyprexa IntraMuscular (olanzapine for injection). Prescribing information. DailyMed. Accessed November 16, 2026.
@@ -560,14 +560,14 @@ Titles are shortened. References 45, 46, 48, 50, 51, 58, 70, 76, 81, 82, 110 and
 69. Knott JC, Taylor DM, Castle DJ. Randomized clinical trial comparing intravenous midazolam and droperidol for sedation of the acutely agitated patient in the emergency department. Ann Emerg Med. 2006;47(1):61-67. doi:10.1016/j.annemergmed.2005.07.003
 70. Yap CYL, Taylor DM, Knott JC, et al. Intravenous midazolam-droperidol combination, droperidol or olanzapine monotherapy for methamphetamine-related acute agitation. Addiction. 2017;112(7):1262-1269. doi:10.1111/add.13780
 71. Connors NJ, Alsakha A, Larocque A, Hoffman RS, Landry T, Gosselin S. Antipsychotics for the treatment of sympathomimetic toxicity: a systematic review. Am J Emerg Med. 2019;37(10):1880-1890. doi:10.1016/j.ajem.2019.01.001
-72. Klein LR, Driver BE, Horton G, Scharber S, Martel ML, Cole JB. Rescue sedation and adverse events when intramuscular droperidol, olanzapine or haloperidol are used for agitation. J Emerg Med. 2019;56(5):484-490. doi:10.1016/j.jemermed.2018.12.036
+72. Klein LR, Driver BE, Horton G, Scharber S, Martel ML, Cole JB. Rescue sedation when treating acute agitation in the emergency department with intramuscular antipsychotics. J Emerg Med. 2019;56(5):484-490. doi:10.1016/j.jemermed.2018.12.036
 73. American College of Emergency Physicians, American Society of Anesthesiologists. Joint statement on ketamine use. August 26, 2020.
 74. Benztropine mesylate injection. Prescribing information. DailyMed. Accessed November 16, 2026.
 75. Gaw CM, Cabrera D, Bellolio F, Mattson AE, Lohse CM, Jeffery MM. Effectiveness and safety of droperidol in a United States emergency department. Am J Emerg Med. 2020;38(7):1310-1314. doi:10.1016/j.ajem.2019.09.007
-76. Cole JB, et al. Droperidol 5 mg vs 10 mg as the initial dose for acute agitation. J Emerg Med. 2024. doi:10.1016/j.jemermed.2024.07.005
-77. Bourke EM, Kochar A, Shellshear D, et al. Oral olanzapine vs oral diazepam for acute severe behavioural disturbance in young people (PEAChY-O). Ann Emerg Med. 2025;86(1):1-11. doi:10.1016/j.annemergmed.2025.01.007
+76. Cole JB, Glass KA, Stevens QT, LeBrun AR, Beaupre NA, Driver BE. Rescue sedation after 5 mg or 10 mg of droperidol as the initial treatment for acute agitation in the emergency department. J Emerg Med. 2025;68:73-83. doi:10.1016/j.jemermed.2024.07.005
+77. Bourke EM, Kochar A, Shellshear D, et al. PEAChY-O: Pharmacological Emergency Management of Agitation in Children and Young People: a randomized controlled trial of oral medication. Ann Emerg Med. 2025;86(1):1-11. doi:10.1016/j.annemergmed.2025.01.007
 78. Cole JB, Klein LR, Martel ML. Parenteral antipsychotic choice and its association with emergency department length of stay for acute agitation secondary to alcohol intoxication. Acad Emerg Med. 2019;26(1):79-84. doi:10.1111/acem.13486
-79. Robinson L, Ryus CR, Nath B, et al. Housing status and physical restraint use in the emergency department. PLoS One. 2025;20(3):e0319286. doi:10.1371/journal.pone.0319286
+79. Robinson L, Ryus CR, Nath B, et al. Disparities in use of physical restraint and chemical sedation in the emergency department by patient housing status. PLoS One. 2025;20(3):e0319286. doi:10.1371/journal.pone.0319286
 80. Diprivan (propofol) injectable emulsion. Prescribing information, published September 22, 2025. DailyMed.
 81. Chan EW, Taylor DM, Knott JC, Phillips GA, Castle DJ, Kong DC. Intravenous droperidol or olanzapine as an adjunct to midazolam for the acutely agitated patient. Ann Emerg Med. 2013;61(1):72-81. doi:10.1016/j.annemergmed.2012.07.118
 82. Amidate (etomidate) injection. Prescribing information, published May 25, 2026. DailyMed.
@@ -580,25 +580,25 @@ Titles are shortened. References 45, 46, 48, 50, 51, 58, 70, 76, 81, 82, 110 and
 89. Miner JR, Danahy M, Moch A, Biros M. Randomized clinical trial of etomidate versus propofol for procedural sedation in the emergency department. Ann Emerg Med. 2007;49(1):15-22. doi:10.1016/j.annemergmed.2006.06.042
 90. Andolfatto G, Abu-Laban RB, Zed PJ, et al. Ketamine-propofol combination (ketofol) versus propofol alone for emergency department procedural sedation and analgesia. Ann Emerg Med. 2012;59(6):504-512. doi:10.1016/j.annemergmed.2012.01.017
 91. Ferguson I, Bell A, Treston G, New L, Ding M, Holdgate A. Propofol or ketofol for procedural sedation and analgesia in emergency medicine: the POKER study. Ann Emerg Med. 2016;68(5):574-582. doi:10.1016/j.annemergmed.2016.05.024
-92. Green SM, Roback MG, Krauss B, et al. Predictors of airway and respiratory adverse events, and of emesis and recovery agitation, with ketamine sedation in the emergency department: individual-patient-data meta-analyses of 8,282 children. Ann Emerg Med. 2009;54(2):158-168 and 171-180. doi:10.1016/j.annemergmed.2008.12.011
+92. Green SM, Roback MG, Krauss B, et al. Predictors of airway and respiratory adverse events, and of emesis and recovery agitation, with ketamine sedation in the emergency department: individual-patient-data meta-analyses of 8,282 children. Ann Emerg Med. 2009;54(2):158-168 (doi:10.1016/j.annemergmed.2008.12.011) and 171-180 (doi:10.1016/j.annemergmed.2009.04.004)
 93. Burton JH, Miner JR, Shipley ER, Strout TD, Becker C, Thode HC Jr. Propofol for emergency department procedural sedation and analgesia: a tale of three centers. Acad Emerg Med. 2006;13(1):24-30. doi:10.1197/j.aem.2005.08.011
 94. Miner JR, Moore JC, Austad EJ, Plummer D, Hubbard L, Gray RO. Randomized, double-blinded, clinical trial of propofol, 1:1 propofol/ketamine, and 4:1 propofol/ketamine for deep procedural sedation in the emergency department. Ann Emerg Med. 2015;65(5):479-488. doi:10.1016/j.annemergmed.2014.08.046
 95. Miner JR, Gray RO, Stephens D, Biros MH. Randomized clinical trial of propofol with and without alfentanil for deep procedural sedation in the emergency department. Acad Emerg Med. 2009;16(9):825-834. doi:10.1111/j.1553-2712.2009.00487.x
 96. Langston WT, Wathen JE, Roback MG, Bajaj L. Effect of ondansetron on the incidence of vomiting associated with ketamine sedation in children. Ann Emerg Med. 2008;52(1):30-34. doi:10.1016/j.annemergmed.2008.01.326
 97. Brown L, Christian-Kopp S, Sherwin TS, et al. Adjunctive atropine is unnecessary during ketamine sedation in children. Acad Emerg Med. 2008;15(4):314-318. doi:10.1111/j.1553-2712.2008.00074.x
-98. Tsze DS, et al. Optimal dose of intranasal midazolam for laceration repair in children. JAMA Pediatr. 2025;179(9):979-986. doi:10.1001/jamapediatrics.2025.2181
-99. Tsze DS, et al. Intranasal dexmedetomidine for procedural sedation in children: a multicenter cohort. Hosp Pediatr. 2023. doi:10.1542/hpeds.2022-007007
+98. Tsze DS, Woodward HA, McLaren SH, et al. Optimal dose of intranasal midazolam for procedural sedation in children: a randomized clinical trial. JAMA Pediatr. 2025;179(9):979-986. doi:10.1001/jamapediatrics.2025.2181
+99. Tsze DS, Rogers AP, Baier NM, et al. Clinical outcomes associated with intranasal dexmedetomidine sedation in children. Hosp Pediatr. 2023;13(3):223-243. doi:10.1542/hpeds.2022-007007
 100. Babl FE, Oakley E, Seaman C, Barnett P, Sharwood LN. High-concentration nitrous oxide for procedural sedation in children: adverse events and depth of sedation. Pediatrics. 2008;121(3):e528-e532. doi:10.1542/peds.2007-1044
 101. Stiell IG, Eagles D, Nemnom MJ, et al. Adverse events associated with electrical cardioversion in patients with acute atrial fibrillation and atrial flutter. Can J Cardiol. 2021;37(11):1775-1782. doi:10.1016/j.cjca.2021.08.018
-102. Türkücü Ç, et al. Ketamine 0.5 mg/kg vs 1 mg/kg for procedural sedation in adults. Acad Emerg Med. 2025;32(8):857-862. doi:10.1111/acem.15116
-103. Green SM, Roback MG. Serious adverse events with intravenous ketamine sedation in children: a systematic review. Ann Emerg Med. 2026;88(4):470-480. doi:10.1016/j.annemergmed.2026.03.030
-104. Krarup AL, et al. Nurse-administered remimazolam for procedural sedation in the emergency department. Int Emerg Nurs. 2026;89:101898. doi:10.1016/j.ienj.2026.101898
+102. Türkücü Ç, Parlak İ, Kokulu K, Sert ET, Mutlu H. Comparison of the incidence of recovery agitation with two different doses of ketamine in procedural sedation: a randomized clinical trial. Acad Emerg Med. 2025;32(8):857-862. doi:10.1111/acem.15116
+103. Green SM, Roback MG. Systematic review of pediatric ketamine in emergency department procedural sedation: frequency and predictors of adverse events. Ann Emerg Med. 2026;88(4):470-480. doi:10.1016/j.annemergmed.2026.03.030
+104. Krarup AL, Andersen DM, Krogh-Larsen S, et al. Nurse-administered remimazolam for procedural sedation in the emergency department: a prospective study of safety, effectiveness and patient satisfaction. Int Emerg Nurs. 2026;89:101898. doi:10.1016/j.ienj.2026.101898
 105. American Academy of Allergy, Asthma and Immunology. Soy-allergic and egg-allergic patients can safely receive anesthesia. Page dated May 12, 2026.
 106. Green SM, Clark R, Hostetler MA, Cohen M, Carlson D, Rothrock SG. Inadvertent ketamine overdose in children: clinical manifestations and outcome. Ann Emerg Med. 1999;34(4):492-497. doi:10.1016/s0196-0644(99)80051-1
 107. Falk J, Zed PJ. Etomidate for procedural sedation in the emergency department. Ann Pharmacother. 2004;38(7-8):1272-1277. doi:10.1345/aph.1E008
 108. Roback MG, Wathen JE, MacKenzie T, Bajaj L. A randomized, controlled trial of IV versus IM ketamine for sedation of pediatric patients receiving emergency department orthopedic procedures. Ann Emerg Med. 2006;48(5):605-612. doi:10.1016/j.annemergmed.2006.06.001
 109. Cohen L, Athaide V, Wickham ME, Doyle-Waters MM, Rose NG, Hohl CM. The effect of ketamine on intracranial and cerebral perfusion pressure and health outcomes: a systematic review. Ann Emerg Med. 2015;65(1):43-51. doi:10.1016/j.annemergmed.2014.06.018
-110. Sharif S, et al. Pharmacological agents for procedural sedation and analgesia in the emergency department and intensive care unit: a systematic review and network meta-analysis. Br J Anaesth. 2024;132(3):491-506. doi:10.1016/j.bja.2023.11.050
+110. Sharif S, Kang J, Sadeghirad B, et al. Pharmacological agents for procedural sedation and analgesia in the emergency department and intensive care unit: a systematic review and network meta-analysis. Br J Anaesth. 2024;132(3):491-506. doi:10.1016/j.bja.2023.11.050
 111. Ingrande J, Brodsky JB, Lemmens HJ. Lean body weight scalar for the anesthetic induction dose of propofol in morbidly obese subjects. Anesth Analg. 2011;113(1):57-62. doi:10.1213/ANE.0b013e3181f6d9c0
 112. Penninga EI, Graudal N, Ladekarl MB, Jürgens G. Adverse events associated with flumazenil treatment for the management of suspected benzodiazepine intoxication. Basic Clin Pharmacol Toxicol. 2016;118(1):37-44. doi:10.1111/bcpt.12434
 113. US Food and Drug Administration. Drug shortages database. Data dated November 13, 2026.
@@ -608,6 +608,6 @@ Titles are shortened. References 45, 46, 48, 50, 51, 58, 70, 76, 81, 82, 110 and
 117. Ernst AA, Weiss SJ, Sullivan A 4th, et al. On-site pharmacists in the ED improve medical errors. Am J Emerg Med. 2012;30(5):717-725. doi:10.1016/j.ajem.2011.05.002
 118. Rech MA, Adams W, Smetana KS, et al. PHarmacist Avoidance or Reductions in Medical Costs in Patients Presenting the EMergency Department: PHARM-EM study. Crit Care Explor. 2021;3(4):e0406. doi:10.1097/cce.0000000000000406
 119. Ortmann MJ, Johnson EG, Jarrell DH, et al. ASHP guidelines on emergency medicine pharmacist services. Am J Health Syst Pharm. 2021;78(3):261-275. doi:10.1093/ajhp/zxaa378
-120. Djerroud L, et al. Physical compatibility of intramuscular psychotropic drug combinations in syringes. Eur J Hosp Pharm. 2023;30(e1):e97-e100. doi:10.1136/ejhpharm-2022-003378
-121. Siafis S, et al. Pharmacological interventions for acute agitation: an individual participant data network meta-analysis. Lancet Psychiatry. 2026. doi:10.1016/S2215-0366(26)00097-0
-122. Lippert SC, et al. Racial and ethnic differences in chemical sedation among emergency department patients with mental health visits. Ann Emerg Med. 2026. doi:10.1016/j.annemergmed.2026.01.021
+120. Djerroud L, Leclair G, Sullivan T, Dagenais-Beaulé V. Visual compatibility and particle counter evaluations of syringes of intramuscular psychotropic coadministered solutions. Eur J Hosp Pharm. 2023;30(e1):e97-e100. doi:10.1136/ejhpharm-2022-003378
+121. Siafis S, Philipona F, Nomura N, et al. Comparative effectiveness and safety of pharmacological treatments for rapid tranquilisation in emergency settings: a systematic review and individual participant data network meta-analysis. Lancet Psychiatry. 2026;13(7):567-580. doi:10.1016/S2215-0366(26)00097-0
+122. Lippert SC, Xu RH, Tucker LS, et al. Patterns of intramuscular chemical sedation use for patients receiving a mental health consultation while in the emergency department. Ann Emerg Med. 2026;88(1):26-35. doi:10.1016/j.annemergmed.2026.01.021
