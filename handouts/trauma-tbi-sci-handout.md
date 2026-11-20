@@ -245,7 +245,7 @@ The pressure target is not arbitrary: in 3,844 patients with major TBI, every 10
 | Mannitol 20% | 0.25 to 1 g/kg IV bolus | Herniation signs or raised ICP. Check osmolality. Avoid with SBP below 90. In-line filter† | BTF carried-over statement, ungraded \[31\]. SIBICC Tier 1 \[35\] |
 | Hypertonic saline 3% | 250 mL IV over 10 to 20 min† (2 to 5 mL/kg in children) | Same indication. Preferred when hypotensive, as mannitol is a diuretic | SIBICC Tier 1, no agent preferred \[35\]. Pediatric dose from TQIP \[34\] |
 | Hypertonic saline 23.4% | 30 mL over 10 to 20 min, **central line only**† | Refractory ICP. Equal ICP effect to mannitol 0.5 g/kg in one cohort | \[51\] |
-| Levetiracetam | 500 to 1,000 mg IV every 12 h (loads up to 20 mg/kg are used†) | Only with intracranial bleeding plus risk factors. Stop at 7 days | NCS 2024: prophylaxis optional, levetiracetam preferred if used, 7 days or less (all weak) \[42\] |
+| Levetiracetam | 500 mg IV every 12 h, the dose most studied (up to 1,000 mg and loads of 20 mg/kg are used†) | Only with intracranial bleeding plus risk factors. Stop at 7 days | NCS 2024: prophylaxis optional, levetiracetam preferred if used, 7 days or less (all weak) \[42\] |
 | Fosphenytoin | 15 to 20 mg PE/kg IV† | Same. Level about 24 h after the load | BTF Level IIA for early seizures \[31\]. TQIP \[34\] |
 | Tranexamic acid | 1 g IV over 10 min, then 1 g over 8 h | Within 3 h. The benefit was in GCS 9 to 15 (mild to moderate), not severe TBI | CRASH-3 \[36\]. Not routine prehospital for isolated TBI (BTF Prehospital: strong) \[33\]. TQIP is silent |
 | Ketamine or etomidate (RSI) | Shock-reduced doses with a pressor ready | Either is fine. Ketamine did not raise ICP in pooled data | \[47\], \[48\] |
@@ -447,7 +447,7 @@ The ACS trauma center standards (2022, revised July 2025) never use the word pha
 | --- | --- | --- |
 | Masic, J Emerg Med 2019 \[114\] | Time to 4F-PCC 66.5 min | 206.5 min |
 | Corio, West J Emerg Med 2018 \[116\] | Pharmacist-driven PCC protocol: 35 min | 70 min before the protocol |
-| Mercer, Am J Emerg Med 2025 \[115\] | Fixed-dose PCC protocol: 21 min | 58.5 min |
+| Mercer, Am J Emerg Med 2025 \[115\] | Time to 4F-PCC 21 min (fixed-dose strategy) | 58.5 min |
 | Harvey, Am J Emerg Med 2018 \[117\] | Guideline-concordant open fracture antibiotic 81%, door to antibiotic 14 min | 47%, 20 min |
 | Johnson, J Emerg Med 2015 \[118\] | Sedation after intubation at 20 min | 49 min |
 | AAST survey 2023 \[83\] | Guideline-directed VTE dosing 88.2% | 69.0% |
@@ -478,8 +478,8 @@ Pharmacist involvement in trauma resuscitation rose from 23% of centers in 2007 
 - **WTA algorithms 2023 to 2026.** Citations confirmed, content not read.
 - **Uterine displacement timing.** The SOGC abstract confirms displacement, and the 20-week threshold is common teaching.
 
-* **Checked against primary documents.** The European guideline (full text), the ACS Transfusion in Trauma guideline (November 2026, full PDF), ACS TQIP TBI (2024), Acute Pain (2020), Orthopaedic (2015) and Geriatric (2023) PDFs, the BTF 4th edition summary, the AO Spine/Praxis 2024 hemodynamic guideline, EAST 2022 tube thoracostomy, WTA 2020 VTE, the RSI trial and the CDC tetanus page were read in full. Every trial number in the key trials tables matches its PubMed abstract.
-* **New since our shock handout.** The ACS transfusion guideline (November 2026), the NCS/SCCM reversal update (September 2026), the 2026 whole-blood trials (SWiFT, TOWAR), EZPLAZ freeze-dried plasma (July 2026) and the FDA boxed warning for wrong-route TXA (2025). The shock handout cited PROCOAG as volume 330; it is JAMA 2023;329(16):1367-1375.
+* **Checked against primary documents.** The European guideline (full text), the ACS Transfusion in Trauma guideline (November 2026, full PDF), ACS TQIP TBI (2024), Acute Pain (2020), Orthopaedic (2015) and Geriatric (2023) PDFs, the BTF 4th edition summary, the AO Spine/Praxis 2024 hemodynamic guideline, EAST 2022 tube thoracostomy, WTA 2020 VTE, the RSI trial and the CDC tetanus page were read in full. Every trial number in the key trials tables matches its PubMed abstract. Titles and DOIs of 40 of the journal references were checked against PubMed on November 20, and the rest come from the research notes.
+* **New since our shock handout.** The ACS transfusion guideline (November 2026), the NCS/SCCM reversal update (September 2026), the 2026 whole-blood trials (SWiFT, TOWAR), EZPLAZ freeze-dried plasma (July 2026) and the FDA boxed warning for wrong-route TXA (2025). The shock handout cited PROCOAG as volume 330, and it is JAMA 2023;329(16):1367-1375.
 * **Not yet reported.** CRASH-4, BOOST-3, CAVALIER, MATIC-2 and the 3-arm spinal cord MAP trial.
 * **Site-specific items to confirm locally.** Whether TXA is stocked as premixed bags only, the 4F-PCC fixed-dose protocol, the massive transfusion protocol's calcium step, whether low-titer O whole blood is available, the levetiracetam order set, the enoxaparin default dose and anti-Xa workflow, and the open fracture antibiotic order set.
 
@@ -562,14 +562,14 @@ References 19, 23, 26, 32, 39, 76, 91, 102, 103, 124 and 125 are background sour
 73. Carver TW, Kugler NW, Juul J, et al. Ketamine infusion for pain control in adult patients with multiple rib fractures: results of a randomized control trial. J Trauma Acute Care Surg. 2019;86(2):181-188. doi:10.1097/TA.0000000000002103
 74. Partyka C, Asha S, Berry M, et al. Serratus anterior plane blocks for early rib fracture pain management: the SABRE randomized clinical trial. JAMA Surg. 2024;159(7):810-817. doi:10.1001/jamasurg.2024.0969
 75. Mayglothling J, Duane TM, Gibbs M, et al. Emergency tracheal intubation immediately following traumatic injury: an EAST practice management guideline. J Trauma Acute Care Surg. 2012;73(5 Suppl 4):S333-S340. doi:10.1097/TA.0b013e31827018a5
-76. Zampieri FG, Schmidt RC, et al. Ketamine versus etomidate for tracheal intubation: a systematic review and network meta-analysis. Crit Care. 2026;30(1). doi:10.1186/s13054-026-06067-w
+76. Zampieri FG, Schmidt RC, et al. Induction agents for emergency tracheal intubation in critically ill adults: a systematic review and network meta-analysis. Crit Care. 2026;30(1). doi:10.1186/s13054-026-06067-w
 77. Ley EJ, Brown CVR, Moore EE, et al. Updated guidelines to reduce venous thromboembolism in trauma patients: a Western Trauma Association critical decisions algorithm. J Trauma Acute Care Surg. 2020;89(5):971-981. doi:10.1097/TA.0000000000002830
 78. Yorkgitis BK, Berndtson AE, Cross A, et al. American Association for the Surgery of Trauma/American College of Surgeons-Committee on Trauma clinical protocol for inpatient venous thromboembolism prophylaxis after trauma. J Trauma Acute Care Surg. 2022;92(3):597-604. doi:10.1097/TA.0000000000003475
 79. Major Extremity Trauma Research Consortium (METRC); O'Toole RV, Stein DM, O'Hara NN, et al. Aspirin or low-molecular-weight heparin for thromboprophylaxis after a fracture (PREVENT CLOT). N Engl J Med. 2023;388(3):203-213. doi:10.1056/NEJMoa2205973
 80. Geerts WH, Jay RM, Code KI, et al. A comparison of low-dose heparin with low-molecular-weight heparin as prophylaxis against venous thromboembolism after major trauma. N Engl J Med. 1996;335(10):701-707. doi:10.1056/NEJM199609053351003
 81. Ho KM, Rao S, Honeybul S, et al. A multicenter trial of vena cava filters in severely injured patients. N Engl J Med. 2019;381(4):328-337. doi:10.1056/NEJMoa1806515
-82. Niziolek GM, et al. Anti-Xa-guided enoxaparin dosing in trauma ICU patients. Trauma Surg Acute Care Open. 2024;9(1):e001287. doi:10.1136/tsaco-2023-001287
-83. Alexander KM, et al. Variation in VTE prophylaxis practice among trauma surgeons: an AAST survey. Trauma Surg Acute Care Open. 2023;8(1):e001070. doi:10.1136/tsaco-2022-001070
+82. Niziolek GM, et al. Inadequate prophylaxis in patients with trauma: anti-Xa-guided enoxaparin dosing management in critically ill patients with trauma. Trauma Surg Acute Care Open. 2024;9(1):e001287. doi:10.1136/tsaco-2023-001287
+83. Alexander KM, et al. Survey of venous thromboembolism prophylaxis in trauma patients: current prescribing practices and concordance with clinical practice guidelines. Trauma Surg Acute Care Open. 2023;8(1):e001070. doi:10.1136/tsaco-2022-001070
 84. Goldberg SR, Anand RJ, Como JJ, et al. Prophylactic antibiotic use in penetrating abdominal trauma: an Eastern Association for the Surgery of Trauma practice management guideline. J Trauma Acute Care Surg. 2012;73(5 Suppl 4):S321-S325. doi:10.1097/TA.0b013e3182701902
 85. Freeman JJ, Asfaw SH, Vatsaas CJ, et al. Antibiotic prophylaxis for tube thoracostomy placement in trauma: a practice management guideline from the Eastern Association for the Surgery of Trauma. Trauma Surg Acute Care Open. 2022;7(1):e000886. doi:10.1136/tsaco-2022-000886
 86. Hoff WS, Bonadies JA, Cachecho R, Dorlac WC. East Practice Management Guidelines Work Group: update to practice management guidelines for prophylactic antibiotic use in open fractures. J Trauma. 2011;70(3):751-754. doi:10.1097/TA.0b013e31820930e5
@@ -601,15 +601,15 @@ References 19, 23, 26, 32, 39, 76, 91, 102, 103, 124 and 125 are background sour
 112. Kuppermann N, Holmes JF, Dayan PS, et al; PECARN. Identification of children at very low risk of clinically-important brain injuries after head trauma: a prospective cohort study. Lancet. 2009;374(9696):1160-1170. doi:10.1016/S0140-6736(09)61558-0
 113. American College of Surgeons Committee on Trauma. Resources for Optimal Care of the Injured Patient (2022 Standards), revised July 2025.
 114. Masic D, Hidalgo DC, Kuhrau S, Chaney W, Rech MA. Pharmacist presence decreases time to prothrombin complex concentrate in emergency department patients with life-threatening bleeding and urgent procedures. J Emerg Med. 2019;57(5):620-628. doi:10.1016/j.jemermed.2019.06.027
-115. Mercer K, Ofoegbuna I, Razzack H, et al. Fixed-dose 4F-PCC protocol and time to administration in the emergency department. Am J Emerg Med. 2025;95:147-152. doi:10.1016/j.ajem.2025.05.032
+115. Mercer K, Ofoegbuna I, Razzack H, et al. Presence of emergency medicine pharmacists is associated with shorter time to administration of prothrombin complex concentrate administration regardless of dosing strategy. Am J Emerg Med. 2025;95:147-152. doi:10.1016/j.ajem.2025.05.032
 116. Corio JL, Sin JH, Hayes BD, Goldstein JN, Fuh L. Impact of a pharmacist-driven prothrombin complex concentrate protocol on time to administration in patients with warfarin-associated intracranial hemorrhage. West J Emerg Med. 2018;19(5):849-854. doi:10.5811/westjem.2018.6.37932
 117. Harvey S, Hall AB, Wilson K. Impact of an emergency medicine pharmacist on initial antibiotic prophylaxis for open fractures in trauma patients. Am J Emerg Med. 2018;36(2):290-293. doi:10.1016/j.ajem.2017.10.039
 118. Johnson EG, Meier A, Shirakbari A, Weant K, Baker Justice S. Impact of rocuronium and succinylcholine on sedation initiation after rapid sequence intubation. J Emerg Med. 2015;49(1):43-49. doi:10.1016/j.jemermed.2014.12.028
-119. Porter AL, Zaeem M, Hewes A, et al. Trends in pharmacist involvement in trauma resuscitation. Am J Health Syst Pharm. 2019;76(16):1226-1230. doi:10.1093/ajhp/zxz124
+119. Porter AL, Zaeem M, Hewes A, et al. Pharmacist involvement in trauma resuscitation across the United States: a 10-year follow-up survey. Am J Health Syst Pharm. 2019;76(16):1226-1230. doi:10.1093/ajhp/zxz124
 120. US Food and Drug Administration. FDA provides update to health care professionals about risk of inadvertent intrathecal (spinal) injection of tranexamic acid. October 2025.
-121. Silva CR, Nagy J, Zullo AR, Greene RA, et al. Peripheral administration of 23.4% sodium chloride. Neurocrit Care. 2025;43(3):978-985. doi:10.1007/s12028-025-02342-w
+121. Silva CR, Nagy J, Zullo AR, Greene RA, et al. Safety of peripherally administered 23.4% sodium chloride. Neurocrit Care. 2025;43(3):978-985. doi:10.1007/s12028-025-02342-w
 122. US Food and Drug Administration. Drug shortages database. Accessed November 20, 2026.
 123. Teleflex. FDA BLA approval of EZPLAZ freeze dried plasma. Press release, July 29, 2026.
 124. Ortmann MJ, Johnson EG, Jarrell DH, et al. ASHP guidelines on emergency medicine pharmacist services. Am J Health Syst Pharm. 2021;78(3):261-275. doi:10.1093/ajhp/zxaa378
-125. Hwang C, Michaels B, Park K, et al. Bedside pharmacist and time to post-intubation sedation in the emergency department. Am J Health Syst Pharm. 2025;82(Suppl 3):S2929-S2936. doi:10.1093/ajhp/zxaf037
-126. Karamian A, Seifi A, Lucke-Wold B. Direct oral anticoagulants versus vitamin K antagonists in older adults with traumatic brain injury: a systematic review and meta-analysis. Brain Inj. 2024;38(14):1197-1211. doi:10.1080/02699052.2024.2392163
+125. Hwang C, Michaels B, Park K, et al. Impact of paralytic choice on postintubation sedation and analgesia in the emergency department. Am J Health Syst Pharm. 2025;82(Suppl 3):S2929-S2936. doi:10.1093/ajhp/zxaf037
+126. Karamian A, Seifi A, Lucke-Wold B. Effects of preinjury oral anticoagulants on the outcomes of traumatic brain injury in elderly patients: a systematic review and meta-analysis. Brain Inj. 2024;38(14):1197-1211. doi:10.1080/02699052.2024.2392163
