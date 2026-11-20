@@ -27,7 +27,7 @@ Diagram widgets in the handout: hemorrhage algorithm 473fd624-0f69, TBI algorith
 2. Doses no guideline prints: open fracture and penetrating abdominal antibiotic doses, hypertonic saline volumes and routes, levetiracetam and fosphenytoin loads, protamine, desmopressin 0.3 mcg/kg, RSI shock doses, steroid bolus timing. All daggered.
 3. Abstract-only sources: EAST 2011 open fractures, EAST 2020 BCVI, AAST/ACS 2022 VTE protocol, WTA 2023 to 2026 algorithms, NCS/SCCM 2026 reversal update.
 4. Pending trials: CRASH-4 (primary completion Dec 2026), BOOST-3, CAVALIER, MATIC-2, NCT06451133 (SCI MAP).
-5. Shock handout correction: PROCOAG is JAMA 2023;329(16):1367-1375, not volume 330. Not yet fixed in the shock doc.
+5. PROCOAG citation: the shock handout already prints JAMA 2023;329:1367-1375 (correct). A researcher's claim that it said volume 330 was wrong.
 6. Site-specific checklist at the end of the presenter's copy.
 
 ## Notes for next time
