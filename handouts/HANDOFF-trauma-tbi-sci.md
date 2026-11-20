@@ -17,9 +17,18 @@ Diagram widgets in the handout: hemorrhage algorithm 473fd624-0f69, TBI algorith
 - Six research tracks, notes in `research_notes/ER trauma TBI and spinal cord injury/`, every fact tagged verified, secondary or recalled.
 - Titles and DOIs of 40 journal references checked against PubMed; 8 titles corrected.
 
-## Not done (rate limit)
+## Review and reference check (done Nov 20, 2026)
 
-- The adversarial review and the full PubMed check of all 126 references both stopped at the 5-hour usage limit before producing results. Run them next session: review the handout against the six notes files (doses, units, citations, daggers), and check references 1 to 126 by PMID from the ledger.
+- **Adversarial review** against the six notes files is done and every finding was fixed in both docs. The main fixes:
+  - 4F-PCC fixed dose reconciled (TQIP 2,000 units vs ACS 2026 3,000 units, now shown side by side with "use one institutional dose").
+  - Warfarin PCC row now carries the label caps.
+  - The TBI TXA row now mentions ACS's 2 g bolus.
+  - Pediatric calcium added (CaCl2 5 mg/kg or gluconate 50 mg/kg, no faster than 100 mg/min), checked in the ACS PDF.
+  - Cryo clarified as single-donor units. 23.4% saline is now central or IO preferred, peripheral only under a written policy.
+  - The succinylcholine window is 24 to 72 h everywhere. Platelet TBI threshold (TQIP 75k), the neurogenic shock MAP ceiling, and daggers on penetrating abdominal antibiotic doses were added.
+  - Omissions added: TXA past 3 h only with viscoelastic fibrinolysis, post-intubation sedation starts, TBI antibiotic stewardship.
+- **PubMed check of all 126 references** is done (log in `research_notes/ER trauma TBI and spinal cord injury/reference_check.md`). 18 corrections applied: authors on 38, 119 and 121, the DOI on 65, volume and pages on 62 and 63, and titles on 5, 26, 29, 36, 66, 67, 79 and 94.
+- **Final consistency pass** (scripted plus by hand): no em dashes, no prose semicolons, uncited references are exactly the background list, and doses match between the handout, both diagrams and the presenter's copy. Last fixes: the unverified-values note no longer says "central-line-only" for 23.4%, daggers added to "shock-reduced" RSI doses in the TBI chart and diagram, and presenter case 4 now says rocuronium "after the first day".
 
 ## Open verification items
 
@@ -32,5 +41,5 @@ Diagram widgets in the handout: hemorrhage algorithm 473fd624-0f69, TBI algorith
 
 ## Notes for next time
 
-- Three research agents at once worked; six spread over two waves finished. The review agents hit the 5-hour limit, so run them earlier in the session.
+- Three research agents at once worked; six spread over two waves finished. The review agents hit the 5-hour limit the first time and were resumed with SendMessage after the reset, so start reviews earlier in the session.
 - New big sources this round: ACS TQP Best Practices Guidelines: Transfusion in Trauma (November 2026) and NCS/SCCM antithrombotic reversal focused update (September 2026).
