@@ -82,3 +82,23 @@
 81 Ho NEJM 2019 IVC filter, PMID 31259488
 82 Niziolek TSACO 2024, PMID 38362006
 83 Alexander TSACO 2023 AAST survey, PMID 37205274
+84 Goldberg EAST 2012 penetrating abdominal antibiotics, PMID 23114488
+85 Freeman EAST 2022 tube thoracostomy antibiotics, PMID 36312819
+86 Hoff EAST 2011 open fracture antibiotics, PMID 21610369
+87 ACS TQIP Best Practices: Management of Orthopaedic Trauma, Nov 2015
+88 Kim EAST 2020 BCVI, PMID 32176167
+89 Clancy EAST 2012 blunt cardiac injury, PMID 23114485
+90 Stassen EAST 2012 blunt splenic injury, PMID 23114484 (liver 23114483)
+91 (reserved)
+92 Como EAST 2010 SNOM penetrating abdomen, PMID 20220426
+93 Sawhney EAST 2022 rhabdomyolysis, PMID 34836603
+94 Appelbaum EAST 2025 trauma in pregnancy, PMID 40454982
+95 Calland EAST 2012 geriatric trauma, PMID 23114492
+96 Freeman EAST 2022 vaccination after spleen embolization, PMID 36038390
+97 CDC Clinical guidance for wound management to prevent tetanus (updated Sep 8 2026)
+98 Havers ACIP Td/Tdap 2019, MMWR 2020;69:77-83, PMID 31971933
+99 CDC adult immunization schedule notes 2025
+100 Shatz J Trauma 1998, PMID 9603075
+101 Suzuki Sci Rep 2023, PMID 37127796
+102-103 (reserved)
+104 Cullinane EAST 2011 pelvic fracture hemorrhage, PMID 22182895
