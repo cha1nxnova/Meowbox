@@ -93,6 +93,7 @@ roku/fonts/                    Jersey 15 (SIL Open Font License), cut down to La
 roku/hub/MeowHub               the front door of the combined package
 art/                           the Meowbox mark and the script that draws the images
 playlet/                       the Playlet fork (its own README: playlet/README.upstream.md)
+homelab/                       home server plan: Home Assistant + Govee + Jellyfin in Docker
 ```
 
 The lineup is read from `https://data.spelunkr.tv/` and, if that does not answer, from the snapshot at `https://spelunkr.tv/broadcast/`.

@@ -1,0 +1,9 @@
+.env
+mosquitto/config/passwd
+mosquitto/data/
+mosquitto/log/
+govee2mqtt/
+jellyfin/
+qbittorrent/
+homeassistant/*
+!homeassistant/meowbox-automations.yaml

@@ -1,0 +1,48 @@
+# Example automations: paste into Settings > Automations > (new) > Edit in YAML,
+# one at a time, then swap in your own entity names (media_player.living_room_roku,
+# light.tv_backlight, light.living_room_lights...).
+
+# 1. "Theater mode": Meowbox opens on the Roku -> lights go to Meowbox purple.
+alias: Meowbox theater mode
+triggers:
+  - trigger: state
+    entity_id: media_player.living_room_roku
+    attribute: app_name
+    to: Meowbox
+actions:
+  - action: scene.create
+    data:
+      scene_id: before_meowbox
+      snapshot_entities:
+        - light.tv_backlight
+        - light.living_room_lights
+  - action: light.turn_on
+    target:
+      entity_id: light.tv_backlight
+    data:
+      rgb_color: [120, 80, 220]      # a brighter cousin of Meowbox's #120E1F splash
+      brightness_pct: 35
+      transition: 3
+  - action: light.turn_on
+    target:
+      entity_id: light.living_room_lights
+    data:
+      brightness_pct: 8
+      transition: 3
+---
+# 2. Leave Meowbox (or the Roku goes to sleep) -> put the room back how it was.
+alias: Meowbox lights up
+triggers:
+  - trigger: state
+    entity_id: media_player.living_room_roku
+    attribute: app_name
+    from: Meowbox
+  - trigger: state
+    entity_id: media_player.living_room_roku
+    to: "off"
+actions:
+  - action: scene.turn_on
+    target:
+      entity_id: scene.before_meowbox
+    data:
+      transition: 2

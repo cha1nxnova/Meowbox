@@ -1,0 +1,114 @@
+# Meowbox homelab: the smart-home core, plus an optional media/seedbox layer.
+#
+#   docker compose up -d                    smart home only (Home Assistant, MQTT, Govee bridge)
+#   docker compose --profile media up -d    ...plus Jellyfin, qBittorrent behind a VPN
+#
+# Copy .env.example to .env and fill it in first. See README.md.
+
+services:
+  # The brain. Host networking so it can discover devices (Roku, Chromecast,
+  # Govee, Matter) with multicast, which Docker's bridge network would hide.
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: homeassistant
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - ./homeassistant:/config
+      - /etc/localtime:/etc/localtime:ro
+      - /run/dbus:/run/dbus:ro          # lets HA use the PC's Bluetooth
+    # Uncomment once a Zigbee/Thread stick (e.g. Connect ZBT-2) is plugged in.
+    # Find its path with: ls -l /dev/serial/by-id/
+    # devices:
+    #   - /dev/serial/by-id/usb-Nabu_Casa_ZBT-2_XXXX:/dev/ttyZBT2
+
+  # The post office. govee2mqtt (and later Zigbee2MQTT, ESPHome, etc.)
+  # drop messages here; Home Assistant picks them up.
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+
+  # The Govee translator: LAN control first (fast, works offline), then
+  # Govee's cloud for scenes and models without LAN control.
+  govee2mqtt:
+    image: ghcr.io/wez/govee2mqtt:latest
+    container_name: govee2mqtt
+    network_mode: host                  # needed for LAN discovery (UDP 4001/4002/4003)
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+    environment:
+      - TZ=${TZ}
+      - GOVEE_EMAIL=${GOVEE_EMAIL}
+      - GOVEE_PASSWORD=${GOVEE_PASSWORD}
+      - GOVEE_API_KEY=${GOVEE_API_KEY}
+      - GOVEE_MQTT_HOST=127.0.0.1
+      - GOVEE_MQTT_PORT=1883
+      - GOVEE_MQTT_USER=${MQTT_USER}
+      - GOVEE_MQTT_PASSWORD=${MQTT_PASSWORD}
+      - GOVEE_TEMPERATURE_SCALE=F
+    volumes:
+      - ./govee2mqtt:/data
+
+  # ---------------------------------------------------------------- media ----
+
+  # Your own Netflix. Has an official Roku app.
+  jellyfin:
+    image: jellyfin/jellyfin:latest
+    container_name: jellyfin
+    profiles: ["media"]
+    restart: unless-stopped
+    ports:
+      - "8096:8096"
+    volumes:
+      - ./jellyfin/config:/config
+      - ./jellyfin/cache:/cache
+      - ${MEDIA_DIR}:/media
+    devices:
+      - /dev/dri:/dev/dri               # Intel Quick Sync: hardware transcoding
+
+  # Every byte qBittorrent sends goes through this VPN tunnel, or nowhere.
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    container_name: gluetun
+    profiles: ["media"]
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    ports:
+      - "8080:8080"                     # qBittorrent web UI
+    environment:
+      - TZ=${TZ}
+      - VPN_SERVICE_PROVIDER=${VPN_SERVICE_PROVIDER}
+      - VPN_TYPE=wireguard
+      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY}
+      - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES}
+      - SERVER_COUNTRIES=${VPN_SERVER_COUNTRIES}
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    profiles: ["media"]
+    restart: unless-stopped
+    network_mode: "service:gluetun"
+    depends_on:
+      - gluetun
+    environment:
+      - TZ=${TZ}
+      - PUID=1000
+      - PGID=1000
+      - WEBUI_PORT=8080
+    volumes:
+      - ./qbittorrent:/config
+      - ${DOWNLOADS_DIR}:/downloads
