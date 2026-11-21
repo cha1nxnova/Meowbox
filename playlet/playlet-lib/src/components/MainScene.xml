@@ -86,6 +86,19 @@
                 preferences="bind:../Preferences"
                 videoQueue="bind:../VideoQueue" />
 
+            <!-- Meowbox -->
+            <MeowboxWatchProgress id="MeowboxWatchProgress"
+                videoQueue="bind:../VideoQueue" />
+            <MeowboxStudyBreak id="MeowboxStudyBreak"
+                preferences="bind:../Preferences"
+                videoQueue="bind:../VideoQueue"
+                jobQueue="bind:/JobQueue" />
+            <MeowboxSubscriptionsWatcher id="MeowboxSubscriptionsWatcher"
+                invidious="bind:../Invidious"
+                profilesService="bind:../ProfilesService"
+                jobQueue="bind:/JobQueue"
+                navBar="bind:/NavBar" />
+
             <ProfilesService id="ProfilesService"
                 invidious="bind:../Invidious"
                 jobQueue="bind:/JobQueue" />

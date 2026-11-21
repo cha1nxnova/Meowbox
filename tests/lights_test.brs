@@ -40,5 +40,16 @@ sub Main()
     Check("payload: leave", LightsPayload("leave", invalid), { event: "leave" })
     Check("payload: no colour", LightsPayload("tune", { id: "x", name: "X", dial: 1, color: "grey" }), { channel: "X", channel_id: "x", dial: 1, event: "tune" })
 
+    Check("feature: film", LightsIsFeature(5400), true)
+    Check("feature: short", LightsIsFeature(1500), false)
+    Check("feature: unknown", LightsIsFeature(invalid), false)
+    film = { title: "Metropolis", inS: 300, durS: 5400 }
+    Check("predim: five minutes out", LightsPredimDue(film, 0), false)
+    Check("predim: a minute out", LightsPredimDue(film, 240), true)
+    Check("predim: started", LightsPredimDue(film, 300), false)
+    Check("predim: a short", LightsPredimDue({ inS: 30, durS: 1200 }, 0), false)
+    Check("predim: old record", LightsPredimDue({ inS: 30 }, 0), false)
+    Check("predim: none", LightsPredimDue(invalid, 0), false)
+
     print m.pass; " passed, "; m.fail; " failed"
 end sub

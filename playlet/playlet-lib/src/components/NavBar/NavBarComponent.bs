@@ -1,3 +1,5 @@
+import "pkg:/source/utils/Types.bs"
+
 function OnContentSet() as void
     content = m.top.itemContent
     if content = invalid
@@ -17,7 +19,21 @@ function OnContentSet() as void
         m.top.iconPosterUri = content.icon
     end if
 
+    if m.badgeContent = invalid or not m.badgeContent.isSameNode(content)
+        if m.badgeContent <> invalid
+            m.badgeContent.unobserveFieldScoped("badge")
+        end if
+        m.badgeContent = content
+        content.observeFieldScoped("badge", FuncName(OnBadgeChange))
+    end if
+    OnBadgeChange()
+
     OnListHasFocusChange()
+end function
+
+function OnBadgeChange() as void
+    content = m.top.itemContent
+    m.top.badgeVisible = content <> invalid and content.badge > 0
 end function
 
 function OnItemHasFocusChange() as void

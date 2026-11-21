@@ -70,3 +70,22 @@ function LightsPayload(event as String, c as Dynamic) as Object
     end if
     return out
 end function
+
+' ---- theatre timing ----------------------------------------------------------------
+
+' A tape this long (or longer) is a feature: the lights go down for it.
+function LightsIsFeature(durS as Dynamic) as Boolean
+    if durS = invalid then return false
+    return durS >= 3600
+end function
+
+' Is it time to start dimming for the next show? upcoming is the first entry of
+' the on-air record's "upcoming" list ({ inS, durS } at the moment the record
+' arrived); sinceS is how long ago that was.
+function LightsPredimDue(upcoming as Dynamic, sinceS as Integer) as Boolean
+    if upcoming = invalid then return false
+    if upcoming.inS = invalid then return false
+    if not LightsIsFeature(upcoming.durS) then return false
+    left = upcoming.inS - sinceS
+    return left <= 60 and left > 0
+end function

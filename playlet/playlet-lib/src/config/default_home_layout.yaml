@@ -1,3 +1,11 @@
+- title: Continue watching
+  id: continue_watching
+  feedSources:
+    - id: meowbox_continue
+      title: Continue watching
+      apiType: Invidious
+      endpoint: meowbox_continue
+
 - title: Subscriptions
   id: subscriptions
   feedSources:

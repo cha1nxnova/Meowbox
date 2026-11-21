@@ -1,0 +1,56 @@
+import "pkg:/components/Services/Invidious/InvidiousService.bs"
+import "pkg:/components/Services/Meowbox/MeowboxStore.bs"
+
+' Counts the videos at the top of the subscriptions feed that were not there
+' when the Subscriptions screen was last opened.
+@job("MeowboxNewSubscriptionsJob")
+function ExecuteJob() as void
+    input = JobGetInput()
+    watcher = input.watcher
+
+    service = new Invidious.InvidiousService(input.invidious)
+    response = service.MakeRequest({
+        id: "inv_auth_feed"
+        endpoint: "auth_feed"
+        noCache: true
+    }, {
+        cancellation: JobGetCancellation()
+    })
+    if not response.success
+        ' signed out, or offline: no dot
+        watcher.newCount = 0
+        JobSuccess()
+        return
+    end if
+
+    ids = []
+    for each item in response.result.items
+        if IsAssociativeArray(item) and IsString(item.videoId) and ids.Count() < 20
+            ids.Push(item.videoId)
+        end if
+    end for
+
+    seen = MeowboxStore.GetSeenSubscriptions()
+    if seen.Count() = 0
+        ' the first look ever: everything counts as seen
+        MeowboxStore.SetSeenSubscriptions(ids)
+        watcher.newCount = 0
+        JobSuccess()
+        return
+    end if
+
+    seenSet = {}
+    for each id in seen
+        if IsString(id)
+            seenSet[id] = true
+        end if
+    end for
+    fresh = 0
+    for each id in ids
+        if not seenSet.DoesExist(id)
+            fresh += 1
+        end if
+    end for
+    watcher.newCount = fresh
+    JobSuccess()
+end function

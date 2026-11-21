@@ -1,0 +1,150 @@
+import "pkg:/source/utils/StringUtils.bs"
+import "pkg:/source/utils/Types.bs"
+
+' Meowbox: small lists kept on the Roku itself, shared between the screens
+' (render thread) and the built-in web server (task thread). The registry is
+' safe to read and write from both.
+'
+'   "meowbox_playlet" / "progress"   Continue watching: [{ videoId, title, author, authorId,
+'                                    lengthSeconds, position, at }], newest first
+'   "meowbox_playlet" / "pins"       pinned channel ids: { <authorId>: true }
+'   "meowbox_playlet" / "subsSeen"   video ids of the subscriptions feed last looked at
+'   "meowbox" / "tvHistory"          tapes watched on the Meowbox television (written by it)
+'   "meowbox" / "lights"             the Home Assistant address typed into Meowbox
+namespace MeowboxStore
+    const SECTION = "meowbox_playlet"
+    const TV_SECTION = "meowbox"
+    const PROGRESS_MAX = 40
+
+    function ReadJson(section as string, key as string, fallback as dynamic) as dynamic
+        reg = CreateObject("roRegistrySection", section)
+        if not reg.Exists(key)
+            return fallback
+        end if
+        value = StringUtils.ParseJsonSafe(reg.Read(key))
+        if value = invalid or type(value) <> type(fallback)
+            return fallback
+        end if
+        return value
+    end function
+
+    function WriteJson(section as string, key as string, value as dynamic) as void
+        reg = CreateObject("roRegistrySection", section)
+        reg.Write(key, FormatJson(value))
+        reg.Flush()
+    end function
+
+    ' ---- Continue watching ---------------------------------------------------------
+
+    function GetProgress() as object
+        return ReadJson(SECTION, "progress", [])
+    end function
+
+    ' Remembers where a video was left. Videos barely started, or all but
+    ' finished, drop off the list instead.
+    function SaveProgress(entry as object) as void
+        videoId = ValidString(entry.videoId)
+        if videoId = ""
+            return
+        end if
+        position = ValidInt(entry.position)
+        length = ValidInt(entry.lengthSeconds)
+        finished = length > 0 and (position >= length - 30 or position >= length * 0.95)
+        keep = position >= 30 and not finished
+
+        out = []
+        if keep
+            out.Push(entry)
+        end if
+        for each old in GetProgress()
+            if IsAssociativeArray(old) and ValidString(old.videoId) <> videoId and out.Count() < PROGRESS_MAX
+                out.Push(old)
+            end if
+        end for
+        WriteJson(SECTION, "progress", out)
+    end function
+
+    function ForgetProgress(videoId as string) as void
+        out = []
+        for each old in GetProgress()
+            if IsAssociativeArray(old) and ValidString(old.videoId) <> videoId
+                out.Push(old)
+            end if
+        end for
+        WriteJson(SECTION, "progress", out)
+    end function
+
+    ' ---- channel pins --------------------------------------------------------------
+
+    function GetPins() as object
+        return ReadJson(SECTION, "pins", {})
+    end function
+
+    function IsPinned(authorId as string) as boolean
+        return GetPins().DoesExist(authorId)
+    end function
+
+    function SetPinned(authorId as string, pinned as boolean) as void
+        pins = GetPins()
+        if pinned
+            pins[authorId] = true
+        else
+            pins.Delete(authorId)
+        end if
+        WriteJson(SECTION, "pins", pins)
+    end function
+
+    ' ---- new in subscriptions ------------------------------------------------------
+
+    function GetSeenSubscriptions() as object
+        return ReadJson(SECTION, "subsSeen", [])
+    end function
+
+    function SetSeenSubscriptions(videoIds as object) as void
+        WriteJson(SECTION, "subsSeen", videoIds)
+    end function
+
+    ' ---- the Meowbox television ----------------------------------------------------
+
+    function GetTvHistory() as object
+        return ReadJson(TV_SECTION, "tvHistory", [])
+    end function
+
+    function GetLightsAddress() as string
+        reg = CreateObject("roRegistrySection", TV_SECTION)
+        if not reg.Exists("lights")
+            return ""
+        end if
+        return reg.Read("lights").Trim()
+    end function
+
+    ' Mirrors LightsUrl in roku/source/lights.brs (the television's copy).
+    function LightsUrl(typed as string) as string
+        s = typed.Trim()
+        if s = "" or s.InStr(" ") >= 0
+            return ""
+        end if
+        if s.InStr("/api/webhook/") >= 0
+            return s
+        end if
+        scheme = "http://"
+        lower = LCase(s)
+        if lower.StartsWith("http://")
+            s = s.Mid(7)
+        else if lower.StartsWith("https://")
+            scheme = "https://"
+            s = s.Mid(8)
+        end if
+        slash = s.InStr("/")
+        if slash >= 0
+            s = s.Left(slash)
+        end if
+        if s = ""
+            return ""
+        end if
+        if s.InStr(":") < 0 and scheme = "http://"
+            s = s + ":8123"
+        end if
+        return scheme + s + "/api/webhook/meowbox"
+    end function
+end namespace

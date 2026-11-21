@@ -1,0 +1,67 @@
+import "pkg:/components/Services/Meowbox/MeowboxStore.bs"
+import "pkg:/source/utils/Types.bs"
+
+function Init()
+    m.timer = CreateObject("roSGNode", "Timer")
+    m.timer.repeat = true
+    m.timer.duration = 10
+    m.timer.observeField("fire", FuncName(Save))
+    m.lastKey = ""
+end function
+
+function OnNodeReady()
+    m.top.videoQueue.observeFieldScoped("player", FuncName(OnPlayerChange))
+    m.top.videoQueue.observeFieldScoped("nowPlaying", FuncName(Save))
+end function
+
+function OnPlayerChange()
+    if m.top.videoQueue.player <> invalid
+        m.timer.control = "start"
+    else
+        m.timer.control = "stop"
+        m.lastKey = ""
+        m.top.changed = true
+    end if
+end function
+
+' Every ten seconds while something plays (and when the video changes).
+function Save() as void
+    videoQueue = m.top.videoQueue
+    player = videoQueue.player
+    content = videoQueue.nowPlaying
+    if player = invalid or content = invalid
+        return
+    end if
+    videoId = ValidString(content.videoId)
+    if videoId = "" or videoId.StartsWith("meowbox:") or content.liveNow = true
+        return
+    end if
+    if player.state <> "playing" and player.state <> "paused"
+        return
+    end if
+    if not IsFloat(player.position) and not IsInt(player.position)
+        return
+    end if
+
+    position = Int(player.position)
+    length = ValidInt(content.lengthSeconds)
+    if length <= 0 and (IsFloat(player.duration) or IsInt(player.duration))
+        length = Int(player.duration)
+    end if
+
+    key = `${videoId}:${position}`
+    if key = m.lastKey
+        return
+    end if
+    m.lastKey = key
+
+    MeowboxStore.SaveProgress({
+        "videoId": videoId
+        "title": ValidString(content.title)
+        "author": ValidString(content._author)
+        "authorId": ValidString(content.authorId)
+        "lengthSeconds": length
+        "position": position
+        "at": CreateObject("roDateTime").AsSeconds()
+    })
+end function

@@ -1,0 +1,124 @@
+import "pkg:/components/Dialog/DialogUtils.bs"
+import "pkg:/components/JobSystem/Jobs.bs"
+import "pkg:/components/JobSystem/JobSystem.bs"
+import "pkg:/components/Services/Meowbox/MeowboxStore.bs"
+import "pkg:/components/VideoQueue/VideoQueueUtils.bs"
+import "pkg:/source/utils/Logging.bs"
+import "pkg:/source/utils/Types.bs"
+
+const STUDY_BREAK_PREFERENCE = "study_break.minutes"
+const STUDY_TICK_SECONDS = 10
+' Ten minutes without anything playing counts as a break taken.
+const STUDY_RESET_IDLE_SECONDS = 600
+const STUDY_SNOOZE_SECONDS = 300
+
+function Init()
+    m.watched = 0
+    m.idle = 0
+    m.dialog = invalid
+    m.timer = CreateObject("roSGNode", "Timer")
+    m.timer.repeat = true
+    m.timer.duration = STUDY_TICK_SECONDS
+    m.timer.observeField("fire", FuncName(OnTick))
+end function
+
+function OnNodeReady()
+    m.preferences.observeFieldScoped(STUDY_BREAK_PREFERENCE, FuncName(OnPreference))
+    OnPreference()
+end function
+
+function LimitSeconds() as integer
+    value = m.preferences[STUDY_BREAK_PREFERENCE]
+    if not IsString(value) or value = "off"
+        return 0
+    end if
+    return value.ToInt() * 60
+end function
+
+function OnPreference()
+    m.watched = 0
+    m.idle = 0
+    if LimitSeconds() > 0
+        m.timer.control = "start"
+    else
+        m.timer.control = "stop"
+    end if
+end function
+
+function OnTick() as void
+    limit = LimitSeconds()
+    if limit <= 0 or m.dialog <> invalid
+        return
+    end if
+
+    player = m.videoQueue.player
+    playing = player <> invalid and player.state = "playing"
+    if not playing
+        m.idle += STUDY_TICK_SECONDS
+        if m.idle >= STUDY_RESET_IDLE_SECONDS
+            m.watched = 0
+        end if
+        return
+    end if
+
+    m.idle = 0
+    m.watched += STUDY_TICK_SECONDS
+    if m.watched >= limit
+        TakeABreak(limit \ 60)
+    end if
+end function
+
+function TakeABreak(minutes as integer) as void
+    LogInfo("Study break after", minutes, "minutes")
+    VideoQueueUtils.Pause(m.videoQueue)
+    SendLights({ "event": "study_break", "minutes": minutes })
+
+    m.dialog = DialogUtils.ShowDialogEx({
+        title: "Study break"
+        message: `That's ${minutes} minutes of videos. Stretch, drink some water, and back to the books. You've got this!`
+        buttons: ["Back to studying", "5 more minutes", "Keep watching"]
+        alwaysOnTop: true
+    })
+    if m.dialog = invalid
+        m.watched = 0
+        return
+    end if
+    m.dialog.observeField("buttonSelected", FuncName(OnDialogButton))
+    m.dialog.observeField("wasClosed", FuncName(OnDialogClosed))
+end function
+
+function OnDialogButton() as void
+    if m.dialog = invalid
+        return
+    end if
+    choice = m.dialog.buttonSelected
+    limit = LimitSeconds()
+    if choice = 0
+        m.watched = 0
+        m.videoQueue.closePlayer = true
+        SendLights({ "event": "study_time" })
+    else if choice = 1
+        m.watched = limit - STUDY_SNOOZE_SECONDS
+        VideoQueueUtils.Play(m.videoQueue)
+    else
+        m.watched = 0
+        VideoQueueUtils.Play(m.videoQueue)
+    end if
+    m.dialog.close = true
+end function
+
+function OnDialogClosed()
+    ' Back on the remote counts as "keep watching", paused
+    if m.watched >= LimitSeconds()
+        m.watched = 0
+    end if
+    m.dialog = invalid
+end function
+
+function SendLights(payload as object) as void
+    url = MeowboxStore.LightsUrl(MeowboxStore.GetLightsAddress())
+    if url = ""
+        return
+    end if
+    JobSystem.QueueJob(m.jobQueue, Jobs.MeowboxLightsJob, { url: url, payload: payload })
+end function

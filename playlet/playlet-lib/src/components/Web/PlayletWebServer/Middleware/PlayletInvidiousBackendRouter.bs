@@ -1,4 +1,5 @@
 import "pkg:/components/Services/Innertube/InnertubeService.bs"
+import "pkg:/components/Services/Meowbox/MeowboxStore.bs"
 import "pkg:/components/Web/WebServer/Http/HttpRouter.bs"
 
 namespace Http
@@ -105,6 +106,71 @@ namespace Http
                 response.headers["cache-control"] = result["cache-control"]
             end if
 
+            return true
+        end function
+
+        ' Meowbox: Continue watching, from the positions kept on this Roku.
+        @get("/playlet-invidious-backend/api/v1/meowbox/continue")
+        function GetMeowboxContinue(context as object) as boolean
+            videos = []
+            for each entry in MeowboxStore.GetProgress()
+                if not IsAssociativeArray(entry) or not IsString(entry.videoId)
+                    continue for
+                end if
+                position = ValidInt(entry.position)
+                length = ValidInt(entry.lengthSeconds)
+                video = {
+                    "type": "video"
+                    "videoId": entry.videoId
+                    "title": ValidString(entry.title)
+                    "author": ValidString(entry.author)
+                    "authorId": ValidString(entry.authorId)
+                    "lengthSeconds": length
+                    "viewCount": 1
+                    "timestamp": position
+                }
+                if length > 0
+                    video["percentDurationWatched"] = position * 100.0 / length
+                end if
+                videos.Push(video)
+            end for
+            context.response.Json({ "videos": videos })
+            return true
+        end function
+
+        ' Meowbox: tapes watched on the Meowbox television, for History.
+        ' videoId "meowbox:<channel id>" tells the screens to tune the television.
+        @get("/playlet-invidious-backend/api/v1/meowbox/tv_history")
+        function GetMeowboxTvHistory(context as object) as boolean
+            videos = []
+            for each tape in MeowboxStore.GetTvHistory()
+                if not IsAssociativeArray(tape) or not IsString(tape.channelId)
+                    continue for
+                end if
+                title = ValidString(tape.title)
+                year = ValidString(tape.year)
+                if year <> ""
+                    title += ` (${year})`
+                end if
+                videos.Push({
+                    "type": "video"
+                    "videoId": "meowbox:" + tape.channelId
+                    "title": title
+                    "author": "Meowbox TV - " + ValidString(tape.channel)
+                    "published": ValidInt(tape.at)
+                    ' a label in place of a running time; also keeps the card from reading as live
+                    "lengthText": "TV"
+                    "lengthSeconds": 1
+                    "viewCount": 1
+                    "videoThumbnails": [{
+                        "quality": "medium"
+                        "url": "pkg:/images/meowbox-tape.png"
+                        "width": 320
+                        "height": 180
+                    }]
+                })
+            end for
+            context.response.Json({ "videos": videos })
             return true
         end function
 

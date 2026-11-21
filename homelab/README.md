@@ -90,13 +90,14 @@ More ideas, roughly from easiest to most ambitious:
 
 1. **Pause = lights up.** Pausing Jellyfin or Playlet brings the lights up to 40% so you can find snacks. Resuming dims them again.
 2. ~~Channel mood lighting~~ **Built.** In Meowbox, press `*` → **Room lights** and type the server's address (e.g. `192.168.1.50`). Choosing *Save and test* sends the current channel straight away and tells you whether Home Assistant answered. From then on each channel's colour goes to the `meowbox` webhook when it comes on, so the backlight turns *Waku Waku* pink or *Computer Chronicles* green. Automation #3 in `meowbox-automations.yaml` handles the other end. Nothing leaves your network.
-3. **"Up next" pre-dim.** Meowbox knows the schedule, so it could fade the lights a minute before a feature film starts on the old-movie channel, the way a theatre does.
+3. ~~"Up next" pre-dim~~ **Built.** A minute before a feature-length tape starts, Meowbox posts `predim` and the room fades over that minute. `showtime` takes it the rest of the way down. When the film ends, the channel colour comes back.
 4. **Internet Archive cache on the NAS.** Meowbox streams tapes straight from archive.org. A small container on the server could cache the tapes and captions for your favourite channels on the NAS drives, which means faster starts and less buffering when archive.org is slow.
 
 ## 7. Ideas for rotations
 
 - **Sunrise alarm.** For early pre-rounding mornings, the bedroom lights fade from deep red to warm white over the 20 minutes before your phone alarm. It's gentler on cortisol than a phone alarm at 4:45 am.
 - **Pomodoro study light.** A desk strip stays a calm colour for 25 minutes of NAPLEX/MPJE review, then pulses a different colour for your 5-minute break. Controlled from a Zigbee button or your phone.
+- **Study break, built in.** The YouTube side has a *Study break* setting (Settings > Sleep timer). After 25 to 60 minutes of videos it pauses, nudges you back to the books, and posts `study_break`. Automation #3 pulses the lights amber three times, then switches to bright focus white.
 - **"Did I take it?" light.** For your own meds (or a pet's): one light glows amber at dose time until you press a button, and the press gets logged. It's the same adherence-cue idea you counsel patients on, in light-strip form.
 - **Wind-down.** At a set time all the lights shift to warm, dim amber, a light-hygiene nudge for sleep after long clinical days.
 

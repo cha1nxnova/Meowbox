@@ -206,6 +206,37 @@ function Refresh(_unused as dynamic)
     InitContent()
 end function
 
+function ReloadRow(feedSourceId as string) as boolean
+    content = m.top.content
+    if content = invalid
+        return false
+    end if
+    for each row in content.getChildren(-1, 0)
+        feedSources = row.feedSources
+        if IsArray(feedSources) and feedSources.Count() > 0 and feedSources[0].id = feedSourceId
+            for each job in m.pendingLoadJobs.Items()
+                if job.value.content <> invalid and job.value.content.isSameNode(row)
+                    job.value.callback.cancel = true
+                    m.pendingLoadJobs.Delete(job.key)
+                end if
+            end for
+            for i = 0 to feedSources.Count() - 1
+                feedSources[i].state = { loadState: FeedLoadState.None }
+            end for
+            row.feedSources = feedSources
+            row.feedSourcesIndex = 0
+            row.removeChildrenIndex(row.getChildCount(), 0)
+            for i = 1 to 4
+                row.createChild("LoadingContentNode")
+            end for
+            row.loadState = FeedLoadState.None
+            LoadRowContent(row)
+            return true
+        end if
+    end for
+    return false
+end function
+
 function OnCurrentProfileChanged()
     ' TODO:P2: Reload only content that is authenticated
     ' Should not reload if the page is not visible. Instead, capture state and reload when the page becomes visible

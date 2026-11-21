@@ -3,8 +3,10 @@
         <field id="navBar" type="node" bind="/NavBar" />
         <field id="invidious" type="node" bind="/Invidious" />
         <field id="preferences" type="node" bind="/Preferences" />
+        <field id="watchProgress" type="node" bind="/MeowboxWatchProgress" />
         <field id="feedFile" type="string" value="libpkg:/config/default_home_layout.yaml" />
         <function name="RefreshFeedsFromMenu" />
+        <function name="ForgetProgress" />
     </interface>
     <children>
         <!-- Meowbox: Up from the first row reaches it; Instant replay works too -->

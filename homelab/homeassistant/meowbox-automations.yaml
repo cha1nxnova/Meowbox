@@ -47,11 +47,16 @@ actions:
     data:
       transition: 2
 ---
-# 3. Channel mood lighting. In Meowbox press * > Room lights and enter this
-#    server's address. Each time a channel comes on, Meowbox sends its colour to
-#    the "meowbox" webhook; on "leave" the room goes back to how it was.
-#    Meowbox sends: event (tune | leave), channel, channel_id, dial, color, rgb.
-alias: Meowbox channel colours
+# 3. Channel mood lighting and theatre timing. In Meowbox press * > Room lights
+#    and enter this server's address. Meowbox (and the YouTube side) post to
+#    the "meowbox" webhook:
+#      tune         a channel came on: channel, channel_id, dial, color, rgb
+#      predim       a feature film starts in about a minute: title, starts_in
+#      showtime     a feature film started: title
+#      leave        Meowbox closed
+#      study_break  the YouTube study-break timer went off: minutes
+#      study_time   "Back to studying" was chosen
+alias: Meowbox lights
 mode: restart
 triggers:
   - trigger: webhook
@@ -69,6 +74,66 @@ actions:
               rgb_color: "{{ trigger.json.rgb }}"
               brightness_pct: 40
               transition: 1.5
+      - conditions: "{{ trigger.json.event == 'predim' }}"
+        sequence:
+          # a slow fade over the minute before the film, like a theatre
+          - action: light.turn_on
+            target:
+              entity_id: light.living_room_lights
+            data:
+              brightness_pct: 10
+              transition: 50
+      - conditions: "{{ trigger.json.event == 'showtime' }}"
+        sequence:
+          - action: light.turn_on
+            target:
+              entity_id: light.living_room_lights
+            data:
+              brightness_pct: 3
+              transition: 5
+          - action: light.turn_on
+            target:
+              entity_id: light.tv_backlight
+            data:
+              brightness_pct: 15
+              transition: 5
+      - conditions: "{{ trigger.json.event == 'study_break' }}"
+        sequence:
+          # three gentle pulses, then a bright, focused white
+          - repeat:
+              count: 3
+              sequence:
+                - action: light.turn_on
+                  target:
+                    entity_id: light.living_room_lights
+                  data:
+                    rgb_color: [255, 166, 48]
+                    brightness_pct: 100
+                    transition: 0.6
+                - delay: 0.8
+                - action: light.turn_on
+                  target:
+                    entity_id: light.living_room_lights
+                  data:
+                    brightness_pct: 20
+                    transition: 0.6
+                - delay: 0.8
+          - action: light.turn_on
+            target:
+              entity_id: light.living_room_lights
+            data:
+              color_temp_kelvin: 5000
+              brightness_pct: 90
+              transition: 2
+      - conditions: "{{ trigger.json.event == 'study_time' }}"
+        sequence:
+          - action: light.turn_on
+            target:
+              entity_id: light.living_room_lights
+            data:
+              color_temp_kelvin: 5000
+              brightness_pct: 100
+              transition: 2
       - conditions: "{{ trigger.json.event == 'leave' }}"
         sequence:
           - action: scene.turn_on

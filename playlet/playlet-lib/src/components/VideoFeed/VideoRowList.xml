@@ -21,5 +21,7 @@
         <function name="OpenVideoChannel" />
         <function name="OpenPlaylistChannel" />
         <function name="Refresh" />
+        <!-- Meowbox: reload the one row whose first source has this id; false if there is none -->
+        <function name="ReloadRow" />
     </interface>
 </component>

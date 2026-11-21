@@ -1,0 +1,8 @@
+<!-- Meowbox: remembers where each video was left, for Continue watching. -->
+<component name="MeowboxWatchProgress" extends="Node" includes="AutoBind">
+    <interface>
+        <field id="videoQueue" type="node" />
+        <!-- set when a video closes and the list may have changed -->
+        <field id="changed" type="boolean" alwaysNotify="true" />
+    </interface>
+</component>

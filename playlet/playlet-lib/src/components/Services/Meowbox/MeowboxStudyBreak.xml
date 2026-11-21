@@ -1,0 +1,9 @@
+<!-- Meowbox: after a stretch of watching, pause and suggest getting back to
+     studying ("study_break.minutes"). Lights blink too, when Room lights is set. -->
+<component name="MeowboxStudyBreak" extends="Node" includes="AutoBind">
+    <interface>
+        <field id="preferences" type="node" />
+        <field id="videoQueue" type="node" />
+        <field id="jobQueue" type="node" />
+    </interface>
+</component>

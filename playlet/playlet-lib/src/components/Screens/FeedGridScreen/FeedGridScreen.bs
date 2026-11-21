@@ -1,8 +1,13 @@
 import "pkg:/components/ChannelView/ChannelUtils.bs"
+import "pkg:/components/ContextMenu/ContextMenuUtils.bs"
 import "pkg:/components/JobSystem/Jobs.bs"
 import "pkg:/components/JobSystem/JobSystem.bs"
+import "pkg:/components/Meowbox/MeowboxTvUtils.bs"
+import "pkg:/components/Navigation/LongPress.bs"
 import "pkg:/components/Navigation/Navigation.bs"
 import "pkg:/components/PlaylistView/PlaylistUtils.bs"
+import "pkg:/components/Services/Invidious/InvidiousToContentNode.bs"
+import "pkg:/components/Services/Meowbox/MeowboxStore.bs"
 import "pkg:/components/VideoFeed/FeedLoadState.bs"
 import "pkg:/source/utils/FocusManagement.bs"
 import "pkg:/source/utils/Locale.bs"
@@ -18,21 +23,24 @@ function FeedGridPresets() as object
             hint: "Newest videos from the channels you follow"
             empty: "Nothing here yet. Sign in under Profile, and subscribe to a few channels."
             cell: "video"
-            feedSource: { id: "inv_auth_feed", title: "Subscriptions", apiType: "Invidious", endpoint: "auth_feed" }
+            feedSources: [{ id: "inv_auth_feed", title: "Subscriptions", apiType: "Invidious", endpoint: "auth_feed" }]
         }
         "channels": {
             title: "Channels"
-            hint: "Every channel you are subscribed to, A to Z"
+            hint: "Every channel you follow, A to Z. Hold OK on one to pin it to the top."
             empty: "No channels yet. Sign in under Profile, and subscribe to a few channels."
             cell: "channel"
-            feedSource: { id: "inv_auth_subscriptions", title: "Channels", apiType: "Invidious", endpoint: "auth_subscriptions" }
+            feedSources: [{ id: "inv_auth_subscriptions", title: "Channels", apiType: "Invidious", endpoint: "auth_subscriptions" }]
         }
         "history": {
             title: "History"
-            hint: "What you have watched, newest first"
-            empty: "No watch history yet. Sign in under Profile, then watch something."
+            hint: "Tapes from Meowbox TV first, then YouTube"
+            empty: "No watch history yet. Watch something on Meowbox TV, or sign in under Profile."
             cell: "video"
-            feedSource: { id: "inv_auth_history", title: "Watch history", apiType: "Invidious", endpoint: "watch_history" }
+            feedSources: [
+                { id: "meowbox_tv_history", title: "Meowbox TV", apiType: "Invidious", endpoint: "meowbox_tv_history" }
+                { id: "inv_auth_history", title: "Watch history", apiType: "Invidious", endpoint: "watch_history" }
+            ]
         }
     }
 end function
@@ -47,6 +55,7 @@ function Init()
     m.emptyLabel = m.top.findNode("emptyLabel")
     m.pendingJob = invalid
     m.isDirty = true
+    m.seenMarked = false
 end function
 
 function OnNodeReady()
@@ -78,9 +87,11 @@ function OnNodeReady()
     SetNavigation(m.grid, RemoteKeys.Up, m.refreshButton)
     SetNavigation(m.refreshButton, RemoteKeys.Down, m.grid)
 
+    InitializeLongPress(["OK"])
     m.refreshButton.observeField("buttonSelected", FuncName(OnRefreshSelected))
     m.grid.observeField("itemFocused", FuncName(OnItemFocused))
-    m.grid.observeField("itemSelected", FuncName(OnItemSelected))
+    ' OK starts the long-press timer; letting go early is a plain select (see OnKeyEvent)
+    m.grid.observeField("itemSelected", FuncName(OnGridOkPressed))
     m.top.observeField("visible", FuncName(OnVisibleChange))
     m.profilesService.observeFieldScoped("currentProfileChanged", FuncName(OnProfileChanged))
 
@@ -111,18 +122,23 @@ function Reload(fresh = false as boolean) as void
     m.isDirty = false
     CancelJob()
 
-    feedSource = {}
-    feedSource.Append(m.config.feedSource)
-    ' A refresh asks the server again instead of the disk cache.
-    feedSource.noCache = fresh
-    feedSource.state = { loadState: FeedLoadState.None }
+    feedSources = []
+    for each preset in m.config.feedSources
+        feedSource = {}
+        feedSource.Append(preset)
+        ' A refresh asks the server again instead of the disk cache.
+        feedSource.noCache = fresh
+        feedSource.state = { loadState: FeedLoadState.None }
+        feedSources.Push(feedSource)
+    end for
+    m.seenMarked = false
 
     m.holder = CreateObject("roSGNode", "ContentNode")
     feed = m.holder.createChild("FeedContentNode")
     feed.title = m.config.title
     feed.feedSourcesIndex = 0
     feed.loadState = FeedLoadState.None
-    feed.feedSources = [feedSource]
+    feed.feedSources = feedSources
     for i = 1 to m.grid.numColumns
         feed.createChild("LoadingContentNode")
     end for
@@ -191,6 +207,8 @@ function OnLoadDone(event as object) as void
         return
     end if
 
+    MarkSubscriptionsSeen()
+
     ' Fill the screen before waiting for the user to scroll.
     if m.feed.getChildCount() < m.grid.numColumns * 3
         LoadMore()
@@ -216,17 +234,30 @@ function OnItemFocused() as void
     end if
 end function
 
-function OnItemSelected() as void
-    if m.feed = invalid
-        return
-    end if
-    index = m.grid.itemSelected
-    if index < 0 or index >= m.feed.getChildCount()
-        return
+function OnGridOkPressed()
+    LongPressHandler(RemoteKeys.Ok, true)
+end function
+
+function ItemAt(index as integer) as object
+    if m.feed = invalid or index < 0 or index >= m.feed.getChildCount()
+        return invalid
     end if
     item = m.feed.getChild(index)
+    if ValidString(item.type) = "loading"
+        return invalid
+    end if
+    return item
+end function
 
-    if item.type = "video"
+function OnItemSelected() as void
+    item = ItemAt(m.grid.itemSelected)
+    if item = invalid
+        return
+    end if
+
+    if MeowboxTvUtils.IsTape(item)
+        MeowboxTvUtils.Open(item, m.appController)
+    else if item.type = "video"
         LogInfo("Play video: " + item.videoId)
         m.videoQueue.playVideo = item
     else if item.type = "playlist"
@@ -248,6 +279,23 @@ function OnFocusChange() as void
 end function
 
 function OnKeyEvent(key as string, press as boolean) as boolean
+    ' Same long-press dance as VideoRowList: OK down came through itemSelected
+    if not (key = RemoteKeys.Ok and press)
+        if LongPressHandler(key, press)
+            return true
+        end if
+    end if
+    if key = RemoteKeys.OkLongPress and press
+        OpenContextMenu(ItemAt(m.grid.itemFocused))
+        return true
+    end if
+    if key = RemoteKeys.Ok and not press
+        if m.grid.isInFocusChain()
+            OnItemSelected()
+        end if
+        return true
+    end if
+
     if NavigationKeyHandler(key, press).handled
         return true
     end if
@@ -257,4 +305,82 @@ function OnKeyEvent(key as string, press as boolean) as boolean
         return true
     end if
     return false
+end function
+
+' ---- long-press menu ------------------------------------------------------------
+
+function OpenContextMenu(item as object) as void
+    if item = invalid
+        return
+    end if
+    providers = [m.top]
+    if not MeowboxTvUtils.IsTape(item)
+        providers.Push(m.bookmarksService)
+    end if
+    ContextMenuUtils.Open(providers, m.appController, item)
+end function
+
+function GetContextMenuOptionsForItem(item as object) as object
+    options = []
+    if MeowboxTvUtils.IsTape(item)
+        options.Push(ContextMenuUtils.CreateOption("Watch on Meowbox TV", m.top, "PlayItem", [item]))
+    else if item.type = "video"
+        options.Push(ContextMenuUtils.CreateOption(Tr(Locale.ContextMenu.PlayVideo), m.top, "PlayItem", [item]))
+        options.Push(ContextMenuUtils.CreateOption(Tr(Locale.ContextMenu.QueueVideo), m.top, "QueueItem", [item]))
+        if not StringUtils.IsNullOrEmpty(item.authorId)
+            options.Push(ContextMenuUtils.CreateOption(Tr(Locale.ContextMenu.OpenChannel), m.top, "OpenItemChannel", [item]))
+        end if
+    else if item.type = "channel"
+        options.Push(ContextMenuUtils.CreateOption(Tr(Locale.ContextMenu.OpenChannel), m.top, "OpenItemChannel", [item]))
+        if MeowboxStore.IsPinned(item.authorId)
+            options.Push(ContextMenuUtils.CreateOption("Unpin from the top", m.top, "SetPinned", [item, false]))
+        else
+            options.Push(ContextMenuUtils.CreateOption("Pin to the top", m.top, "SetPinned", [item, true]))
+        end if
+    end if
+    return options
+end function
+
+function PlayItem(item as object)
+    if MeowboxTvUtils.IsTape(item)
+        MeowboxTvUtils.Open(item, m.appController)
+    else
+        m.videoQueue.playVideo = item
+    end if
+end function
+
+function QueueItem(item as object)
+    m.videoQueue@.FuncAddToQueueVideo(item)
+end function
+
+function OpenItemChannel(item as object)
+    if item.type = "channel"
+        ChannelUtils.Open(item)
+    else
+        ChannelUtils.Open(InvidiousContent.ToChannelContentNode(invalid, { authorId: item.authorId }))
+    end if
+end function
+
+function SetPinned(item as object, pinned as boolean)
+    MeowboxStore.SetPinned(item.authorId, pinned)
+    Reload(true)
+end function
+
+' ---- new in subscriptions --------------------------------------------------------
+
+' Opening Subscriptions clears the dot in the side bar.
+function MarkSubscriptionsSeen() as void
+    if m.top.preset <> "subscriptions" or m.seenMarked or m.feed = invalid or m.subscriptionsWatcher = invalid
+        return
+    end if
+    ids = []
+    for each child in m.feed.getChildren(20, 0)
+        if ValidString(child.type) = "video" and not StringUtils.IsNullOrEmpty(child.videoId)
+            ids.Push(child.videoId)
+        end if
+    end for
+    if ids.Count() > 0
+        m.seenMarked = true
+        m.subscriptionsWatcher.seen = ids
+    end if
 end function

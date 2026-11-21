@@ -125,6 +125,22 @@
           { displayText: "90 minutes", value: "90" },
         ],
       },
+      {
+        // Meowbox: MeowboxStudyBreak.bs counts minutes of playback (a ten-minute pause resets it),
+        // then pauses and suggests a break. Values are minutes.
+        displayText: "Study break",
+        key: "study_break.minutes",
+        description: "After this much watching, pause and nudge you back to studying. The lights blink too, if Meowbox's Room lights are set up.",
+        type: "radio",
+        defaultValue: "off",
+        options: [
+          { displayText: "Off", value: "off" },
+          { displayText: "25 minutes", value: "25" },
+          { displayText: "45 minutes", value: "45" },
+          { displayText: "50 minutes", value: "50" },
+          { displayText: "60 minutes", value: "60" },
+        ],
+      },
     ],
   },
   {
@@ -336,6 +352,10 @@
         description: "Enable/disable and reorder sections on the home screen",
         type: "array",
         defaultValue: [
+          {
+            id: "continue_watching",
+            enabled: true,
+          },
           {
             id: "subscriptions",
             enabled: true,

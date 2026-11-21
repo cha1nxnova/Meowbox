@@ -2,6 +2,7 @@ import "pkg:/components/ContentNode/ProfileContentAuthTokenUtils.bs"
 import "pkg:/components/Dialog/DialogUtils.bs"
 import "pkg:/components/Services/Innertube/InnertubeService.bs"
 import "pkg:/components/Services/Innertube/LiveStreamInfo.bs"
+import "pkg:/components/Services/Meowbox/MeowboxStore.bs"
 import "pkg:/components/VideoFeed/PaginationType.bs"
 import "pkg:/source/services/HttpClient.bs"
 import "pkg:/source/utils/CryptoUtils.bs"
@@ -308,6 +309,9 @@ namespace Invidious
                 if not StringUtils.IsNullOrEmpty(auth.activeIdentifyToken)
                     request.QueryParam("activeIdentifyToken", auth.activeIdentifyToken)
                 end if
+            else if endpoint.local = true
+                ' Meowbox: served by Playlet's own web server, not by any Invidious
+                request = HttpClient.Get(Invidious.PLAYLET_BUILT_IN_INSTANCE + endpoint.url)
             else
                 request = HttpClient.Get(m.GetInstance() + endpoint.url)
             end if
@@ -649,6 +653,9 @@ namespace Invidious
                 return invalid
             end if
 
+            ' Pinned channels (long-press a channel in Channels) come first.
+            pins = MeowboxStore.GetPins()
+            pinned = []
             channels = []
             for each item in json
                 if IsAssociativeArray(item) and IsString(item.authorId) and item.authorId <> ""
@@ -656,13 +663,20 @@ namespace Invidious
                     if not IsString(item.author)
                         item.author = item.authorId
                     end if
-                    channels.Push(item)
+                    if pins.DoesExist(item.authorId)
+                        item.authorSubTitle = "Pinned"
+                        pinned.Push(item)
+                    else
+                        channels.Push(item)
+                    end if
                 end if
             end for
+            pinned.SortBy("author", "i")
             channels.SortBy("author", "i")
+            pinned.Append(channels)
 
             return {
-                items: channels
+                items: pinned
             }
         end function
 

@@ -83,6 +83,22 @@ auth_subscriptions:
   paginationType: Continuation
   responseHandler: SubscribedChannelsHandler
 
+# Meowbox: lists kept on this Roku, served by Playlet's own web server
+# (local: true) whichever backend is selected.
+meowbox_continue:
+  title: Continue watching
+  url: /api/v1/meowbox/continue
+  local: true
+  paginationType: Continuation
+  responseHandler: AuthFeedHandler
+
+meowbox_tv_history:
+  title: Meowbox TV
+  url: /api/v1/meowbox/tv_history
+  local: true
+  paginationType: Continuation
+  responseHandler: AuthFeedHandler
+
 auth_playlists:
   title: Playlists
   url: /api/v1/auth/playlists

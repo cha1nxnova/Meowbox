@@ -1,0 +1,14 @@
+namespace MeowboxTvUtils
+    ' "meowbox:<channel id>" is how a Meowbox tape is written in History
+    function IsTape(item as object) as boolean
+        return item <> invalid and item.type = "video" and ValidString(item.videoId).StartsWith("meowbox:")
+    end function
+
+    function Open(item as object, appController as object)
+        screen = CreateObject("roSGNode", "MeowboxTvScreen")
+        screen.channelId = ValidString(item.videoId).Mid(8)
+        appController@.PushScreen(screen)
+        screen@.BindNode()
+        screen@.Start()
+    end function
+end namespace

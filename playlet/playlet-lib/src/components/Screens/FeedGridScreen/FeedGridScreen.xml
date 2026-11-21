@@ -4,18 +4,25 @@
     AppController before binding. Rows load through the same job as the home
     screen (VideoRowListRowContentJob), so pagination and errors behave alike.
 -->
-<component name="FeedGridScreen" extends="Group" includes="AutoBind,Focus">
+<component name="FeedGridScreen" extends="Group" includes="AutoBind,Focus,ContextMenuProvider">
     <interface>
         <field id="navBar" type="node" bind="/NavBar" />
         <field id="invidious" type="node" bind="/Invidious" />
         <field id="profilesService" type="node" bind="/ProfilesService" />
         <field id="videoQueue" type="node" bind="/VideoQueue" />
         <field id="jobQueue" type="node" bind="/JobQueue" />
+        <field id="appController" type="node" bind="/AppController" />
+        <field id="bookmarksService" type="node" bind="/BookmarksService" />
+        <field id="subscriptionsWatcher" type="node" bind="/MeowboxSubscriptionsWatcher" />
         <field id="preset" type="string" />
         <!-- Read and written by VideoRowListRowContentJob, as on a VideoRowList -->
         <field id="someContentReady" type="bool" alwaysNotify="true" />
         <field id="onError" type="string" alwaysNotify="true" />
         <function name="Refresh" />
+        <function name="PlayItem" />
+        <function name="QueueItem" />
+        <function name="OpenItemChannel" />
+        <function name="SetPinned" />
     </interface>
     <children>
         <Label

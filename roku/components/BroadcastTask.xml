@@ -10,6 +10,8 @@
            { cmd: "find",  id, seq }                look up a playable file for a tape
            { cmd: "save",  key, value }
            { cmd: "lights", url, payload, test }    tell Home Assistant what is on (see lights.brs)
+           { cmd: "remember", item }                a tape watched, for Playlet's History
+           { cmd: "quit" }                          finish (after anything asked before)
 -->
 <component name="BroadcastTask" extends="Task">
   <interface>

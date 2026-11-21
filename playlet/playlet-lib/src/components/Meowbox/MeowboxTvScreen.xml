@@ -1,0 +1,16 @@
+<!--
+    Meowbox: the Meowbox television, opened from inside Playlet (a tape in
+    History). MeowTV lives in the main package beside Playlet's shell; this
+    screen holds it on Playlet's screen stack, and Back takes it away again.
+-->
+<component name="MeowboxTvScreen" extends="Group" includes="AutoBind,Focus">
+    <interface>
+        <field id="appController" type="node" bind="/AppController" />
+        <field id="videoQueue" type="node" bind="/VideoQueue" />
+        <field id="channelId" type="string" />
+        <function name="Start" />
+    </interface>
+    <children>
+        <Rectangle width="1280" height="720" color="#131313" />
+    </children>
+</component>

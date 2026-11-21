@@ -38,7 +38,12 @@ namespace HomeScreenUtils
 
         for each item in feed
             if not seenIds.DoesExist(item["id"])
-                filteredFeed.push(item)
+                ' Meowbox: Continue watching is new to saved layouts; it belongs on top
+                if item["id"] = "continue_watching"
+                    filteredFeed.Unshift(item)
+                else
+                    filteredFeed.push(item)
+                end if
             end if
         end for
 

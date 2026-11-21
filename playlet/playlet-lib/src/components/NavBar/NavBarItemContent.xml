@@ -4,5 +4,7 @@
         <field id="icon" type="string" />
         <field id="text" type="string" />
         <field id="isProfile" type="boolean" />
+        <!-- Meowbox: a dot on the icon when above 0 (new videos in Subscriptions) -->
+        <field id="badge" type="integer" />
     </interface>
 </component>

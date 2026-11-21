@@ -1,0 +1,64 @@
+import "pkg:/components/JobSystem/Jobs.bs"
+import "pkg:/components/JobSystem/JobSystem.bs"
+import "pkg:/components/Services/Meowbox/MeowboxStore.bs"
+import "pkg:/source/utils/Types.bs"
+
+const SUBSCRIPTIONS_SCREEN = "FeedGridScreen:subscriptions"
+
+function Init()
+    m.timer = CreateObject("roSGNode", "Timer")
+    m.timer.repeat = true
+    ' the first look comes a little after start-up, then every 15 minutes
+    m.timer.duration = 45
+    m.timer.observeField("fire", FuncName(Check))
+    m.job = invalid
+end function
+
+function OnNodeReady()
+    m.top.profilesService.observeFieldScoped("currentProfileChanged", FuncName(OnProfileChanged))
+    m.timer.control = "start"
+end function
+
+function OnProfileChanged()
+    m.top.newCount = 0
+    Check()
+end function
+
+function Check() as void
+    m.timer.duration = 15 * 60
+    if m.job <> invalid
+        return
+    end if
+    input = {
+        invidious: m.top.invidious
+        watcher: m.top
+    }
+    m.job = JobSystem.CreateCallback(OnCheckDone)
+    JobSystem.QueueJob(m.top.jobQueue, Jobs.MeowboxNewSubscriptionsJob, input, m.job)
+end function
+
+function OnCheckDone(event as object)
+    JobSystem.UnobserveCallback(event.getRoSGNode())
+    m.job = invalid
+end function
+
+function OnSeen() as void
+    ids = m.top.seen
+    if not IsArray(ids) or ids.Count() = 0
+        return
+    end if
+    MeowboxStore.SetSeenSubscriptions(ids)
+    m.top.newCount = 0
+end function
+
+function OnNewCount() as void
+    navBar = m.top.navBar
+    if navBar = invalid or navBar.content = invalid
+        return
+    end if
+    for each item in navBar.content.getChildren(-1, 0)
+        if item.screen = SUBSCRIPTIONS_SCREEN
+            item.badge = m.top.newCount
+        end if
+    end for
+end function

@@ -84,6 +84,20 @@ function OnValueChange()
     homeLayoutMap = {}
     homeLayoutMap.Append(m.homeLayoutMap)
 
+    ' Meowbox: a saved layout from before Continue watching shows it on top and
+    ' enabled, the way the home screen does (HomeScreenUtils.GetFeed)
+    hasContinue = false
+    for each item in value
+        if item.id = "continue_watching"
+            hasContinue = true
+        end if
+    end for
+    if not hasContinue
+        withContinue = [{ id: "continue_watching", enabled: true }]
+        withContinue.Append(value)
+        value = withContinue
+    end if
+
     for each item in value
         feed = homeLayoutMap[item.id]
         if feed = invalid

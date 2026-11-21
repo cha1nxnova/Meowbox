@@ -138,6 +138,9 @@ sub runLoop()
                     if req.test = true then m.top.lightsResult = { code: code, url: req.url }
                 end if
 
+            else if cmd = "remember"
+                RememberTape(req.item)
+
             else if cmd = "quit"
                 ' the screen is closing: anything asked before this has been sent
                 return
@@ -149,6 +152,27 @@ sub runLoop()
             end if
         end if
     end while
+end sub
+
+' The tapes watched here, newest first, for Playlet's History screen:
+' registry "meowbox" / "tvHistory", a JSON array of
+' { channelId, channel, color, title, year, at } (at: seconds since 1970).
+sub RememberTape(item as Dynamic)
+    if item = invalid then return
+    reg = CreateObject("roRegistrySection", "meowbox")
+    list = invalid
+    if reg.Exists("tvHistory") then list = ParseJson(reg.Read("tvHistory"))
+    if type(list) <> "roArray" then list = []
+    out = [item]
+    for each old in list
+        same = false
+        if type(old) = "roAssociativeArray"
+            same = (old.channelId = item.channelId and old.title = item.title)
+        end if
+        if not same and out.Count() < 40 then out.Push(old)
+    end for
+    reg.Write("tvHistory", FormatJson(out))
+    reg.Flush()
 end sub
 
 ' Ask the Internet Archive which file of a tape a TV can play

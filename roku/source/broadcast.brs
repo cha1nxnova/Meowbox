@@ -215,7 +215,9 @@ function BcUpcoming(st as Object, sched as Object, fromMs as LongInteger, nowMs 
             wait& = r.startMs - nowMs
             if wait& < 0 then wait& = 0
             w% = wait& \ 1000&
-            out.Push({ title: BcTitle(r.entry.item), year: BcYearText(r.entry.item), inS: w% })
+            d& = (r.endMs - r.startMs) \ 1000&
+            durS% = d&
+            out.Push({ title: BcTitle(r.entry.item), year: BcYearText(r.entry.item), inS: w%, durS: durS% })
             if out.Count() >= want then exit for
         end if
         t& = r.endMs

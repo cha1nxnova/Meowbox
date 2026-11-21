@@ -41,6 +41,8 @@ Not carried over from the website: chat, accounts, clips, and the music laid ove
 
 If you run [Home Assistant](https://www.home-assistant.io), Meowbox can tint your lights to the channel on screen. Press `*` → **Room lights**, type the Home Assistant address (`192.168.1.50`, `homeassistant.local`, …) and choose *Save and test*. Each time a channel comes on, Meowbox posts its colour to the webhook `meowbox`. When you leave the television for the front door, it posts `leave`. The ready-made automation is in `homelab/homeassistant/meowbox-automations.yaml`, and the rest of the home-server plan is in `homelab/README.md`. It's off until an address is entered, and nothing is sent outside your network.
 
+Meowbox also keeps theatre timing. About a minute before a feature-length tape (an hour or more) starts, it posts `predim`, so the room can fade slowly. When the film starts it posts `showtime`, and afterwards it sends the channel's colour again. The YouTube side's study-break timer uses the same address (`study_break`, `study_time`).
+
 ## Captions
 
 Meowbox does not listen to the sound and does not use a captioning service, so there is nothing to pay for and nothing to run. It looks for words that already exist for the tape on air, in this order:
@@ -63,10 +65,15 @@ The setting has three steps: **on** (anything found), **translations** (only the
 - **A sleep timer** (Settings > Sleep timer, or from the phone page): playback stops after 15 to 90 minutes.
 - **Subscriptions, Channels and History in the side bar.** Each one is a full-screen grid of its own:
   - *Subscriptions*: the newest videos from your subscriptions.
-  - *Channels*: every channel you follow, A to Z. Pick one to open its page.
-  - *History*: what you've watched.
+  - *Channels*: every channel you follow, A to Z. Pick one to open its page. Hold OK on a channel to pin it to the top.
+  - *History*: tapes you watched on the Meowbox television first, then your YouTube history. Picking a tape opens the Meowbox TV on that channel, right inside the YouTube side (Back returns).
+
+  Hold OK on anything in these grids for a menu: play, queue, open channel, bookmark, pin.
 
   They need a signed-in profile: Invidious, or the YouTube login. On the YouTube login, the channel list is read from YouTube's subscriptions pages. If YouTube hides it, Meowbox builds the list from the authors of your newest subscription videos instead.
+- **Continue watching**, a row at the top of Home with the videos you stopped partway through, with progress bars. Picking one resumes where you left off. Positions are kept on the Roku itself, so this works without signing in. Hold OK on one to remove it. Finished videos (and ones barely started) leave the list on their own.
+- **A dot on Subscriptions** in the side bar when your feed has videos that weren't there the last time you opened it. It checks every 15 minutes.
+- **Study break** (Settings > Sleep timer > Study break: 25 to 60 minutes). After that much playback (a ten-minute pause resets the count), the video pauses with a nudge back to studying. The choices are *Back to studying*, *5 more minutes* or *Keep watching*. With Room lights set up, the lights blink too.
 - **Refresh.** Home and the three grids have a Refresh button at the top right (press Up from the first row), and Instant replay does the same from anywhere on those screens. It asks YouTube again instead of reusing the cached feed, so Recommended comes back different.
 
 Playlet is licensed under the GNU Affero General Public License v3 (`playlet/LICENSE`). That licence covers `playlet/` and any package built with it, which means `dist/Meowbox-Playlet.zip`: if you pass that package on, pass on the source with it (this repository is the source).

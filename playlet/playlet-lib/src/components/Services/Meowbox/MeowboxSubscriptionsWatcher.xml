@@ -1,0 +1,13 @@
+<!-- Meowbox: puts a dot on Subscriptions in the side bar when the feed has
+     videos that were not there the last time it was opened. -->
+<component name="MeowboxSubscriptionsWatcher" extends="Node" includes="AutoBind">
+    <interface>
+        <field id="invidious" type="node" />
+        <field id="profilesService" type="node" />
+        <field id="jobQueue" type="node" />
+        <field id="navBar" type="node" />
+        <field id="newCount" type="integer" onChange="OnNewCount" />
+        <!-- the Subscriptions screen sets this with the video ids it showed -->
+        <field id="seen" type="array" onChange="OnSeen" />
+    </interface>
+</component>

@@ -18,6 +18,8 @@
   <interface>
     <!-- true: take the remote and start. false: stop everything, ready to be removed. -->
     <field id="active" type="boolean" onChange="onActive" />
+    <!-- a channel id to open on instead of the last one (set before active) -->
+    <field id="startChannel" type="string" />
   </interface>
   <script type="text/brightscript" uri="pkg:/source/captions.brs" />
   <script type="text/brightscript" uri="pkg:/source/lights.brs" />

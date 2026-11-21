@@ -54,6 +54,8 @@ sub init()
     ' room lights: what was typed in the menu ("" = off)
     m.lights = ""
     m.lightsDialog = invalid
+    m.lightsShow = ""        ' "showtime" while a feature has the lights down
+    m.predimFor = ""         ' the feature the lights were last dimmed ahead of
 
     m.video.observeField("state", "onVideoState")
     m.video.observeField("position", "onVideoPosition")
@@ -155,8 +157,11 @@ sub onLineup()
         if data.lights <> invalid then m.lights = data.lights
         fillMenu()
         want = 0
+        ' opened from somewhere that names a channel (Playlet's History), else the last one
+        startId = data.last
+        if m.top.startChannel <> "" then startId = m.top.startChannel
         for i = 0 to m.channels.Count() - 1
-            if m.channels[i].id = data.last then want = i
+            if m.channels[i].id = startId then want = i
         end for
         m.chIndex = want
         fillGuide()
@@ -247,6 +252,8 @@ sub onOnAir()
     end if
     m.entry = e
     m.entryAt = nowMs()
+    lightsForEntry(e)
+    if e.kind = "video" and e.title <> "" then rememberTape(e)
     m.fixed = false
     m.triedFind = false
     m.slideAt = -1
@@ -707,6 +714,7 @@ sub onTick()
     ' the remote belongs here while watching; take it back if it wandered
     if m.mode = "live" and m.top.active and not m.top.isInFocusChain() then m.top.setFocus(true)
     drawCaption()
+    checkPredim()
     if m.mode = "guide" then updateGuideBar()
     if m.retryAt > 0 and now > m.retryAt
         m.retryAt = 0
@@ -904,9 +912,50 @@ end function
 
 ' tell Home Assistant (through the worker) what is on; test asks for an answer
 sub sendLights(event as String, test as Boolean)
+    sendLightsWith(event, test, invalid)
+end sub
+
+sub sendLightsWith(event as String, test as Boolean, extra as Dynamic)
     url = LightsUrl(m.lights)
     if url = "" then return
-    m.task.request = { cmd: "lights", url: url, payload: LightsPayload(event, channel()), test: test }
+    payload = LightsPayload(event, channel())
+    if extra <> invalid then payload.Append(extra)
+    m.task.request = { cmd: "lights", url: url, payload: payload, test: test }
+end sub
+
+' Theatre timing: the lights go down when a feature starts and come back to
+' the channel's colour after it.
+sub lightsForEntry(e as Object)
+    if m.lights = "" then return
+    if e.kind = "video" and LightsIsFeature(e.durMs \ 1000)
+        if m.lightsShow <> "showtime"
+            sendLightsWith("showtime", false, { title: e.title })
+            m.lightsShow = "showtime"
+        end if
+    else if m.lightsShow = "showtime"
+        sendLights("tune", false)
+        m.lightsShow = ""
+    end if
+end sub
+
+' A minute before a feature, start bringing the lights down.
+sub checkPredim()
+    if m.lights = "" or m.entry = invalid then return
+    if m.entry.upcoming = invalid then return
+    if m.entry.upcoming.Count() = 0 then return
+    nextUp = m.entry.upcoming[0]
+    if nextUp.title = m.predimFor then return
+    if LightsPredimDue(nextUp, (nowMs() - m.entryAt) \ 1000)
+        m.predimFor = nextUp.title
+        sendLightsWith("predim", false, { title: nextUp.title, starts_in: nextUp.inS - (nowMs() - m.entryAt) \ 1000 })
+    end if
+end sub
+
+' Tapes watched here show up in Playlet's History (see BroadcastTask "remember").
+sub rememberTape(e as Object)
+    c = channel()
+    if c = invalid then return
+    m.task.request = { cmd: "remember", item: { channelId: c.id, channel: c.name, color: c.color, title: e.title, year: e.year, at: CreateObject("roDateTime").AsSeconds() } }
 end sub
 
 sub openLightsDialog()

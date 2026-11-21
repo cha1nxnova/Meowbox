@@ -70,6 +70,15 @@ function ExecuteJob() as void
                     return
                 end if
 
+                ' Meowbox: in a feed of several sources (History: Meowbox TV, then
+                ' YouTube), a source that needs a sign-in is simply skipped
+                if feedSources.Count() > 1 and ValidString(response.error) = Invidious.ERROR_NOT_AUTHENTICATED
+                    feedSource.state.loadState = FeedLoadState.Loaded
+                    feedSources[feedSourcesIndex] = feedSource
+                    feedContentNode.feedSources = feedSources
+                    continue while
+                end if
+
                 feedSource.state.loadState = FeedLoadState.Error
                 feedSources[feedSourcesIndex] = feedSource
                 feedContentNode.feedSources = feedSources
@@ -95,6 +104,16 @@ function ExecuteJob() as void
             end for
 
             RemovePlaceHolderItems(feedContentNode)
+
+            ' Meowbox: an empty Continue watching row is left off the home screen
+            if feedSource.id = "meowbox_continue" and itemNodes.Count() = 0 and feedContentNode.getChildCount() = 0
+                parent = feedContentNode.getParent()
+                if parent <> invalid
+                    parent.removeChild(feedContentNode)
+                end if
+                JobSuccess()
+                return
+            end if
 
             addedItemCount = 0
             ' For some reason, Innertube's "FEplaylist_aggregation" (which maps to "inv_auth_playlists"

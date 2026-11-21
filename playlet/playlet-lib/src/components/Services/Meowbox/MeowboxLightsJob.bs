@@ -1,0 +1,14 @@
+import "pkg:/source/services/HttpClient.bs"
+
+' Sends one event to the Home Assistant webhook Meowbox's Room lights setting
+' points at. Fire and forget.
+@job("MeowboxLightsJob")
+function ExecuteJob() as void
+    input = JobGetInput()
+    request = HttpClient.Post(input.url).JsonBody(input.payload)
+    request.AttemptTimeoutMs(4000)
+    request.RetryCount(0)
+    request.NoTelemetry()
+    request.Await()
+    JobSuccess()
+end function
