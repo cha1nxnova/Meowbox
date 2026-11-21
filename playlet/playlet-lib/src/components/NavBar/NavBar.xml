@@ -57,16 +57,16 @@
 
             <MarkupList
                 id="ItemsList"
-                itemSize="[190,50]"
+                itemSize="[190,46]"
                 itemComponentName="NavBarComponent"
                 focusFootprintBitmapUri=""
                 focusBitmapUri="pkg:/images/white.$$RES$$.9.png"
                 focusBitmapBlendColor="0x0096A6FF"
                 vertFocusAnimationStyle="floatingFocus"
-                numRows="7"
+                numRows="10"
                 scrollSpeed="99999"
-                itemSpacing="[0, 16]"
-                translation="[13, 150]">
+                itemSpacing="[0, 6]"
+                translation="[13, 128]">
             </MarkupList>
         </Rectangle>
 

@@ -9,6 +9,7 @@
            { cmd: "blurb", channelId, version, videoIndex, key }
            { cmd: "find",  id, seq }                look up a playable file for a tape
            { cmd: "save",  key, value }
+           { cmd: "lights", url, payload, test }    tell Home Assistant what is on (see lights.brs)
 -->
 <component name="BroadcastTask" extends="Task">
   <interface>
@@ -18,10 +19,12 @@
     <field id="peek" type="assocarray" alwaysNotify="true" />
     <field id="blurb" type="assocarray" alwaysNotify="true" />
     <field id="found" type="assocarray" alwaysNotify="true" />
+    <field id="lightsResult" type="assocarray" alwaysNotify="true" />
   </interface>
   <script type="text/brightscript" uri="pkg:/source/engine.brs" />
   <script type="text/brightscript" uri="pkg:/source/broadcast.brs" />
   <script type="text/brightscript" uri="pkg:/source/captions.brs" />
   <script type="text/brightscript" uri="pkg:/source/net.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lights.brs" />
   <script type="text/brightscript" uri="pkg:/components/BroadcastTask.brs" />
 </component>

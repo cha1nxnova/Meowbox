@@ -20,6 +20,7 @@
     <field id="active" type="boolean" onChange="onActive" />
   </interface>
   <script type="text/brightscript" uri="pkg:/source/captions.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lights.brs" />
   <script type="text/brightscript" uri="pkg:/components/MeowTV.brs" />
   <children>
     <Rectangle id="backdrop" width="1280" height="720" color="0x000000FF" />
@@ -157,17 +158,17 @@
 
     <!-- options menu -->
     <Group id="menu" visible="false">
-      <Rectangle translation="[400, 162]" width="480" height="396" color="0x18122BF7" />
-      <Rectangle translation="[400, 162]" width="480" height="6" color="0xFFA630FF" />
-      <Poster translation="[426, 184]" width="90" height="75" uri="pkg:/images/logo.png" />
-      <Label translation="[534, 188]" text="MEOWBOX" color="0xF6EEDDFF">
+      <Rectangle translation="[400, 137]" width="480" height="446" color="0x18122BF7" />
+      <Rectangle translation="[400, 137]" width="480" height="6" color="0xFFA630FF" />
+      <Poster translation="[426, 159]" width="90" height="75" uri="pkg:/images/logo.png" />
+      <Label translation="[534, 163]" text="MEOWBOX" color="0xF6EEDDFF">
         <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="42" />
       </Label>
-      <Label translation="[534, 228]" text="cable for the curious" color="0x7D7396FF">
+      <Label translation="[534, 203]" text="cable for the curious" color="0x7D7396FF">
         <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="22" />
       </Label>
-      <MarkupList id="menuList" translation="[416, 276]" itemComponentName="MeowRow" itemSize="[448, 46]" itemSpacing="[0, 4]" numRows="4" drawFocusFeedback="false" />
-      <Label id="menuHint" translation="[428, 496]" width="424" height="50" wrap="true" maxLines="2" color="0x7D7396FF" lineSpacing="0">
+      <MarkupList id="menuList" translation="[416, 251]" itemComponentName="MeowRow" itemSize="[448, 46]" itemSpacing="[0, 4]" numRows="5" drawFocusFeedback="false" />
+      <Label id="menuHint" translation="[428, 521]" width="424" height="50" wrap="true" maxLines="2" color="0x7D7396FF" lineSpacing="0">
         <Font role="font" uri="pkg:/fonts/Jersey15.ttf" size="20" />
       </Label>
     </Group>

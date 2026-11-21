@@ -118,7 +118,23 @@ namespace Http
                 return true
             end if
 
-            response.Json([])
+            options = {
+                "accessToken": accessToken
+            }
+
+            activeIdentifyToken = request.query.activeIdentifyToken
+            if not StringUtils.IsNullOrEmpty(activeIdentifyToken)
+                options.onBehalfOfUser = activeIdentifyToken
+            end if
+
+            result = InnertubeService.GetSubscribedChannels(options)
+            if result.error <> invalid
+                response.Json(result)
+                response.http_code = 500
+                return true
+            end if
+
+            response.Json(result.channels)
             return true
         end function
 

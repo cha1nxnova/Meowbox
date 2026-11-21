@@ -9,6 +9,10 @@
         <translation>Einloggen</translation>
     </message>
     <message>
+        <source>History</source>
+        <translation>Verlauf</translation>
+    </message>
+    <message>
         <source>Logout</source>
         <translation>Ausloggen</translation>
     </message>

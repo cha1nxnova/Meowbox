@@ -29,6 +29,18 @@
                                 text="Home"
                                 icon="pkg:/images/icons/home.png" />
                             <NavBarItemContent
+                                screen="FeedGridScreen:subscriptions"
+                                text="Subscriptions"
+                                icon="pkg:/images/icons/subscriptions.png" />
+                            <NavBarItemContent
+                                screen="FeedGridScreen:channels"
+                                text="Channels"
+                                icon="pkg:/images/icons/channels.png" />
+                            <NavBarItemContent
+                                screen="FeedGridScreen:history"
+                                text="History"
+                                icon="pkg:/images/icons/history.png" />
+                            <NavBarItemContent
                                 screen="BookmarksScreen"
                                 text="Bookmarks"
                                 icon="pkg:/images/icons/star.png" />

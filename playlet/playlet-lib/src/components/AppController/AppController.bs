@@ -57,8 +57,14 @@ function ShowRootScreen(screenName as string) as void
         return
     end if
     if not m.screens.DoesExist(screenName)
-        screen = CreateObject("roSGNode", screenName)
+        ' Meowbox: "Component:preset" opens one component in several roles
+        ' (FeedGridScreen:subscriptions, FeedGridScreen:history, ...)
+        parts = screenName.Split(":")
+        screen = CreateObject("roSGNode", parts[0])
         screen.id = screenName
+        if parts.Count() > 1 and screen.hasField("preset")
+            screen.preset = parts[1]
+        end if
         m.screens[screenName] = screen
         ' insert child at 0 to make sure it is behind the navbar
         m.screensContainer.insertChild(screen, 0)

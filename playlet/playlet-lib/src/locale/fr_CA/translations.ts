@@ -9,6 +9,10 @@
         <translation>Profil</translation>
     </message>
     <message>
+        <source>History</source>
+        <translation>Historique</translation>
+    </message>
+    <message>
         <source>Search</source>
         <translation>Recherche</translation>
     </message>

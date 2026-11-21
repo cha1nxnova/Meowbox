@@ -4,8 +4,19 @@
         <field id="invidious" type="node" bind="/Invidious" />
         <field id="preferences" type="node" bind="/Preferences" />
         <field id="feedFile" type="string" value="libpkg:/config/default_home_layout.yaml" />
+        <function name="RefreshFeedsFromMenu" />
     </interface>
     <children>
+        <!-- Meowbox: Up from the first row reaches it; Instant replay works too -->
+        <ButtonEx
+            id="refreshButton"
+            iconUri="pkg:/images/icons/refresh.png"
+            iconWidth="26"
+            iconHeight="26"
+            height="44"
+            padding="[16,16]"
+            anchor="[1,0]"
+            translation="[1190,10]" />
         <VideoRowList
             itemComponentName="RowCell"
             id="rowList"

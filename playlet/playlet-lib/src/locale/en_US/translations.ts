@@ -21,6 +21,10 @@
         <translation>Bookmarks</translation>
     </message>
     <message>
+        <source>History</source>
+        <translation>History</translation>
+    </message>
+    <message>
         <source>Settings</source>
         <translation>Settings</translation>
     </message>

@@ -46,3 +46,33 @@ actions:
       entity_id: scene.before_meowbox
     data:
       transition: 2
+---
+# 3. Channel mood lighting. In Meowbox press * > Room lights and enter this
+#    server's address. Each time a channel comes on, Meowbox sends its colour to
+#    the "meowbox" webhook; on "leave" the room goes back to how it was.
+#    Meowbox sends: event (tune | leave), channel, channel_id, dial, color, rgb.
+alias: Meowbox channel colours
+mode: restart
+triggers:
+  - trigger: webhook
+    webhook_id: meowbox
+    allowed_methods: [POST]
+    local_only: true
+actions:
+  - choose:
+      - conditions: "{{ trigger.json.event == 'tune' and trigger.json.rgb is defined }}"
+        sequence:
+          - action: light.turn_on
+            target:
+              entity_id: light.tv_backlight
+            data:
+              rgb_color: "{{ trigger.json.rgb }}"
+              brightness_pct: 40
+              transition: 1.5
+      - conditions: "{{ trigger.json.event == 'leave' }}"
+        sequence:
+          - action: scene.turn_on
+            target:
+              entity_id: scene.before_meowbox
+            data:
+              transition: 2

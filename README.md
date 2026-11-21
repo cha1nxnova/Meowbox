@@ -24,7 +24,7 @@ The channel starts on its own and stays on the home screen as the dev channel.
 | Up / Down | Channel up / down |
 | Left or Right | Channel guide |
 | OK | Show or hide what's on |
-| `*` | Menu: guide, captions, re-sync, about |
+| `*` | Menu: guide, captions, room lights, re-sync, about |
 | Instant replay | Step captions: on, translations only, off |
 | Play | Re-sync the channel |
 | Back | Leave the app |
@@ -36,6 +36,10 @@ Each channel plays what the website is playing, at the same point, including the
 The channels' pixel logos are drawn from the same data the website uses, so they match it.
 
 Not carried over from the website: chat, accounts, clips, and the music laid over the silent-film channel (Vacation Slides plays silent).
+
+## Room lights
+
+If you run [Home Assistant](https://www.home-assistant.io), Meowbox can tint your lights to the channel on screen. Press `*` → **Room lights**, type the Home Assistant address (`192.168.1.50`, `homeassistant.local`, …) and choose *Save and test*. Each time a channel comes on, Meowbox posts its colour to the webhook `meowbox`. When you leave the television for the front door, it posts `leave`. The ready-made automation is in `homelab/homeassistant/meowbox-automations.yaml`, and the rest of the home-server plan is in `homelab/README.md`. It's off until an address is entered, and nothing is sent outside your network.
 
 ## Captions
 
@@ -57,6 +61,13 @@ The setting has three steps: **on** (anything found), **translations** (only the
 - **It looks like SmartTube**: near-black background, a teal side bar, video cards that turn white under the cursor.
 - **Subtitles have settings** (Settings > Subtitles): follow the Roku, always on, or off; a preferred language; YouTube's own translation when a video has no track in that language. "Always on" works by switching the Roku's caption setting on, so it stays on in other channels too.
 - **A sleep timer** (Settings > Sleep timer, or from the phone page): playback stops after 15 to 90 minutes.
+- **Subscriptions, Channels and History in the side bar.** Each one is a full-screen grid of its own:
+  - *Subscriptions*: the newest videos from your subscriptions.
+  - *Channels*: every channel you follow, A to Z. Pick one to open its page.
+  - *History*: what you've watched.
+
+  They need a signed-in profile: Invidious, or the YouTube login. On the YouTube login, the channel list is read from YouTube's subscriptions pages. If YouTube hides it, Meowbox builds the list from the authors of your newest subscription videos instead.
+- **Refresh.** Home and the three grids have a Refresh button at the top right (press Up from the first row), and Instant replay does the same from anywhere on those screens. It asks YouTube again instead of reusing the cached feed, so Recommended comes back different.
 
 Playlet is licensed under the GNU Affero General Public License v3 (`playlet/LICENSE`). That licence covers `playlet/` and any package built with it, which means `dist/Meowbox-Playlet.zip`: if you pass that package on, pass on the source with it (this repository is the source).
 
@@ -72,6 +83,7 @@ The pictures in `roku/images/` are drawn by a script, and the caption and logo h
 ```sh
 node art/make-art.js      # needs Playwright; Pillow, if present, shrinks the files
 npx @rokucommunity/brs roku/source/captions.brs roku/source/logo.brs tests/captions_test.brs
+npx @rokucommunity/brs roku/source/lights.brs tests/lights_test.brs
 ```
 
 ## Layout
@@ -83,6 +95,7 @@ roku/source/broadcast.brs    lineup loading and the "on air" record the screen p
 roku/source/captions.brs     finding and reading captions: SubRip, WebVTT, the website's files
 roku/source/logo.brs         the channels' pixel logos as rectangles and colours
 roku/source/net.brs          HTTP helper and addresses
+roku/source/lights.brs       room lights: the Home Assistant address and what is sent
 roku/components/MainScene      the app when Meowbox is on its own: a MeowTV and nothing else
 roku/components/MeowTV         the television: player, captions, cards, banner, guide, menu
 roku/components/BroadcastTask  background worker for the schedule

@@ -51,6 +51,10 @@ sub init()
     m.posS = -1
     m.posAt = 0
 
+    ' room lights: what was typed in the menu ("" = off)
+    m.lights = ""
+    m.lightsDialog = invalid
+
     m.video.observeField("state", "onVideoState")
     m.video.observeField("position", "onVideoPosition")
     m.guideList.observeField("itemSelected", "onGuideSelected")
@@ -65,6 +69,7 @@ sub init()
     m.task.observeField("peek", "onPeek")
     m.task.observeField("blurb", "onBlurb")
     m.task.observeField("found", "onFound")
+    m.task.observeField("lightsResult", "onLightsResult")
     m.task.control = "run"
 
     m.capTask = CreateObject("roSGNode", "CaptionTask")
@@ -85,7 +90,13 @@ sub onActive()
     m.tick.control = "stop"
     m.video.control = "stop"
     m.music.control = "stop"
-    m.task.control = "stop"
+    if LightsUrl(m.lights) <> ""
+        ' let the worker say goodbye to the lights, then finish on its own
+        sendLights("leave", false)
+        m.task.request = { cmd: "quit" }
+    else
+        m.task.control = "stop"
+    end if
     m.capTask.control = "stop"
 end sub
 
@@ -140,8 +151,9 @@ sub onLineup()
     if first
         if data.captions = "on" or data.captions = "translated" or data.captions = "off"
             m.capMode = data.captions
-            fillMenu()
         end if
+        if data.lights <> invalid then m.lights = data.lights
+        fillMenu()
         want = 0
         for i = 0 to m.channels.Count() - 1
             if m.channels[i].id = data.last then want = i
@@ -202,6 +214,7 @@ sub tune(index as Integer)
     showCard(c.name, "Tuning...")
     askNow("")
     m.task.request = { cmd: "save", key: "lastChannel", value: c.id }
+    sendLights("tune", false)
     showBanner(5000)
 end sub
 
@@ -812,7 +825,7 @@ end sub
 
 sub fillMenu()
     content = CreateObject("roSGNode", "ContentNode")
-    for each item in [["Channel guide", ""], ["Captions", capModeText()], ["Re-sync this channel", ""], ["About", ""]]
+    for each item in [["Channel guide", ""], ["Captions", capModeText()], ["Room lights", lightsText()], ["Re-sync this channel", ""], ["About", ""]]
         row = content.createChild("ContentNode")
         row.title = item[0]
         row.addFields({ value: item[1] })
@@ -842,8 +855,14 @@ sub describeMenuRow(i as Integer)
             text = "No captions."
         end if
     else if i = 2
-        text = "Jump back in step with everyone else watching."
+        if m.lights = ""
+            text = "Off. Enter your Home Assistant's address, and the lights take each channel's colour."
+        else
+            text = "Each channel's colour goes to Home Assistant at " + m.lights + "."
+        end if
     else if i = 3
+        text = "Jump back in step with everyone else watching."
+    else if i = 4
         text = "Version 2.0. Unofficial. Video from the Internet Archive."
     end if
     m.menuHint.text = text
@@ -862,13 +881,86 @@ sub onMenuSelected()
         describeMenuRow(1)
         return
     end if
+    if i = 2
+        openLightsDialog()
+        return
+    end if
     closeOverlays()
     if i = 0
         openGuide()
-    else if i = 2
-        if m.chIndex >= 0 then tune(m.chIndex)
     else if i = 3
+        if m.chIndex >= 0 then tune(m.chIndex)
+    else if i = 4
         showToast("Meowbox 2.0  ·  an unofficial viewer for the channels at spelunkr.tv  ·  video from the Internet Archive  ·  captions from spelunkr.tv and the Archive", 9000)
+    end if
+end sub
+
+' ---- room lights ---------------------------------------------------------------------
+
+function lightsText() as String
+    if m.lights = "" then return "OFF"
+    return "ON"
+end function
+
+' tell Home Assistant (through the worker) what is on; test asks for an answer
+sub sendLights(event as String, test as Boolean)
+    url = LightsUrl(m.lights)
+    if url = "" then return
+    m.task.request = { cmd: "lights", url: url, payload: LightsPayload(event, channel()), test: test }
+end sub
+
+sub openLightsDialog()
+    dlg = CreateObject("roSGNode", "StandardKeyboardDialog")
+    dlg.title = "Room lights"
+    dlg.message = ["Your Home Assistant's address, like 192.168.1.50 or homeassistant.local. Leave it empty to turn this off."]
+    dlg.text = m.lights
+    dlg.buttons = ["Save and test", "Turn off", "Cancel"]
+    dlg.observeField("buttonSelected", "onLightsDialogButton")
+    dlg.observeField("wasClosed", "onLightsDialogClosed")
+    m.lightsDialog = dlg
+    m.top.getScene().dialog = dlg
+end sub
+
+sub onLightsDialogButton()
+    dlg = m.lightsDialog
+    if dlg = invalid then return
+    b = dlg.buttonSelected
+    if b = 0
+        typed = dlg.text.Trim()
+        if typed <> "" and LightsUrl(typed) = ""
+            showToast("That does not look like an address.", 3500)
+            return
+        end if
+        setLights(typed)
+        if typed <> "" then sendLights("tune", true)
+    else if b = 1
+        setLights("")
+        showToast("Room lights: off", 2500)
+    end if
+    dlg.close = true
+end sub
+
+sub onLightsDialogClosed()
+    m.lightsDialog = invalid
+    if m.mode = "menu" then m.menuList.setFocus(true)
+end sub
+
+sub setLights(typed as String)
+    m.lights = typed
+    m.task.request = { cmd: "save", key: "lights", value: typed }
+    if m.menuList.content <> invalid then m.menuList.content.getChild(2).value = lightsText()
+    describeMenuRow(2)
+end sub
+
+sub onLightsResult()
+    r = m.task.lightsResult
+    if r = invalid then return
+    if r.code >= 200 and r.code < 300
+        showToast("Home Assistant answered. The lights follow the channel now.", 5000)
+    else if r.code > 0
+        showToast("Home Assistant answered " + r.code.ToStr() + ". Check the address and the automation.", 6000)
+    else
+        showToast("No answer from " + m.lights + ". Is Home Assistant on, and on this network?", 6000)
     end if
 end sub
 

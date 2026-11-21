@@ -62,7 +62,9 @@ sub SendLineup(st as Object, err as String)
     if reg.Exists("lastChannel") then last = reg.Read("lastChannel")
     captions = ""
     if reg.Exists("captions") then captions = reg.Read("captions")
-    m.top.lineup = { channels: BcChannelList(st), last: last, captions: captions, error: err, subtitles: BcSubtitleIndex(st) }
+    lights = ""
+    if reg.Exists("lights") then lights = reg.Read("lights")
+    m.top.lineup = { channels: BcChannelList(st), last: last, captions: captions, lights: lights, error: err, subtitles: BcSubtitleIndex(st) }
 end sub
 
 sub runLoop()
@@ -128,6 +130,17 @@ sub runLoop()
 
             else if cmd = "find"
                 m.top.found = { seq: req.seq, url: FindTape(req.id) }
+
+            else if cmd = "lights"
+                ' a newer channel is already waiting: skip this one
+                if port.PeekMessage() = invalid or req.test = true
+                    code = NetPostJson(req.url, FormatJson(req.payload), 3000)
+                    if req.test = true then m.top.lightsResult = { code: code, url: req.url }
+                end if
+
+            else if cmd = "quit"
+                ' the screen is closing: anything asked before this has been sent
+                return
 
             else if cmd = "save"
                 reg = CreateObject("roRegistrySection", "meowbox")

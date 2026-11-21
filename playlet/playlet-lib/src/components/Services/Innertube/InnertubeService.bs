@@ -361,6 +361,118 @@ namespace InnertubeService
         return GetBrowseAuthenticatedPage("FEplaylist_aggregation", options)
     end function
 
+    ' Meowbox: the channels the signed-in account is subscribed to, as
+    ' [{ author, authorId, authorThumbnails }] (the shape Invidious uses).
+    ' YouTube has moved this list around over the years, so three places are
+    ' tried in turn: the "All subscriptions" page (FEchannels), the channel
+    ' rail beside the subscriptions feed, and, failing both, the authors of
+    ' the newest subscription videos.
+    function GetSubscribedChannels(options = invalid as object) as object
+        found = {}
+        channels = []
+
+        response = BrowseAuthenticatedRaw("FEchannels", options)
+        if response.error = invalid
+            feeds = Innertube.ParseResponseDataForFeeds(response.json, {
+                request: response.request
+                browseId: "FEchannels"
+            })
+            for each feed in feeds
+                for each item in ValidArray(feed.items)
+                    if ValidString(item.type) = "channel"
+                        AddSubscribedChannel(channels, found, item.authorId, item.author, item.authorThumbnails)
+                    end if
+                end for
+            end for
+            CollectChannelTabs(response.json, channels, found, 0)
+        end if
+
+        if channels.Count() = 0
+            response = BrowseAuthenticatedRaw("FEsubscriptions", options)
+            if response.error <> invalid
+                return { error: response.error }
+            end if
+            CollectChannelTabs(response.json, channels, found, 0)
+
+            if channels.Count() = 0
+                feeds = Innertube.ParseResponseDataForFeeds(response.json, {
+                    request: response.request
+                    browseId: "FEsubscriptions"
+                })
+                for each feed in feeds
+                    for each item in ValidArray(feed.items)
+                        AddSubscribedChannel(channels, found, item.authorId, item.author, invalid)
+                    end for
+                end for
+            end if
+        end if
+
+        return { channels: channels }
+    end function
+
+    function BrowseAuthenticatedRaw(browseId as string, options as object) as object
+        request = Innertube.CreateBrowseRequest(browseId, Innertube.ClientType.Tv, options)
+        accessToken = OptionUtils.Get(options, "accessToken")
+        if accessToken <> invalid
+            request.Header("Authorization", "Bearer " + accessToken)
+        end if
+        request.Cancellation(OptionUtils.Get(options, "cancellation"))
+
+        response = request.Await()
+        if not response.IsSuccess()
+            return { error: response.ErrorMessage() }
+        end if
+        return { json: response.Json(), request: request }
+    end function
+
+    ' On TV, the subscriptions page lists each channel as a tab whose
+    ' endpoint browses to the channel (a "UC..." id).
+    function CollectChannelTabs(node as dynamic, channels as object, found as object, depth as integer) as void
+        if depth > 30
+            return
+        end if
+        if IsArray(node)
+            for each child in node
+                CollectChannelTabs(child, channels, found, depth + 1)
+            end for
+            return
+        end if
+        if not IsAssociativeArray(node)
+            return
+        end if
+
+        tabNode = node["tabRenderer"]
+        if IsAssociativeArray(tabNode)
+            browseId = ValidString(ObjectUtils.Dig(tabNode, ["endpoint", "browseEndpoint", "browseId"]))
+            if browseId.StartsWith("UC")
+                AddSubscribedChannel(channels, found, browseId, Innertube.ParseText(tabNode["title"]), ObjectUtils.Dig(tabNode, ["thumbnail", "thumbnails"]))
+            end if
+        end if
+
+        for each key in node
+            child = node[key]
+            if IsArray(child) or IsAssociativeArray(child)
+                CollectChannelTabs(child, channels, found, depth + 1)
+            end if
+        end for
+    end function
+
+    function AddSubscribedChannel(channels as object, found as object, authorId as dynamic, author as dynamic, thumbnails as dynamic) as void
+        if not IsString(authorId) or authorId = "" or found.DoesExist(authorId)
+            return
+        end if
+        found[authorId] = true
+        channel = {
+            "type": "channel"
+            "authorId": authorId
+            "author": IsString(author) and author <> "" ? author : authorId
+        }
+        if IsArray(thumbnails)
+            channel["authorThumbnails"] = thumbnails
+        end if
+        channels.Push(channel)
+    end function
+
     function GetBrowseAuthenticatedPage(browseId as string, options = invalid as object) as object
         cancellation = OptionUtils.Get(options, "cancellation")
         accessToken = OptionUtils.Get(options, "accessToken")

@@ -29,7 +29,7 @@ fi
 # 2. Meowbox moves in beside it. Its code is plain BrightScript and is copied as
 #    it stands; Playlet's shell finds the front door (MeowHub) by name at start-up.
 stage=playlet/build/playlet-app
-cp roku/source/broadcast.brs roku/source/captions.brs roku/source/engine.brs roku/source/logo.brs roku/source/net.brs "$stage/source/"
+cp roku/source/broadcast.brs roku/source/captions.brs roku/source/engine.brs roku/source/logo.brs roku/source/net.brs roku/source/lights.brs "$stage/source/"
 for c in BroadcastTask CaptionTask MeowRow MeowTV PixelLogo; do
     cp "roku/components/$c.xml" "roku/components/$c.brs" "$stage/components/"
 done

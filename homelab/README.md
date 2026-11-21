@@ -86,10 +86,10 @@ What's ready to use now:
 - **Theater mode**: [`homeassistant/meowbox-automations.yaml`](homeassistant/meowbox-automations.yaml). When the Roku opens Meowbox, the TV backlight turns Meowbox purple and the room lights dim to 8%. When you leave Meowbox, the room goes back to exactly how it was (via a scene snapshot).
 - **Jellyfin on the Roku**: install the official Jellyfin channel from the Roku store and point it at `http://<server-ip>:8096`.
 
-Ideas for later, roughly from easiest to most ambitious:
+More ideas, roughly from easiest to most ambitious:
 
 1. **Pause = lights up.** Pausing Jellyfin or Playlet brings the lights up to 40% so you can find snacks. Resuming dims them again.
-2. **Channel mood lighting.** Meowbox already knows each Spelunkr channel's pixel-logo palette (`roku/source/logo.brs`). Meowbox could send the channel's main colour to a Home Assistant webhook when you change channel, so the backlight turns *Waku Waku* pink or *Computer Chronicles* green. It would be an opt-in setting in Meowbox's `*` menu (off unless you enter your HA address).
+2. ~~Channel mood lighting~~ **Built.** In Meowbox, press `*` → **Room lights** and type the server's address (e.g. `192.168.1.50`). Choosing *Save and test* sends the current channel straight away and tells you whether Home Assistant answered. From then on each channel's colour goes to the `meowbox` webhook when it comes on, so the backlight turns *Waku Waku* pink or *Computer Chronicles* green. Automation #3 in `meowbox-automations.yaml` handles the other end. Nothing leaves your network.
 3. **"Up next" pre-dim.** Meowbox knows the schedule, so it could fade the lights a minute before a feature film starts on the old-movie channel, the way a theatre does.
 4. **Internet Archive cache on the NAS.** Meowbox streams tapes straight from archive.org. A small container on the server could cache the tapes and captions for your favourite channels on the NAS drives, which means faster starts and less buffering when archive.org is slow.
 

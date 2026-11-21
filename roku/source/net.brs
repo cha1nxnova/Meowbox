@@ -39,6 +39,25 @@ function NetGet(url as String, timeoutMs as Integer, opts = invalid as Dynamic) 
     return out
 end function
 
+' One JSON POST, waited for with a time limit. Returns the HTTP code, or 0 /
+' negative when nothing came back.
+function NetPostJson(url as String, body as String, timeoutMs as Integer) as Integer
+    x = CreateObject("roUrlTransfer")
+    port = CreateObject("roMessagePort")
+    x.SetMessagePort(port)
+    x.SetUrl(url)
+    if LCase(Left(url, 6)) = "https:"
+        x.SetCertificatesFile("common:/certs/ca-bundle.crt")
+        x.InitClientCertificates()
+    end if
+    x.AddHeader("Content-Type", "application/json")
+    if not x.AsyncPostFromString(body) then return 0
+    msg = wait(timeoutMs, port)
+    if type(msg) = "roUrlEvent" then return msg.GetResponseCode()
+    x.AsyncCancel()
+    return -1
+end function
+
 ' a header by name whatever its capitals, "" when absent
 function NetHeader(headers as Object, name as String) as String
     want = LCase(name)

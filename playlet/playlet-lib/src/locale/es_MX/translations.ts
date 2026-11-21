@@ -9,6 +9,10 @@
         <translation>Inicio</translation>
     </message>
     <message>
+        <source>History</source>
+        <translation>Historial</translation>
+    </message>
+    <message>
         <source>Settings</source>
         <translation>Ajustes</translation>
     </message>

@@ -1,0 +1,260 @@
+import "pkg:/components/ChannelView/ChannelUtils.bs"
+import "pkg:/components/JobSystem/Jobs.bs"
+import "pkg:/components/JobSystem/JobSystem.bs"
+import "pkg:/components/Navigation/Navigation.bs"
+import "pkg:/components/PlaylistView/PlaylistUtils.bs"
+import "pkg:/components/VideoFeed/FeedLoadState.bs"
+import "pkg:/source/utils/FocusManagement.bs"
+import "pkg:/source/utils/Locale.bs"
+import "pkg:/source/utils/Logging.bs"
+import "pkg:/source/utils/RemoteKeys.bs"
+import "pkg:/source/utils/Types.bs"
+
+' What each side-bar section shows.
+function FeedGridPresets() as object
+    return {
+        "subscriptions": {
+            title: "Subscriptions"
+            hint: "Newest videos from the channels you follow"
+            empty: "Nothing here yet. Sign in under Profile, and subscribe to a few channels."
+            cell: "video"
+            feedSource: { id: "inv_auth_feed", title: "Subscriptions", apiType: "Invidious", endpoint: "auth_feed" }
+        }
+        "channels": {
+            title: "Channels"
+            hint: "Every channel you are subscribed to, A to Z"
+            empty: "No channels yet. Sign in under Profile, and subscribe to a few channels."
+            cell: "channel"
+            feedSource: { id: "inv_auth_subscriptions", title: "Channels", apiType: "Invidious", endpoint: "auth_subscriptions" }
+        }
+        "history": {
+            title: "History"
+            hint: "What you have watched, newest first"
+            empty: "No watch history yet. Sign in under Profile, then watch something."
+            cell: "video"
+            feedSource: { id: "inv_auth_history", title: "Watch history", apiType: "Invidious", endpoint: "watch_history" }
+        }
+    }
+end function
+
+function Init()
+    m.top.focusable = true
+    m.grid = m.top.findNode("grid")
+    m.refreshButton = m.top.findNode("refreshButton")
+    m.titleLabel = m.top.findNode("titleLabel")
+    m.hintLabel = m.top.findNode("hintLabel")
+    m.emptyState = m.top.findNode("emptyState")
+    m.emptyLabel = m.top.findNode("emptyLabel")
+    m.pendingJob = invalid
+    m.isDirty = true
+end function
+
+function OnNodeReady()
+    m.config = FeedGridPresets()[m.top.preset]
+    if m.config = invalid
+        m.config = FeedGridPresets()["subscriptions"]
+    end if
+
+    m.titleLabel.text = Tr(m.config.title)
+    m.hintLabel.text = Tr(m.config.hint)
+    m.emptyLabel.text = Tr(m.config.empty)
+    m.refreshButton.text = Tr(Locale.Buttons.Refresh)
+
+    if m.config.cell = "channel"
+        ' 196px channel cards: five across
+        m.grid.itemSize = [196, 318]
+        m.grid.itemSpacing = [25, 40]
+        m.grid.numColumns = 5
+    else
+        ' 350px video cards: three across
+        m.grid.itemSize = [350, 318]
+        m.grid.itemSpacing = [25, 40]
+        m.grid.numColumns = 3
+    end if
+
+    SetNavigation(invalid, RemoteKeys.Back, m.navBar)
+    SetNavigation(m.refreshButton, RemoteKeys.Left, m.navBar)
+    SetNavigation(m.grid, RemoteKeys.Left, m.navBar)
+    SetNavigation(m.grid, RemoteKeys.Up, m.refreshButton)
+    SetNavigation(m.refreshButton, RemoteKeys.Down, m.grid)
+
+    m.refreshButton.observeField("buttonSelected", FuncName(OnRefreshSelected))
+    m.grid.observeField("itemFocused", FuncName(OnItemFocused))
+    m.grid.observeField("itemSelected", FuncName(OnItemSelected))
+    m.top.observeField("visible", FuncName(OnVisibleChange))
+    m.profilesService.observeFieldScoped("currentProfileChanged", FuncName(OnProfileChanged))
+
+    OnVisibleChange()
+end function
+
+' Loads on first show, and again after a profile change while hidden.
+function OnVisibleChange()
+    if m.top.visible and m.isDirty
+        Reload(false)
+    end if
+end function
+
+function OnProfileChanged()
+    m.isDirty = true
+    OnVisibleChange()
+end function
+
+function Refresh(_unused as dynamic)
+    Reload(true)
+end function
+
+function OnRefreshSelected()
+    Reload(true)
+end function
+
+function Reload(fresh = false as boolean) as void
+    m.isDirty = false
+    CancelJob()
+
+    feedSource = {}
+    feedSource.Append(m.config.feedSource)
+    ' A refresh asks the server again instead of the disk cache.
+    feedSource.noCache = fresh
+    feedSource.state = { loadState: FeedLoadState.None }
+
+    m.holder = CreateObject("roSGNode", "ContentNode")
+    feed = m.holder.createChild("FeedContentNode")
+    feed.title = m.config.title
+    feed.feedSourcesIndex = 0
+    feed.loadState = FeedLoadState.None
+    feed.feedSources = [feedSource]
+    for i = 1 to m.grid.numColumns
+        feed.createChild("LoadingContentNode")
+    end for
+
+    m.feed = feed
+    m.emptyState.visible = false
+    m.grid.visible = true
+    m.grid.focusable = true
+    m.grid.content = feed
+    m.grid.jumpToItem = 0
+    LoadMore()
+end function
+
+function LoadMore() as void
+    if m.pendingJob <> invalid or m.feed = invalid
+        return
+    end if
+    state = m.feed.loadState
+    if state <> FeedLoadState.None and state <> FeedLoadState.LoadedPage
+        return
+    end if
+
+    m.feed.loadState = FeedLoadState.Loading
+    input = {
+        rowList: m.top
+        feedContentNode: m.feed
+        invidious: m.invidious
+    }
+    m.pendingJob = JobSystem.CreateCallback(OnLoadDone)
+    JobSystem.QueueJob(m.jobQueue, Jobs.VideoRowListRowContentJob, input, m.pendingJob)
+end function
+
+function CancelJob()
+    if m.pendingJob <> invalid
+        m.pendingJob.cancel = true
+        m.pendingJob = invalid
+    end if
+end function
+
+function OnLoadDone(event as object) as void
+    JobSystem.UnobserveCallback(event.getRoSGNode())
+    if m.pendingJob = invalid or not m.pendingJob.isSameNode(event.getRoSGNode())
+        return
+    end if
+    m.pendingJob = invalid
+
+    if event.getInfo().cancel
+        return
+    end if
+
+    ' The job drops a feed it can not load because nobody is signed in.
+    removed = m.feed.getParent() = invalid
+    hasItems = false
+    if not removed
+        for each child in m.feed.getChildren(-1, 0)
+            if ValidString(child.type) <> "loading"
+                hasItems = true
+                exit for
+            end if
+        end for
+    end if
+
+    if not hasItems and (removed or m.feed.loadState = FeedLoadState.Loaded or m.feed.loadState = FeedLoadState.Error)
+        m.feed.removeChildrenIndex(m.feed.getChildCount(), 0)
+        ShowEmpty()
+        return
+    end if
+
+    ' Fill the screen before waiting for the user to scroll.
+    if m.feed.getChildCount() < m.grid.numColumns * 3
+        LoadMore()
+    end if
+end function
+
+function ShowEmpty()
+    m.emptyState.visible = true
+    m.grid.visible = false
+    m.grid.focusable = false
+    if m.grid.isInFocusChain()
+        NodeSetFocus(m.refreshButton, true)
+    end if
+end function
+
+function OnItemFocused() as void
+    if m.feed = invalid
+        return
+    end if
+    ' Two rows from the end: fetch the next page
+    if m.grid.itemFocused >= m.feed.getChildCount() - m.grid.numColumns * 2
+        LoadMore()
+    end if
+end function
+
+function OnItemSelected() as void
+    if m.feed = invalid
+        return
+    end if
+    index = m.grid.itemSelected
+    if index < 0 or index >= m.feed.getChildCount()
+        return
+    end if
+    item = m.feed.getChild(index)
+
+    if item.type = "video"
+        LogInfo("Play video: " + item.videoId)
+        m.videoQueue.playVideo = item
+    else if item.type = "playlist"
+        PlaylistUtils.Open(item)
+    else if item.type = "channel"
+        ChannelUtils.Open(item)
+    end if
+end function
+
+function OnFocusChange() as void
+    if not m.top.focus
+        return
+    end if
+    if m.grid.visible
+        NodeSetFocus(m.grid, true)
+    else
+        NodeSetFocus(m.refreshButton, true)
+    end if
+end function
+
+function OnKeyEvent(key as string, press as boolean) as boolean
+    if NavigationKeyHandler(key, press).handled
+        return true
+    end if
+    ' Instant replay (the curved arrow) refreshes from anywhere on the screen.
+    if key = RemoteKeys.Replay and press
+        Reload(true)
+        return true
+    end if
+    return false
+end function

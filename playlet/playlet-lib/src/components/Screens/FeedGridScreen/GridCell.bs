@@ -1,0 +1,4 @@
+function OnGridHasFocus()
+    m.top.rowHasFocus = true
+    m.top.rowListHasFocus = m.top.gridHasFocus
+end function

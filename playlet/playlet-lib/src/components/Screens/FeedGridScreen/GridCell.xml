@@ -1,0 +1,7 @@
+<!-- Meowbox: a RowCell that can sit in a MarkupGrid. The grid reports focus as
+     gridHasFocus; RowCell expects a RowList's row/list focus fields. -->
+<component name="GridCell" extends="RowCell">
+    <interface>
+        <field id="gridHasFocus" type="boolean" onChange="OnGridHasFocus" />
+    </interface>
+</component>

@@ -1,0 +1,61 @@
+<!--
+    Meowbox: one full-screen grid for a single feed. The side bar opens it with a
+    preset ("FeedGridScreen:subscriptions", ":channels", ":history"), set by
+    AppController before binding. Rows load through the same job as the home
+    screen (VideoRowListRowContentJob), so pagination and errors behave alike.
+-->
+<component name="FeedGridScreen" extends="Group" includes="AutoBind,Focus">
+    <interface>
+        <field id="navBar" type="node" bind="/NavBar" />
+        <field id="invidious" type="node" bind="/Invidious" />
+        <field id="profilesService" type="node" bind="/ProfilesService" />
+        <field id="videoQueue" type="node" bind="/VideoQueue" />
+        <field id="jobQueue" type="node" bind="/JobQueue" />
+        <field id="preset" type="string" />
+        <!-- Read and written by VideoRowListRowContentJob, as on a VideoRowList -->
+        <field id="someContentReady" type="bool" alwaysNotify="true" />
+        <field id="onError" type="string" alwaysNotify="true" />
+        <function name="Refresh" />
+    </interface>
+    <children>
+        <Label
+            id="titleLabel"
+            translation="[90,28]"
+            color="#EBEBEB"
+            font="font:MediumBoldSystemFont" />
+        <Label
+            id="hintLabel"
+            translation="[90,64]"
+            width="760"
+            color="0xB4B4B4FF"
+            font="font:SmallestSystemFont" />
+        <ButtonEx
+            id="refreshButton"
+            iconUri="pkg:/images/icons/refresh.png"
+            iconWidth="28"
+            iconHeight="28"
+            height="48"
+            padding="[18,18]"
+            anchor="[1,0]"
+            translation="[1190,26]" />
+
+        <MarkupGrid
+            id="grid"
+            translation="[90,110]"
+            itemComponentName="GridCell"
+            numRows="2"
+            vertFocusAnimationStyle="floatingFocus"
+            drawFocusFeedback="false" />
+
+        <Group id="emptyState" visible="false">
+            <Label
+                id="emptyLabel"
+                translation="[145,330]"
+                width="920"
+                horizAlign="center"
+                wrap="true"
+                color="#EBEBEB"
+                font="font:SmallSystemFont" />
+        </Group>
+    </children>
+</component>

@@ -337,6 +337,11 @@ namespace Invidious
                 request.CacheForSeconds(endpoint.cacheSeconds)
             end if
 
+            ' Meowbox: a refresh asks the server again instead of the disk cache.
+            if feedSource.noCache = true
+                request.NoCache()
+            end if
+
             if feedSource.tryCount <> invalid
                 request.RetryCount(feedSource.tryCount - 1)
             else if endpoint.tryCount <> invalid
@@ -625,6 +630,40 @@ namespace Invidious
             end if
 
             return result
+        end function
+
+        ' Meowbox: the channels the profile is subscribed to, A to Z.
+        ' Invidious answers with [{ author, authorId }]; Playlet's own backend
+        ' (YouTube login) adds authorThumbnails.
+        function SubscribedChannelsHandler(context as object) as object
+            response = context.response
+
+            m.MarkNeedsReauthIfCredentialsRejected(response, context.profile)
+
+            if not response.IsSuccess()
+                return invalid
+            end if
+
+            json = response.Json()
+            if not IsArray(json)
+                return invalid
+            end if
+
+            channels = []
+            for each item in json
+                if IsAssociativeArray(item) and IsString(item.authorId) and item.authorId <> ""
+                    item.type = "channel"
+                    if not IsString(item.author)
+                        item.author = item.authorId
+                    end if
+                    channels.Push(item)
+                end if
+            end for
+            channels.SortBy("author", "i")
+
+            return {
+                items: channels
+            }
         end function
 
         function WatchHistoryHandler(context as object) as object

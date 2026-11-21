@@ -76,6 +76,13 @@ auth_feed:
   paginationType: Pages
   responseHandler: AuthFeedHandler
 
+auth_subscriptions:
+  title: Channels
+  url: /api/v1/auth/subscriptions
+  authenticated: true
+  paginationType: Continuation
+  responseHandler: SubscribedChannelsHandler
+
 auth_playlists:
   title: Playlists
   url: /api/v1/auth/playlists

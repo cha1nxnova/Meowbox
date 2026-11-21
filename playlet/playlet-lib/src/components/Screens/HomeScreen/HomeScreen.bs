@@ -9,11 +9,17 @@ function Init()
     m.top.focusable = true
     m.rowList = m.top.FindNode("rowList")
     m.rowList.screen = m.top
+    m.refreshButton = m.top.FindNode("refreshButton")
 end function
 
 function OnNodeReady()
     SetNavigation(invalid, RemoteKeys.Back, m.navBar)
     SetNavigation(invalid, RemoteKeys.Left, m.navBar)
+    SetNavigation(m.rowList, RemoteKeys.Up, m.refreshButton)
+    SetNavigation(m.refreshButton, RemoteKeys.Down, m.rowList)
+
+    m.refreshButton.text = Tr(Locale.Buttons.Refresh)
+    m.refreshButton.observeField("buttonSelected", FuncName(RefreshFeeds))
 
     m.rowList@.BindNode()
 
@@ -27,6 +33,20 @@ function OnHomeLayoutChange() as void
     m.rowList.feeds = HomeScreenUtils.GetFeed(m.top.feedFile, m.preferences)
 end function
 
+' Reloads every row from the server, skipping the disk cache, so
+' Recommended and Popular come back with something new.
+function RefreshFeeds() as void
+    feeds = HomeScreenUtils.GetFeed(m.top.feedFile, m.preferences)
+    for each feed in feeds
+        for each feedSource in feed.feedSources
+            feedSource.noCache = true
+        end for
+    end for
+    m.rowList.feeds = feeds
+    m.rowList.jumpToItem = 0
+    NodeSetFocus(m.rowList, true)
+end function
+
 function OnFocusChange() as void
     if not m.top.focus
         return
@@ -38,10 +58,18 @@ function OnKeyEvent(key as string, press as boolean) as boolean
     if NavigationKeyHandler(key, press).handled
         return true
     end if
+    if key = RemoteKeys.Replay and press
+        RefreshFeeds()
+        return true
+    end if
     return false
 end function
 
 function GetContextMenuOptionsForItem(_rowItem as object) as object
-    refresh = ContextMenuUtils.CreateOption(Tr(Locale.ContextMenu.RefreshHome), m.rowList, "Refresh", [invalid])
+    refresh = ContextMenuUtils.CreateOption(Tr(Locale.ContextMenu.RefreshHome), m.top, "RefreshFeedsFromMenu", [invalid])
     return [refresh]
+end function
+
+function RefreshFeedsFromMenu(_unused as dynamic)
+    RefreshFeeds()
 end function
